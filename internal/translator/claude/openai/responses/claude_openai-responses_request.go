@@ -133,14 +133,18 @@ func ConvertOpenAIResponsesRequestToClaude(modelName string, inputRawJSON []byte
 
 	// input array processing
 	if input := root.Get("input"); input.Exists() && input.IsArray() {
-		input.ForEach(func(_, item gjson.Result) bool {
+		items := input.Array()
+		for i := 0; i < len(items); i++ {
+			item := items[i]
 			if extractedFromSystem && strings.EqualFold(item.Get("role").String(), "system") {
-				return true
+				continue
 			}
+
 			typ := item.Get("type").String()
 			if typ == "" && item.Get("role").String() != "" {
 				typ = "message"
 			}
+
 			switch typ {
 			case "message":
 				// Determine role and construct Claude-compatible content parts.
@@ -238,39 +242,69 @@ func ConvertOpenAIResponsesRequestToClaude(modelName string, inputRawJSON []byte
 				}
 
 			case "function_call":
-				// Map to assistant tool_use
-				callID := item.Get("call_id").String()
-				if callID == "" {
-					callID = genToolCallID()
-				}
-				name := item.Get("name").String()
-				argsStr := item.Get("arguments").String()
-
-				toolUse := `{"type":"tool_use","id":"","name":"","input":{}}`
-				toolUse, _ = sjson.Set(toolUse, "id", callID)
-				toolUse, _ = sjson.Set(toolUse, "name", name)
-				if argsStr != "" && gjson.Valid(argsStr) {
-					toolUse, _ = sjson.SetRaw(toolUse, "input", argsStr)
-				}
-
+				// Group consecutive function_call items into a single assistant message so Claude receives
+				// all tool_use blocks together (and expects tool_result blocks in the next message).
 				asst := `{"role":"assistant","content":[]}`
-				asst, _ = sjson.SetRaw(asst, "content.-1", toolUse)
+				for ; i < len(items); i++ {
+					callItem := items[i]
+					if extractedFromSystem && strings.EqualFold(callItem.Get("role").String(), "system") {
+						break
+					}
+					t := callItem.Get("type").String()
+					if t == "" && callItem.Get("role").String() != "" {
+						t = "message"
+					}
+					if t != "function_call" {
+						break
+					}
+
+					callID := callItem.Get("call_id").String()
+					if callID == "" {
+						callID = genToolCallID()
+					}
+					name := callItem.Get("name").String()
+					argsStr := callItem.Get("arguments").String()
+
+					toolUse := `{"type":"tool_use","id":"","name":"","input":{}}`
+					toolUse, _ = sjson.Set(toolUse, "id", callID)
+					toolUse, _ = sjson.Set(toolUse, "name", name)
+					if argsStr != "" && gjson.Valid(argsStr) {
+						toolUse, _ = sjson.SetRaw(toolUse, "input", argsStr)
+					}
+
+					asst, _ = sjson.SetRaw(asst, "content.-1", toolUse)
+				}
+				i-- // compensate for the for-loop increment
 				out, _ = sjson.SetRaw(out, "messages.-1", asst)
 
 			case "function_call_output":
-				// Map to user tool_result
-				callID := item.Get("call_id").String()
-				outputStr := item.Get("output").String()
-				toolResult := `{"type":"tool_result","tool_use_id":"","content":""}`
-				toolResult, _ = sjson.Set(toolResult, "tool_use_id", callID)
-				toolResult, _ = sjson.Set(toolResult, "content", outputStr)
-
+				// Group consecutive outputs into a single user message containing multiple tool_result blocks.
 				usr := `{"role":"user","content":[]}`
-				usr, _ = sjson.SetRaw(usr, "content.-1", toolResult)
+				for ; i < len(items); i++ {
+					outItem := items[i]
+					if extractedFromSystem && strings.EqualFold(outItem.Get("role").String(), "system") {
+						break
+					}
+					t := outItem.Get("type").String()
+					if t == "" && outItem.Get("role").String() != "" {
+						t = "message"
+					}
+					if t != "function_call_output" {
+						break
+					}
+
+					callID := outItem.Get("call_id").String()
+					outputStr := outItem.Get("output").String()
+					toolResult := `{"type":"tool_result","tool_use_id":"","content":""}`
+					toolResult, _ = sjson.Set(toolResult, "tool_use_id", callID)
+					toolResult, _ = sjson.Set(toolResult, "content", outputStr)
+
+					usr, _ = sjson.SetRaw(usr, "content.-1", toolResult)
+				}
+				i-- // compensate for the for-loop increment
 				out, _ = sjson.SetRaw(out, "messages.-1", usr)
 			}
-			return true
-		})
+		}
 	}
 
 	// tools mapping: parameters -> input_schema

@@ -77,6 +77,11 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 	// Ensure max_tokens > thinking.budget_tokens when thinking is enabled
 	body = ensureMaxTokensForThinking(req.Model, body)
 
+	// Claude Messages API requires that all tool_result blocks corresponding to an assistant
+	// tool_use turn appear in the immediately following message. Some clients provide multiple
+	// tool_result-only user messages; merge them into the first following message when needed.
+	body = util.NormalizeClaudeToolResults(body)
+
 	// Extract betas from body and convert to header
 	var extraBetas []string
 	extraBetas, body = extractAndRemoveBetas(body)
@@ -187,6 +192,9 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 
 	// Ensure max_tokens > thinking.budget_tokens when thinking is enabled
 	body = ensureMaxTokensForThinking(req.Model, body)
+
+	// Claude Messages API tool_result adjacency normalization (see Execute).
+	body = util.NormalizeClaudeToolResults(body)
 
 	// Extract betas from body and convert to header
 	var extraBetas []string
@@ -755,3 +763,5 @@ func checkSystemInstructions(payload []byte) []byte {
 	}
 	return payload
 }
+
+// Tool-result adjacency normalization is implemented in internal/util.

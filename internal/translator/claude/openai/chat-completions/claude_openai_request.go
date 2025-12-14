@@ -135,10 +135,47 @@ func ConvertOpenAIRequestToClaude(modelName string, inputRawJSON []byte, stream 
 	var toolCallIDs []string // Track tool call IDs for matching with tool results
 
 	if messages := root.Get("messages"); messages.Exists() && messages.IsArray() {
-		messages.ForEach(func(_, message gjson.Result) bool {
+		msgs := messages.Array()
+		for i := 0; i < len(msgs); i++ {
+			message := msgs[i]
 			role := message.Get("role").String()
-			contentResult := message.Get("content")
 
+			if role == "tool" {
+				// Group consecutive tool messages into a single user message so Claude receives
+				// all tool_result blocks immediately after the assistant's tool_use blocks.
+				toolResultMsg := map[string]interface{}{
+					"role":    "user",
+					"content": []interface{}{},
+				}
+
+				for i < len(msgs) && msgs[i].Get("role").String() == "tool" {
+					toolCallID := msgs[i].Get("tool_call_id").String()
+					contentValue := msgs[i].Get("content")
+
+					var content string
+					switch {
+					case contentValue.Exists() && contentValue.Type == gjson.String:
+						content = contentValue.String()
+					case contentValue.Exists() && contentValue.Raw != "" && contentValue.Raw != "null":
+						content = contentValue.Raw
+					default:
+						content = ""
+					}
+
+					toolResultMsg["content"] = append(toolResultMsg["content"].([]interface{}), map[string]interface{}{
+						"type":        "tool_result",
+						"tool_use_id": toolCallID,
+						"content":     content,
+					})
+					i++
+				}
+				i-- // compensate for the for-loop increment
+
+				anthropicMessages = append(anthropicMessages, toolResultMsg)
+				continue
+			}
+
+			contentResult := message.Get("content")
 			switch role {
 			case "system", "user", "assistant":
 				// Create Claude Code message with appropriate role mapping
@@ -255,28 +292,8 @@ func ConvertOpenAIRequestToClaude(modelName string, inputRawJSON []byte, stream 
 				}
 
 				anthropicMessages = append(anthropicMessages, msg)
-
-			case "tool":
-				// Handle tool result messages conversion
-				toolCallID := message.Get("tool_call_id").String()
-				content := message.Get("content").String()
-
-				// Create tool result message in Claude Code format
-				msg := map[string]interface{}{
-					"role": "user",
-					"content": []interface{}{
-						map[string]interface{}{
-							"type":        "tool_result",
-							"tool_use_id": toolCallID,
-							"content":     content,
-						},
-					},
-				}
-
-				anthropicMessages = append(anthropicMessages, msg)
 			}
-			return true
-		})
+		}
 	}
 
 	// Set messages in the output template
