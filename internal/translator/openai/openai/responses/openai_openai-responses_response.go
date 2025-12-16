@@ -682,18 +682,20 @@ func ConvertOpenAIChatCompletionsResponseToOpenAIResponsesNonStream(_ context.Co
 
 	// Build output list from choices[...]
 	var outputs []interface{}
-	// Detect and capture reasoning content if present
+	// Detect and capture reasoning content if present (append after message output so clients
+	// that assume output[0] is a message still work).
 	rcText := gjson.GetBytes(rawJSON, "choices.0.message.reasoning_content").String()
 	includeReasoning := rcText != ""
 	if !includeReasoning && len(requestRawJSON) > 0 {
 		includeReasoning = gjson.GetBytes(requestRawJSON, "reasoning").Exists()
 	}
+	var reasoningItem map[string]interface{}
 	if includeReasoning {
 		rid := id
 		if strings.HasPrefix(rid, "resp_") {
 			rid = strings.TrimPrefix(rid, "resp_")
 		}
-		reasoningItem := map[string]interface{}{
+		reasoningItem = map[string]interface{}{
 			"id":                fmt.Sprintf("rs_%s", rid),
 			"type":              "reasoning",
 			"encrypted_content": "",
@@ -707,7 +709,6 @@ func ConvertOpenAIChatCompletionsResponseToOpenAIResponsesNonStream(_ context.Co
 			})
 		}
 		reasoningItem["summary"] = summaries
-		outputs = append(outputs, reasoningItem)
 	}
 
 	if choices := root.Get("choices"); choices.Exists() && choices.IsArray() {
@@ -750,6 +751,9 @@ func ConvertOpenAIChatCompletionsResponseToOpenAIResponsesNonStream(_ context.Co
 			}
 			return true
 		})
+	}
+	if reasoningItem != nil {
+		outputs = append(outputs, reasoningItem)
 	}
 	if len(outputs) > 0 {
 		resp, _ = sjson.Set(resp, "output", outputs)
