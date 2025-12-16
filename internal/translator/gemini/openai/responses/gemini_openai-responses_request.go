@@ -266,8 +266,10 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 			case "function_call_output":
 				// Handle function call outputs - convert to function message with functionResponse
 				callID := item.Get("call_id").String()
-				// Use .Raw to preserve the JSON encoding (includes quotes for strings)
-				outputRaw := item.Get("output").Str
+				// Treat output as JSON only if it is valid JSON in full; many CLIs append
+				// non-JSON markers like "[Process exited...]" which must remain a string.
+				outputText := item.Get("output").String()
+				outputTrimmed := strings.TrimSpace(outputText)
 
 				functionContent := `{"role":"function","parts":[]}`
 				functionResponse := `{"functionResponse":{"name":"","response":{}}}`
@@ -291,13 +293,12 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 				functionResponse, _ = sjson.Set(functionResponse, "functionResponse.name", functionName)
 				functionResponse, _ = sjson.Set(functionResponse, "functionResponse.id", callID)
 
-				// Set the raw JSON output directly (preserves string encoding)
-				if outputRaw != "" && outputRaw != "null" {
-					output := gjson.Parse(outputRaw)
-					if output.Type == gjson.JSON {
-						functionResponse, _ = sjson.SetRaw(functionResponse, "functionResponse.response.result", output.Raw)
+				// Set output as raw JSON only when valid; otherwise keep as a JSON string.
+				if outputTrimmed != "" && outputTrimmed != "null" {
+					if gjson.Valid(outputTrimmed) {
+						functionResponse, _ = sjson.SetRaw(functionResponse, "functionResponse.response.result", outputTrimmed)
 					} else {
-						functionResponse, _ = sjson.Set(functionResponse, "functionResponse.response.result", outputRaw)
+						functionResponse, _ = sjson.Set(functionResponse, "functionResponse.response.result", outputText)
 					}
 				}
 				functionContent, _ = sjson.SetRaw(functionContent, "parts.-1", functionResponse)
