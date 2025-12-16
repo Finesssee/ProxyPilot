@@ -194,6 +194,9 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 						switch contentType {
 						case "input_text", "output_text":
 							if text := contentItem.Get("text"); text.Exists() {
+								if text.String() == "" {
+									break
+								}
 								partJSON = `{"text":""}`
 								partJSON, _ = sjson.Set(partJSON, "text", text.String())
 							}
