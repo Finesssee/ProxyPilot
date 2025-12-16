@@ -357,44 +357,217 @@ func (h *OpenAIResponsesAPIHandler) writeSyntheticResponsesSSE(c *gin.Context, f
 		id = gjson.GetBytes(resp, "response.id").String()
 	}
 
-	text := gjson.GetBytes(resp, `output.#(type=="message").content.0.text`).String()
-	if text == "" {
-		text = gjson.GetBytes(resp, `output.#(type=="message").content.#(type=="output_text").text`).String()
-	}
-	if text == "" {
-		text = gjson.GetBytes(resp, "output_text").String()
-	}
-
 	nextSeq := 0
-	emit := func(event string, data string) {
+	emitRaw := func(event string, data string) {
 		_, _ = c.Writer.Write([]byte("event: " + event + "\n"))
 		_, _ = c.Writer.Write([]byte("data: " + data + "\n\n"))
 	}
 	seq := func() int { nextSeq++; return nextSeq }
 
-	emit("response.created", fmt.Sprintf("{\"type\":\"response.created\",\"sequence_number\":%d,\"response\":{\"id\":%q,\"object\":\"response\",\"status\":\"in_progress\",\"background\":false,\"error\":null}}", seq(), id))
-	emit("response.in_progress", fmt.Sprintf("{\"type\":\"response.in_progress\",\"sequence_number\":%d,\"response\":{\"id\":%q,\"object\":\"response\",\"status\":\"in_progress\"}}", seq(), id))
-
-	if text != "" {
-		msgID := "msg_" + id + "_0"
-		emit("response.output_item.added",
-			fmt.Sprintf("{\"type\":\"response.output_item.added\",\"sequence_number\":%d,\"output_index\":0,\"item\":{\"id\":%q,\"type\":\"message\",\"status\":\"in_progress\",\"content\":[],\"role\":\"assistant\"}}",
-				seq(), msgID))
-		emit("response.content_part.added",
-			fmt.Sprintf("{\"type\":\"response.content_part.added\",\"sequence_number\":%d,\"item_id\":%q,\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"\"}}",
-				seq(), msgID))
-		emit("response.output_text.delta",
-			fmt.Sprintf("{\"type\":\"response.output_text.delta\",\"sequence_number\":%d,\"item_id\":%q,\"output_index\":0,\"content_index\":0,\"delta\":%q,\"logprobs\":[]}",
-				seq(), msgID, text))
-		emit("response.output_text.done",
-			fmt.Sprintf("{\"type\":\"response.output_text.done\",\"sequence_number\":%d,\"item_id\":%q,\"output_index\":0,\"content_index\":0,\"text\":%q,\"logprobs\":[]}",
-				seq(), msgID, text))
-		emit("response.output_item.done",
-			fmt.Sprintf("{\"type\":\"response.output_item.done\",\"sequence_number\":%d,\"output_index\":0,\"item\":{\"id\":%q,\"type\":\"message\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":%q}],\"role\":\"assistant\"}}",
-				seq(), msgID, text))
+	emitJSON := func(event string, payload any) {
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return
+		}
+		emitRaw(event, string(b))
 	}
 
-	emit("response.completed", fmt.Sprintf("{\"type\":\"response.completed\",\"sequence_number\":%d,\"response\":{\"id\":%q,\"object\":\"response\",\"status\":\"completed\",\"error\":null}}", seq(), id))
+	emitJSON("response.created", map[string]any{
+		"type":            "response.created",
+		"sequence_number": seq(),
+		"response": map[string]any{
+			"id":         id,
+			"object":     "response",
+			"status":     "in_progress",
+			"background": false,
+			"error":      nil,
+		},
+	})
+	emitJSON("response.in_progress", map[string]any{
+		"type":            "response.in_progress",
+		"sequence_number": seq(),
+		"response": map[string]any{
+			"id":     id,
+			"object": "response",
+			"status": "in_progress",
+		},
+	})
+
+	output := gjson.GetBytes(resp, "output")
+	if output.Exists() && output.IsArray() && len(output.Array()) > 0 {
+		for i, item := range output.Array() {
+			itemVal := item.Value()
+
+			// Ensure a stable id/status for streaming-style events.
+			itemID := item.Get("id").String()
+			if itemID == "" {
+				itemID = fmt.Sprintf("item_%s_%d", id, i)
+				if updated, err := sjson.SetBytes([]byte(item.Raw), "id", itemID); err == nil {
+					itemVal = gjson.ParseBytes(updated).Value()
+				}
+			}
+
+			emitJSON("response.output_item.added", map[string]any{
+				"type":            "response.output_item.added",
+				"sequence_number": seq(),
+				"output_index":    i,
+				"item":            itemVal,
+			})
+
+			if item.Get("type").String() == "message" {
+				content := item.Get("content")
+				if content.Exists() && content.IsArray() {
+					for contentIndex, part := range content.Array() {
+						if part.Get("type").String() != "output_text" {
+							continue
+						}
+						text := part.Get("text").String()
+						if text == "" {
+							continue
+						}
+
+						emitJSON("response.content_part.added", map[string]any{
+							"type":            "response.content_part.added",
+							"sequence_number": seq(),
+							"item_id":         itemID,
+							"output_index":    i,
+							"content_index":   contentIndex,
+							"part": map[string]any{
+								"type":        "output_text",
+								"annotations": []any{},
+								"logprobs":    []any{},
+								"text":        "",
+							},
+						})
+						emitJSON("response.output_text.delta", map[string]any{
+							"type":            "response.output_text.delta",
+							"sequence_number": seq(),
+							"item_id":         itemID,
+							"output_index":    i,
+							"content_index":   contentIndex,
+							"delta":           text,
+							"logprobs":        []any{},
+						})
+						emitJSON("response.output_text.done", map[string]any{
+							"type":            "response.output_text.done",
+							"sequence_number": seq(),
+							"item_id":         itemID,
+							"output_index":    i,
+							"content_index":   contentIndex,
+							"text":            text,
+							"logprobs":        []any{},
+						})
+					}
+				}
+			} else if item.Get("type").String() == "function_call" || item.Get("type").String() == "tool_call" {
+				// Some clients rely on argument deltas to trigger tool execution even when upstream is non-streaming.
+				args := item.Get("arguments").String()
+				if args == "" {
+					args = item.Get("input").String()
+				}
+				if args != "" {
+					emitJSON("response.function_call_arguments.delta", map[string]any{
+						"type":            "response.function_call_arguments.delta",
+						"sequence_number": seq(),
+						"item_id":         itemID,
+						"output_index":    i,
+						"delta":           args,
+					})
+					emitJSON("response.function_call_arguments.done", map[string]any{
+						"type":            "response.function_call_arguments.done",
+						"sequence_number": seq(),
+						"item_id":         itemID,
+						"output_index":    i,
+						"arguments":       args,
+					})
+				}
+			}
+
+			emitJSON("response.output_item.done", map[string]any{
+				"type":            "response.output_item.done",
+				"sequence_number": seq(),
+				"output_index":    i,
+				"item":            item.Value(),
+			})
+		}
+	} else {
+		// Fallback for older response shapes: synthesize a single message item from output_text.
+		text := gjson.GetBytes(resp, "output_text").String()
+		if text == "" {
+			text = gjson.GetBytes(resp, `output.#(type=="message").content.#(type=="output_text").text`).String()
+		}
+		if text != "" {
+			msgID := "msg_" + id + "_0"
+			emitJSON("response.output_item.added", map[string]any{
+				"type":            "response.output_item.added",
+				"sequence_number": seq(),
+				"output_index":    0,
+				"item": map[string]any{
+					"id":      msgID,
+					"type":    "message",
+					"status":  "in_progress",
+					"content": []any{},
+					"role":    "assistant",
+				},
+			})
+			emitJSON("response.content_part.added", map[string]any{
+				"type":            "response.content_part.added",
+				"sequence_number": seq(),
+				"item_id":         msgID,
+				"output_index":    0,
+				"content_index":   0,
+				"part": map[string]any{
+					"type":        "output_text",
+					"annotations": []any{},
+					"logprobs":    []any{},
+					"text":        "",
+				},
+			})
+			emitJSON("response.output_text.delta", map[string]any{
+				"type":            "response.output_text.delta",
+				"sequence_number": seq(),
+				"item_id":         msgID,
+				"output_index":    0,
+				"content_index":   0,
+				"delta":           text,
+				"logprobs":        []any{},
+			})
+			emitJSON("response.output_text.done", map[string]any{
+				"type":            "response.output_text.done",
+				"sequence_number": seq(),
+				"item_id":         msgID,
+				"output_index":    0,
+				"content_index":   0,
+				"text":            text,
+				"logprobs":        []any{},
+			})
+			emitJSON("response.output_item.done", map[string]any{
+				"type":            "response.output_item.done",
+				"sequence_number": seq(),
+				"output_index":    0,
+				"item": map[string]any{
+					"id":     msgID,
+					"type":   "message",
+					"status": "completed",
+					"content": []any{
+						map[string]any{"type": "output_text", "annotations": []any{}, "logprobs": []any{}, "text": text},
+					},
+					"role": "assistant",
+				},
+			})
+		}
+	}
+
+	emitJSON("response.completed", map[string]any{
+		"type":            "response.completed",
+		"sequence_number": seq(),
+		"response": map[string]any{
+			"id":     id,
+			"object": "response",
+			"status": "completed",
+			"error":  nil,
+		},
+	})
 	if shouldEmitDoneSentinel(c) {
 		_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
 	}
