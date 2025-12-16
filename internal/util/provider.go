@@ -57,6 +57,25 @@ func GetProviderName(modelName string) []string {
 		return providers
 	}
 
+	// Fallback: infer provider from model name when registry has no entry.
+	// This keeps the server resilient when clients request models not yet registered.
+	normalized := strings.ToLower(strings.TrimSpace(modelName))
+	switch {
+	case strings.HasPrefix(normalized, "gemini-"):
+		appendProvider("gemini")
+	case strings.HasPrefix(normalized, "claude-"):
+		appendProvider("claude")
+	case strings.HasPrefix(normalized, "gpt-"),
+		strings.HasPrefix(normalized, "chatgpt-"),
+		strings.HasPrefix(normalized, "o1"),
+		strings.HasPrefix(normalized, "o3"),
+		strings.HasPrefix(normalized, "o4"),
+		strings.HasPrefix(normalized, "o-"):
+		appendProvider("codex")
+	case strings.HasPrefix(normalized, "qwen-"):
+		appendProvider("qwen")
+	}
+
 	return providers
 }
 

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -24,6 +25,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // ClaudeCodeAPIHandler contains the handlers for Claude API endpoints.
@@ -56,6 +58,34 @@ func (h *ClaudeCodeAPIHandler) Models() []map[string]any {
 	// Get dynamic models from the global registry
 	modelRegistry := registry.GetGlobalRegistry()
 	return modelRegistry.GetAvailableModels("claude")
+}
+
+func mapClaudeCodeModel(model string) string {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	if normalized == "" {
+		return model
+	}
+
+	switch normalized {
+	case "opus":
+		return "gemini-claude-opus-4-5-thinking"
+	case "sonnet":
+		return "gemini-claude-sonnet-4-5-thinking"
+	case "haiku":
+		return "gemini-3-pro-preview"
+	}
+
+	if strings.HasPrefix(normalized, "claude-opus-") || strings.Contains(normalized, "-opus-") {
+		return "gemini-claude-opus-4-5-thinking"
+	}
+	if strings.HasPrefix(normalized, "claude-sonnet-") || strings.Contains(normalized, "-sonnet-") {
+		return "gemini-claude-sonnet-4-5-thinking"
+	}
+	if strings.HasPrefix(normalized, "claude-haiku-") || strings.Contains(normalized, "-haiku-") {
+		return "gemini-3-pro-preview"
+	}
+
+	return model
 }
 
 // ClaudeMessages handles Claude-compatible streaming chat completions.
@@ -117,6 +147,12 @@ func (h *ClaudeCodeAPIHandler) ClaudeCountTokens(c *gin.Context) {
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
 
 	modelName := gjson.GetBytes(rawJSON, "model").String()
+	if mapped := mapClaudeCodeModel(modelName); mapped != "" && mapped != modelName {
+		if updated, errSet := sjson.SetBytes(rawJSON, "model", mapped); errSet == nil {
+			rawJSON = updated
+			modelName = mapped
+		}
+	}
 
 	resp, errMsg := h.ExecuteCountWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, alt)
 	if errMsg != nil {
@@ -154,6 +190,12 @@ func (h *ClaudeCodeAPIHandler) handleNonStreamingResponse(c *gin.Context, rawJSO
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
 
 	modelName := gjson.GetBytes(rawJSON, "model").String()
+	if mapped := mapClaudeCodeModel(modelName); mapped != "" && mapped != modelName {
+		if updated, errSet := sjson.SetBytes(rawJSON, "model", mapped); errSet == nil {
+			rawJSON = updated
+			modelName = mapped
+		}
+	}
 
 	resp, errMsg := h.ExecuteWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, alt)
 	if errMsg != nil {
@@ -212,6 +254,12 @@ func (h *ClaudeCodeAPIHandler) handleStreamingResponse(c *gin.Context, rawJSON [
 	}
 
 	modelName := gjson.GetBytes(rawJSON, "model").String()
+	if mapped := mapClaudeCodeModel(modelName); mapped != "" && mapped != modelName {
+		if updated, errSet := sjson.SetBytes(rawJSON, "model", mapped); errSet == nil {
+			rawJSON = updated
+			modelName = mapped
+		}
+	}
 
 	// Create a cancellable context for the backend client request
 	// This allows proper cleanup and cancellation of ongoing requests

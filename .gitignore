@@ -23,6 +23,7 @@ auths/*
 
 # Documentation
 docs/*
+!docs/claude-code-local-proxy.md
 AGENTS.md
 CLAUDE.md
 GEMINI.md

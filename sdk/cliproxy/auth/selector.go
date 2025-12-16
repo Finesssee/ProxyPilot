@@ -98,6 +98,89 @@ func (e *modelCooldownError) Headers() http.Header {
 	return headers
 }
 
+type authBlockedError struct {
+	model        string
+	provider     string
+	resetIn      time.Duration
+	cooldown     int
+	disabled     int
+	other        int
+	lastStatuses map[int]int
+}
+
+func (e *authBlockedError) Error() string {
+	modelName := e.model
+	if modelName == "" {
+		modelName = "requested model"
+	}
+	message := fmt.Sprintf("All credentials for model %s are temporarily unavailable", modelName)
+	if e.provider != "" {
+		message = fmt.Sprintf("%s via provider %s", message, e.provider)
+	}
+	resetSeconds := int(math.Ceil(e.resetIn.Seconds()))
+	if resetSeconds < 0 {
+		resetSeconds = 0
+	}
+	displayDuration := e.resetIn
+	if displayDuration > 0 && displayDuration < time.Second {
+		displayDuration = time.Second
+	} else {
+		displayDuration = displayDuration.Round(time.Second)
+	}
+
+	errorBody := map[string]any{
+		"code":          "auth_unavailable",
+		"message":       message,
+		"model":         e.model,
+		"reset_time":    displayDuration.String(),
+		"reset_seconds": resetSeconds,
+		"blocked": map[string]any{
+			"cooldown": e.cooldown,
+			"disabled": e.disabled,
+			"other":    e.other,
+		},
+	}
+	if e.provider != "" {
+		errorBody["provider"] = e.provider
+	}
+	if len(e.lastStatuses) > 0 {
+		statuses := make(map[string]int, len(e.lastStatuses))
+		for k, v := range e.lastStatuses {
+			if k <= 0 || v <= 0 {
+				continue
+			}
+			statuses[strconv.Itoa(k)] = v
+		}
+		if len(statuses) > 0 {
+			errorBody["last_http_statuses"] = statuses
+		}
+	}
+	payload := map[string]any{"error": errorBody}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Sprintf(`{"error":{"code":"auth_unavailable","message":"%s"}}`, message)
+	}
+	return string(data)
+}
+
+func (e *authBlockedError) StatusCode() int {
+	// When credentials are temporarily blocked (non-quota reasons), report 503 with Retry-After.
+	return http.StatusServiceUnavailable
+}
+
+func (e *authBlockedError) Headers() http.Header {
+	headers := make(http.Header)
+	headers.Set("Content-Type", "application/json")
+	resetSeconds := int(math.Ceil(e.resetIn.Seconds()))
+	if resetSeconds < 0 {
+		resetSeconds = 0
+	}
+	if resetSeconds > 0 {
+		headers.Set("Retry-After", strconv.Itoa(resetSeconds))
+	}
+	return headers
+}
+
 // Pick selects the next available auth for the provider in a round-robin manner.
 func (s *RoundRobinSelector) Pick(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*Auth) (*Auth, error) {
 	_ = ctx
@@ -111,7 +194,11 @@ func (s *RoundRobinSelector) Pick(ctx context.Context, provider, model string, o
 	available := make([]*Auth, 0, len(auths))
 	now := time.Now()
 	cooldownCount := 0
-	var earliest time.Time
+	disabledCount := 0
+	otherCount := 0
+	var earliestCooldown time.Time
+	var earliestBlocked time.Time
+	statusCounts := make(map[int]int)
 	for i := 0; i < len(auths); i++ {
 		candidate := auths[i]
 		blocked, reason, next := isAuthBlockedForModel(candidate, model, now)
@@ -119,22 +206,52 @@ func (s *RoundRobinSelector) Pick(ctx context.Context, provider, model string, o
 			available = append(available, candidate)
 			continue
 		}
-		if reason == blockReasonCooldown {
+		switch reason {
+		case blockReasonCooldown:
 			cooldownCount++
-			if !next.IsZero() && (earliest.IsZero() || next.Before(earliest)) {
-				earliest = next
+		case blockReasonDisabled:
+			disabledCount++
+		default:
+			otherCount++
+		}
+		if candidate != nil && model != "" && candidate.ModelStates != nil {
+			if st := candidate.ModelStates[model]; st != nil && st.LastError != nil && st.LastError.HTTPStatus > 0 {
+				statusCounts[st.LastError.HTTPStatus]++
 			}
+		}
+		if reason == blockReasonCooldown {
+			if !next.IsZero() && (earliestCooldown.IsZero() || next.Before(earliestCooldown)) {
+				earliestCooldown = next
+			}
+		}
+		if !next.IsZero() && (earliestBlocked.IsZero() || next.Before(earliestBlocked)) {
+			earliestBlocked = next
 		}
 	}
 	if len(available) == 0 {
-		if cooldownCount == len(auths) && !earliest.IsZero() {
-			resetIn := earliest.Sub(now)
+		if cooldownCount == len(auths) && !earliestCooldown.IsZero() {
+			resetIn := earliestCooldown.Sub(now)
 			if resetIn < 0 {
 				resetIn = 0
 			}
 			return nil, newModelCooldownError(model, provider, resetIn)
 		}
-		return nil, &Error{Code: "auth_unavailable", Message: "no auth available"}
+		if !earliestBlocked.IsZero() {
+			resetIn := earliestBlocked.Sub(now)
+			if resetIn < 0 {
+				resetIn = 0
+			}
+			return nil, &authBlockedError{
+				model:        model,
+				provider:     provider,
+				resetIn:      resetIn,
+				cooldown:     cooldownCount,
+				disabled:     disabledCount,
+				other:        otherCount,
+				lastStatuses: statusCounts,
+			}
+		}
+		return nil, &Error{Code: "auth_unavailable", Message: "no auth available", HTTPStatus: http.StatusServiceUnavailable}
 	}
 	// Make round-robin deterministic even if caller's candidate order is unstable.
 	if len(available) > 1 {

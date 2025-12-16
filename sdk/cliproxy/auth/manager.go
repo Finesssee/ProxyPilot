@@ -1105,7 +1105,7 @@ func (m *Manager) pickNext(ctx context.Context, provider, model string, opts cli
 	}
 	if len(candidates) == 0 {
 		m.mu.RUnlock()
-		return nil, nil, &Error{Code: "auth_not_found", Message: "no auth available"}
+		return nil, nil, &Error{Code: "auth_not_found", Message: "no auth available", HTTPStatus: http.StatusServiceUnavailable}
 	}
 	selected, errPick := m.selector.Pick(ctx, provider, model, opts, candidates)
 	if errPick != nil {
