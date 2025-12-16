@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -48,8 +49,37 @@ func emitEvent(event string, payload string) string {
 	return fmt.Sprintf("event: %s\ndata: %s", event, payload)
 }
 
+func isCodexCLI(ctx context.Context) bool {
+	ginCtx, _ := ctx.Value("gin").(*gin.Context)
+	if ginCtx == nil {
+		return false
+	}
+	ua := strings.ToLower(ginCtx.GetHeader("User-Agent"))
+	originator := strings.ToLower(ginCtx.GetHeader("Originator"))
+	return strings.Contains(ua, "codex_cli_rs") || originator == "codex_cli_rs"
+}
+
+func truncateUTF8(s string, maxBytes int) string {
+	if maxBytes <= 0 || len(s) <= maxBytes {
+		return s
+	}
+	// Ensure we don't cut in the middle of a UTF-8 sequence.
+	b := []byte(s)
+	if maxBytes >= len(b) {
+		return s
+	}
+	cut := maxBytes
+	for cut > 0 && (b[cut]&0xC0) == 0x80 {
+		cut--
+	}
+	if cut <= 0 {
+		return ""
+	}
+	return string(b[:cut])
+}
+
 // ConvertGeminiResponseToOpenAIResponses converts Gemini SSE chunks into OpenAI Responses SSE events.
-func ConvertGeminiResponseToOpenAIResponses(_ context.Context, modelName string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) []string {
+func ConvertGeminiResponseToOpenAIResponses(ctx context.Context, modelName string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) []string {
 	if *param == nil {
 		*param = &geminiToResponsesState{
 			FuncArgsBuf: make(map[int]*strings.Builder),
@@ -246,8 +276,47 @@ func ConvertGeminiResponseToOpenAIResponses(_ context.Context, modelName string,
 
 	// Finalization on finishReason
 	if fr := root.Get("candidates.0.finishReason"); fr.Exists() && fr.String() != "" {
+		finishReason := fr.String()
 		// Finalize reasoning first to keep ordering tight with last delta
 		finalizeReasoning()
+
+		// Codex CLI UX: if we ended with MAX_TOKENS but produced no visible output items,
+		// emit a small assistant message explaining what happened so the CLI doesn't look "stuck".
+		if isCodexCLI(ctx) && !st.MsgOpened && len(st.FuncArgsBuf) == 0 {
+			fallback := ""
+			if st.ReasoningOpened && st.ReasoningBuf.Len() > 0 {
+				fallback = truncateUTF8(st.ReasoningBuf.String(), 8000)
+			} else if strings.EqualFold(finishReason, "MAX_TOKENS") {
+				fallback = "No visible output was produced before the upstream hit MAX_TOKENS. Try reducing prompt/context size, lowering reasoning effort, or switching to a non-thinking model."
+			}
+			if strings.TrimSpace(fallback) != "" {
+				st.MsgOpened = true
+				st.MsgIndex = st.NextIndex
+				st.NextIndex++
+				st.CurrentMsgID = fmt.Sprintf("msg_%s_0", st.ResponseID)
+
+				item := `{"type":"response.output_item.added","sequence_number":0,"output_index":0,"item":{"id":"","type":"message","status":"in_progress","content":[],"role":"assistant"}}`
+				item, _ = sjson.Set(item, "sequence_number", nextSeq())
+				item, _ = sjson.Set(item, "output_index", st.MsgIndex)
+				item, _ = sjson.Set(item, "item.id", st.CurrentMsgID)
+				out = append(out, emitEvent("response.output_item.added", item))
+
+				partAdded := `{"type":"response.content_part.added","sequence_number":0,"item_id":"","output_index":0,"content_index":0,"part":{"type":"output_text","annotations":[],"logprobs":[],"text":""}}`
+				partAdded, _ = sjson.Set(partAdded, "sequence_number", nextSeq())
+				partAdded, _ = sjson.Set(partAdded, "item_id", st.CurrentMsgID)
+				partAdded, _ = sjson.Set(partAdded, "output_index", st.MsgIndex)
+				out = append(out, emitEvent("response.content_part.added", partAdded))
+
+				st.TextBuf.WriteString(fallback)
+				msg := `{"type":"response.output_text.delta","sequence_number":0,"item_id":"","output_index":0,"content_index":0,"delta":"","logprobs":[]}`
+				msg, _ = sjson.Set(msg, "sequence_number", nextSeq())
+				msg, _ = sjson.Set(msg, "item_id", st.CurrentMsgID)
+				msg, _ = sjson.Set(msg, "output_index", st.MsgIndex)
+				msg, _ = sjson.Set(msg, "delta", fallback)
+				out = append(out, emitEvent("response.output_text.delta", msg))
+			}
+		}
+
 		// Close message output if opened
 		if st.MsgOpened {
 			fullText := st.TextBuf.String()
