@@ -94,6 +94,11 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 	}
 
 	// Otherwise, inject standard Codex instructions.
+	// Keep this short: upstream validators can reject large instruction blocks.
+	const maxInstructionsChars = 1024
+	if len(instructions) > maxInstructionsChars {
+		instructions = instructions[:maxInstructionsChars] + "\n...[truncated]..."
+	}
 	rawJSON, _ = sjson.SetBytes(rawJSON, "instructions", instructions)
 	return rawJSON
 }
