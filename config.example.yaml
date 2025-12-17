@@ -130,28 +130,6 @@ ws-auth: false
 #       - name: "gemini-1.5-pro"
 #         alias: "vertex-pro"
 
-# Amp Integration
-# ampcode:
-#   # Configure upstream URL for Amp CLI OAuth and management features
-#   upstream-url: "https://ampcode.com"
-#   # Optional: Override API key for Amp upstream (otherwise uses env or file)
-#   upstream-api-key: ""
-#   # Restrict Amp management routes (/api/auth, /api/user, etc.) to localhost only (recommended)
-#   restrict-management-to-localhost: true
-#   # Force model mappings to run before checking local API keys (default: false)
-#   force-model-mappings: false
-#   # Amp Model Mappings
-#   # Route unavailable Amp models to alternative models available in your local proxy.
-#   # Useful when Amp CLI requests models you don't have access to (e.g., Claude Opus 4.5)
-#   # but you have a similar model available (e.g., Claude Sonnet 4).
-#   model-mappings:
-#     - from: "claude-opus-4.5"       # Model requested by Amp CLI
-#       to: "claude-sonnet-4"         # Route to this available model instead
-#     - from: "gpt-5"
-#       to: "gemini-2.5-pro"
-#     - from: "claude-3-opus-20240229"
-#       to: "claude-3-5-sonnet-20241022"
-
 # OAuth provider excluded models
 # oauth-excluded-models:
 #   gemini-cli:

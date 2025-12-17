@@ -74,9 +74,6 @@ type Config struct {
 	// Used for services that use Vertex AI-style paths but with simple API key authentication.
 	VertexCompatAPIKey []VertexCompatKey `yaml:"vertex-api-key" json:"vertex-api-key"`
 
-	// AmpCode contains Amp CLI upstream configuration, management restrictions, and model mappings.
-	AmpCode AmpCode `yaml:"ampcode" json:"ampcode"`
-
 	// OAuthExcludedModels defines per-provider global model exclusions applied to OAuth/file-backed auth entries.
 	OAuthExcludedModels map[string][]string `yaml:"oauth-excluded-models,omitempty" json:"oauth-excluded-models,omitempty"`
 
@@ -114,42 +111,6 @@ type QuotaExceeded struct {
 
 	// SwitchPreviewModel indicates whether to automatically switch to a preview model when a quota is exceeded.
 	SwitchPreviewModel bool `yaml:"switch-preview-model" json:"switch-preview-model"`
-}
-
-// AmpModelMapping defines a model name mapping for Amp CLI requests.
-// When Amp requests a model that isn't available locally, this mapping
-// allows routing to an alternative model that IS available.
-type AmpModelMapping struct {
-	// From is the model name that Amp CLI requests (e.g., "claude-opus-4.5").
-	From string `yaml:"from" json:"from"`
-
-	// To is the target model name to route to (e.g., "claude-sonnet-4").
-	// The target model must have available providers in the registry.
-	To string `yaml:"to" json:"to"`
-}
-
-// AmpCode groups Amp CLI integration settings including upstream routing,
-// optional overrides, management route restrictions, and model fallback mappings.
-type AmpCode struct {
-	// UpstreamURL defines the upstream Amp control plane used for non-provider calls.
-	UpstreamURL string `yaml:"upstream-url" json:"upstream-url"`
-
-	// UpstreamAPIKey optionally overrides the Authorization header when proxying Amp upstream calls.
-	UpstreamAPIKey string `yaml:"upstream-api-key" json:"upstream-api-key"`
-
-	// RestrictManagementToLocalhost restricts Amp management routes (/api/user, /api/threads, etc.)
-	// to only accept connections from localhost (127.0.0.1, ::1). When true, prevents drive-by
-	// browser attacks and remote access to management endpoints. Default: true (recommended).
-	RestrictManagementToLocalhost bool `yaml:"restrict-management-to-localhost" json:"restrict-management-to-localhost"`
-
-	// ModelMappings defines model name mappings for Amp CLI requests.
-	// When Amp requests a model that isn't available locally, these mappings
-	// allow routing to an alternative model that IS available.
-	ModelMappings []AmpModelMapping `yaml:"model-mappings" json:"model-mappings"`
-
-	// ForceModelMappings when true, model mappings take precedence over local API keys.
-	// When false (default), local API keys are used first if available.
-	ForceModelMappings bool `yaml:"force-model-mappings" json:"force-model-mappings"`
 }
 
 // PayloadConfig defines default and override parameter rules applied to provider payloads.
@@ -327,7 +288,6 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	cfg.LoggingToFile = false
 	cfg.UsageStatisticsEnabled = false
 	cfg.DisableCooling = false
-	cfg.AmpCode.RestrictManagementToLocalhost = true // Default to secure: only localhost access
 	if err = yaml.Unmarshal(data, &cfg); err != nil {
 		if optional {
 			// In cloud deploy mode, if YAML parsing fails, return empty config instead of error.
@@ -342,9 +302,6 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 			cfg.legacyMigrationPending = true
 		}
 		if cfg.migrateLegacyOpenAICompatibilityKeys(legacy.OpenAICompat) {
-			cfg.legacyMigrationPending = true
-		}
-		if cfg.migrateLegacyAmpConfig(&legacy) {
 			cfg.legacyMigrationPending = true
 		}
 	}
@@ -617,7 +574,6 @@ func SaveConfigPreserveComments(configFile string, cfg *Config) error {
 	// Remove deprecated sections before merging back the sanitized config.
 	removeLegacyAuthBlock(original.Content[0])
 	removeLegacyOpenAICompatAPIKeys(original.Content[0])
-	removeLegacyAmpKeys(original.Content[0])
 	removeLegacyGenerativeLanguageKeys(original.Content[0])
 
 	pruneMappingToGeneratedKeys(original.Content[0], generated.Content[0], "oauth-excluded-models")
@@ -1180,10 +1136,6 @@ func normalizeCollectionNodeStyles(node *yaml.Node) {
 type legacyConfigData struct {
 	LegacyGeminiKeys      []string                    `yaml:"generative-language-api-key"`
 	OpenAICompat          []legacyOpenAICompatibility `yaml:"openai-compatibility"`
-	AmpUpstreamURL        string                      `yaml:"amp-upstream-url"`
-	AmpUpstreamAPIKey     string                      `yaml:"amp-upstream-api-key"`
-	AmpRestrictManagement *bool                       `yaml:"amp-restrict-management-to-localhost"`
-	AmpModelMappings      []AmpModelMapping           `yaml:"amp-model-mappings"`
 }
 
 type legacyOpenAICompatibility struct {
@@ -1296,33 +1248,6 @@ func findOpenAICompatTarget(entries []OpenAICompatibility, legacyName, legacyBas
 	return nil
 }
 
-func (cfg *Config) migrateLegacyAmpConfig(legacy *legacyConfigData) bool {
-	if cfg == nil || legacy == nil {
-		return false
-	}
-	changed := false
-	if cfg.AmpCode.UpstreamURL == "" {
-		if val := strings.TrimSpace(legacy.AmpUpstreamURL); val != "" {
-			cfg.AmpCode.UpstreamURL = val
-			changed = true
-		}
-	}
-	if cfg.AmpCode.UpstreamAPIKey == "" {
-		if val := strings.TrimSpace(legacy.AmpUpstreamAPIKey); val != "" {
-			cfg.AmpCode.UpstreamAPIKey = val
-			changed = true
-		}
-	}
-	if legacy.AmpRestrictManagement != nil {
-		cfg.AmpCode.RestrictManagementToLocalhost = *legacy.AmpRestrictManagement
-		changed = true
-	}
-	if len(cfg.AmpCode.ModelMappings) == 0 && len(legacy.AmpModelMappings) > 0 {
-		cfg.AmpCode.ModelMappings = append([]AmpModelMapping(nil), legacy.AmpModelMappings...)
-		changed = true
-	}
-	return changed
-}
 
 func removeLegacyOpenAICompatAPIKeys(root *yaml.Node) {
 	if root == nil || root.Kind != yaml.MappingNode {
@@ -1341,16 +1266,6 @@ func removeLegacyOpenAICompatAPIKeys(root *yaml.Node) {
 			removeMapKey(seq.Content[i], "api-keys")
 		}
 	}
-}
-
-func removeLegacyAmpKeys(root *yaml.Node) {
-	if root == nil || root.Kind != yaml.MappingNode {
-		return
-	}
-	removeMapKey(root, "amp-upstream-url")
-	removeMapKey(root, "amp-upstream-api-key")
-	removeMapKey(root, "amp-restrict-management-to-localhost")
-	removeMapKey(root, "amp-model-mappings")
 }
 
 func removeLegacyGenerativeLanguageKeys(root *yaml.Node) {

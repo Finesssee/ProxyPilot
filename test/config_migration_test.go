@@ -20,12 +20,6 @@ openai-compatibility:
     base-url: "https://example.com"
     api-keys:
       - "legacy-openai-1"
-amp-upstream-url: "https://amp.example.com"
-amp-upstream-api-key: "amp-legacy-key"
-amp-restrict-management-to-localhost: false
-amp-model-mappings:
-  - from: "old-model"
-    to: "new-model"
 `)
 		cfg, err := config.LoadConfig(path)
 		if err != nil {
@@ -40,21 +34,9 @@ amp-model-mappings:
 		if entries := cfg.OpenAICompatibility[0].APIKeyEntries; len(entries) != 1 || entries[0].APIKey != "legacy-openai-1" {
 			t.Fatalf("openai-compat migration mismatch: %+v", entries)
 		}
-		if cfg.AmpCode.UpstreamURL != "https://amp.example.com" || cfg.AmpCode.UpstreamAPIKey != "amp-legacy-key" {
-			t.Fatalf("amp migration failed: %+v", cfg.AmpCode)
-		}
-		if cfg.AmpCode.RestrictManagementToLocalhost {
-			t.Fatalf("expected amp restriction to be false after migration")
-		}
-		if got := len(cfg.AmpCode.ModelMappings); got != 1 || cfg.AmpCode.ModelMappings[0].From != "old-model" {
-			t.Fatalf("amp mappings migration mismatch: %+v", cfg.AmpCode.ModelMappings)
-		}
 		updated := readFile(t, path)
 		if strings.Contains(updated, "generative-language-api-key") {
 			t.Fatalf("legacy gemini key still present:\n%s", updated)
-		}
-		if strings.Contains(updated, "amp-upstream-url") || strings.Contains(updated, "amp-restrict-management-to-localhost") {
-			t.Fatalf("legacy amp keys still present:\n%s", updated)
 		}
 		if strings.Contains(updated, "\n    api-keys:") {
 			t.Fatalf("legacy openai compat keys still present:\n%s", updated)
@@ -113,13 +95,6 @@ openai-compatibility:
     base-url: "https://new-only.example.com"
     api-key-entries:
       - api-key: "new-only-entry"
-ampcode:
-  upstream-url: "https://amp.new"
-  upstream-api-key: "new-amp-key"
-  restrict-management-to-localhost: true
-  model-mappings:
-    - from: "a"
-      to: "b"
 `)
 		cfg, err := config.LoadConfig(path)
 		if err != nil {
@@ -130,9 +105,6 @@ ampcode:
 		}
 		if len(cfg.OpenAICompatibility) != 1 || len(cfg.OpenAICompatibility[0].APIKeyEntries) != 1 {
 			t.Fatalf("unexpected openai compat entries: %+v", cfg.OpenAICompatibility)
-		}
-		if cfg.AmpCode.UpstreamURL != "https://amp.new" || cfg.AmpCode.UpstreamAPIKey != "new-amp-key" {
-			t.Fatalf("unexpected amp config: %+v", cfg.AmpCode)
 		}
 	})
 
