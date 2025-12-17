@@ -137,11 +137,6 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 		out, _ = sjson.Set(out, "instructions", systemInstructions)
 	} else {
 		_, instructions := misc.CodexInstructionsForModel(modelName, "")
-		// Keep this short: upstream validators can reject large instruction blocks.
-		const maxInstructionsChars = 1024
-		if len(instructions) > maxInstructionsChars {
-			instructions = instructions[:maxInstructionsChars] + "\n...[truncated]..."
-		}
 		out, _ = sjson.Set(out, "instructions", instructions)
 	}
 

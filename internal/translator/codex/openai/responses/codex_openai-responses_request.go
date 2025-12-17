@@ -71,12 +71,13 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 		}
 	}
 
+	// If the caller already provided official Codex instructions, keep as-is.
 	if hasOfficialInstructions {
 		return rawJSON
 	}
 
-	// If the caller already provided instructions (or a system message we extracted),
-	// keep them as-is to avoid duplicating large prompts.
+	// If the caller provided non-Codex instructions (or we extracted a system message),
+	// prefix with the official Codex instructions so upstream validators accept it.
 	if strings.TrimSpace(originalInstructionsText) != "" {
 		if extractedSystemInstructions && len(inputResults) > 0 {
 			// Remove system messages from input since they're now represented via "instructions".
@@ -89,16 +90,16 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 			}
 			rawJSON, _ = sjson.SetRawBytes(rawJSON, "input", []byte(newInput))
 		}
-		rawJSON, _ = sjson.SetBytes(rawJSON, "instructions", originalInstructionsText)
+		combined := strings.TrimSpace(instructions)
+		if combined != "" {
+			combined += "\n\n"
+		}
+		combined += strings.TrimSpace(originalInstructionsText)
+		rawJSON, _ = sjson.SetBytes(rawJSON, "instructions", combined)
 		return rawJSON
 	}
 
 	// Otherwise, inject standard Codex instructions.
-	// Keep this short: upstream validators can reject large instruction blocks.
-	const maxInstructionsChars = 1024
-	if len(instructions) > maxInstructionsChars {
-		instructions = instructions[:maxInstructionsChars] + "\n...[truncated]..."
-	}
 	rawJSON, _ = sjson.SetBytes(rawJSON, "instructions", instructions)
 	return rawJSON
 }
