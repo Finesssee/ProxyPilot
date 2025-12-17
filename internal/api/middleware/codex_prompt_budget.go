@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -70,7 +71,7 @@ func CodexPromptBudgetMiddleware() gin.HandlerFunc {
 
 		ua := strings.ToLower(req.Header.Get("User-Agent"))
 		isStainless := req.Header.Get("X-Stainless-Lang") != "" || req.Header.Get("X-Stainless-Package-Version") != ""
-		isAgenticCLI := strings.Contains(ua, "openai codex") || strings.Contains(ua, "factory-cli") || strings.Contains(ua, "warp") || isStainless
+		isAgenticCLI := strings.Contains(ua, "openai codex") || strings.Contains(ua, "factory-cli") || strings.Contains(ua, "warp") || strings.Contains(ua, "droid") || isStainless
 		if !isAgenticCLI {
 			c.Next()
 			return
@@ -110,7 +111,7 @@ func CodexPromptBudgetMiddleware() gin.HandlerFunc {
 		}
 
 		originalLen := len(body)
-		maxBytes := agenticMaxBodyBytes()
+		maxBytes := agenticMaxBodyBytesForModel(body)
 		if originalLen <= maxBytes {
 			req.Body = io.NopCloser(bytes.NewReader(body))
 			req.ContentLength = int64(originalLen)
@@ -141,6 +142,31 @@ func CodexPromptBudgetMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func agenticMaxBodyBytesForModel(body []byte) int {
+	maxBytes := agenticMaxBodyBytes()
+	model := gjson.GetBytes(body, "model").String()
+	if model == "" {
+		return maxBytes
+	}
+
+	info := registry.GetGlobalRegistry().GetModelInfo(model)
+	if info == nil || info.ContextLength <= 0 {
+		return maxBytes
+	}
+
+	// Heuristic: ~4 bytes per token (UTF-8 text + JSON overhead). We only scale DOWN
+	// from the global default to avoid upstream "prompt too long" for small-context models.
+	estimated := info.ContextLength * 4
+	const minBytes = 32 * 1024
+	if estimated < minBytes {
+		estimated = minBytes
+	}
+	if estimated < maxBytes {
+		return estimated
+	}
+	return maxBytes
 }
 
 // trimOpenAIChatCompletions trims an OpenAI Chat Completions payload by shortening the messages array.
