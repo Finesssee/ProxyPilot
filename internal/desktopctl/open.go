@@ -32,5 +32,5 @@ func managementURL(baseURL string) string {
 	if baseURL == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s/ui/", baseURL)
+	return fmt.Sprintf("%s/management.html", baseURL)
 }

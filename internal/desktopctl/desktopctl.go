@@ -46,6 +46,7 @@ func StatusFor(configPath string) (Status, error) {
 	out := Status{
 		Running:    running,
 		Managed:    managed,
+		AutoStartProxy: s != nil && s.AutoStartProxy,
 		PID:        pidOrZero(s),
 		Port:       port,
 		BaseURL:    baseURL,
@@ -61,6 +62,7 @@ func StatusFor(configPath string) (Status, error) {
 
 func Start(opts StartOptions) (Status, error) {
 	statePath := defaultStatePath()
+	prev, _ := loadState(statePath)
 	configPath, err := resolveConfigPath(opts.RepoRoot, opts.ConfigPath)
 	if err != nil {
 		return Status{}, err
@@ -133,6 +135,9 @@ func Start(opts StartOptions) (Status, error) {
 		ExePath:    exePath,
 		StartedAt:  time.Now(),
 	}
+	if prev != nil {
+		s.AutoStartProxy = prev.AutoStartProxy
+	}
 	_ = saveState(statePath, s)
 
 	// Give it a moment to bind before status/health checks.
@@ -164,7 +169,13 @@ func Stop(opts StopOptions) error {
 	}
 
 	_ = p.Kill()
-	_ = deleteState(statePath)
+	// Preserve preferences (e.g. auto-start proxy) by keeping state but clearing runtime fields.
+	if s == nil {
+		s = &state{}
+	}
+	s.PID = 0
+	s.StartedAt = time.Time{}
+	_ = saveState(statePath, s)
 	return nil
 }
 
@@ -193,6 +204,7 @@ func OpenLogsFolder(repoRoot, configPath string) error {
 	} else {
 		logDir = filepath.Join(".", "logs")
 	}
+	_ = os.MkdirAll(logDir, 0o755)
 	return OpenFolder(logDir)
 }
 
