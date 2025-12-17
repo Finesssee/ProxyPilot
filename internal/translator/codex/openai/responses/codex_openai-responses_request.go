@@ -49,9 +49,10 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 		inputResults = []gjson.Result{}
 	}
 
-	// Preserve caller instructions by converting them into an explicit system message inside "input".
+	// Preserve caller instructions by converting them into an explicit leading user message inside "input".
+	// Note: Codex backend rejects role=system in input ("System messages are not allowed").
 	if strings.TrimSpace(originalInstructionsText) != "" {
-		sys := `{"type":"message","role":"system","content":[{"type":"input_text","text":""}]}`
+		sys := `{"type":"message","role":"user","content":[{"type":"input_text","text":""}]}`
 		sys, _ = sjson.Set(sys, "content.0.text", originalInstructionsText)
 
 		newInput := "[]"

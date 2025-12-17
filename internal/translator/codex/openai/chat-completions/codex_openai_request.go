@@ -110,6 +110,11 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 		for i := 0; i < len(arr); i++ {
 			m := arr[i]
 			role := m.Get("role").String()
+			if role == "system" {
+				// Codex backend rejects role=system in input ("System messages are not allowed").
+				// Preserve the content by downgrading to a user message.
+				role = "user"
+			}
 
 			switch role {
 			case "tool":
