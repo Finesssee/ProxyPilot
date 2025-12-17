@@ -12,7 +12,9 @@ function Ensure-Dir([string]$Path) {
 }
 
 $repoRoot = Get-RepoRoot
-$exePath = Join-Path $repoRoot "bin\\cliproxyapi.exe"
+$defaultExePath = Join-Path $repoRoot "bin\\cliproxyapi.exe"
+$latestExePath = Join-Path $repoRoot "bin\\cliproxyapi-latest.exe"
+$exePath = if (Test-Path -LiteralPath $latestExePath) { $latestExePath } else { $defaultExePath }
 $configPath = Join-Path $repoRoot "config.yaml"
 $logsDir = Join-Path $repoRoot "logs"
 Ensure-Dir $logsDir
@@ -21,10 +23,26 @@ $stdoutLog = Join-Path $logsDir "cliproxyapi.out.log"
 $stderrLog = Join-Path $logsDir "cliproxyapi.err.log"
 
 if (-not (Test-Path -LiteralPath $exePath)) {
-  throw "Binary not found: $exePath. Run scripts\\setup-droid-cliproxy.ps1 first (or build it with: go build -o bin\\cliproxyapi.exe .\\cmd\\server)."
+  throw "Binary not found: $exePath. Build it with: go build -o bin\\cliproxyapi.exe .\\cmd\\server (or: scripts\\build-cliproxyapi.ps1)."
 }
 if (-not (Test-Path -LiteralPath $configPath)) {
   throw "Config not found: $configPath"
+}
+
+function Get-ConfigPort([string]$Path) {
+  try {
+    $line = Get-Content -LiteralPath $Path | Where-Object { $_ -match '^\s*port:\s*\d+\s*$' } | Select-Object -First 1
+    if ($line -match '(\d+)') { return [int]$Matches[1] }
+  } catch {}
+  return 8318
+}
+
+$port = Get-ConfigPort $configPath
+$existing = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($existing) {
+  Write-Warning "Port $port is already in use (PID $($existing.OwningProcess))."
+  Write-Host "If this is CLIProxyAPI, run: powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\restart-cliproxy.ps1"
+  return
 }
 
 Write-Host "Starting CLIProxyAPI..."
@@ -41,4 +59,3 @@ Start-Process -FilePath $exePath `
 
 Write-Host "Started. Tail logs:"
 Write-Host "  Get-Content -Wait $stdoutLog"
-
