@@ -27,6 +27,7 @@ docs/*
 !docs/cursor-ide.md
 !docs/compat-matrix.md
 !docs/hindsight.md
+!docs/windows-ui-spec.md
 AGENTS.md
 CLAUDE.md
 GEMINI.md
