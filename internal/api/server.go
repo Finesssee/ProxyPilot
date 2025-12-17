@@ -602,7 +602,23 @@ func (s *Server) serveManagementControlPanel(c *gin.Context) {
 		return
 	}
 
-	c.File(filePath)
+	b, err := os.ReadFile(filePath)
+	if err != nil {
+		log.WithError(err).Error("failed to read management control panel asset")
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+
+	// ProxyPilot is a wrapper/desktop UX around the CLIProxyAPI engine.
+	// The management UI is shipped as a static HTML bundle; apply small runtime text replacements
+	// so branding stays consistent even if the upstream asset is updated.
+	html := string(b)
+	html = strings.ReplaceAll(html, "CLI Proxy API Management Center", "ProxyPilot Dashboard")
+	html = strings.ReplaceAll(html, `alt:"CPAMC logo"`, `alt:"ProxyPilot logo"`)
+	html = strings.ReplaceAll(html, `alt:"CLI Proxy API Management Center"`, `alt:"ProxyPilot Dashboard"`)
+
+	c.Header("Content-Type", "text/html; charset=utf-8")
+	c.String(http.StatusOK, html)
 }
 
 func (s *Server) enableKeepAlive(timeout time.Duration, onTimeout func()) {
