@@ -74,32 +74,26 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 	if hasOfficialInstructions {
 		return rawJSON
 	}
-	// log.Debugf("instructions not matched, %s\n", originalInstructions)
 
-	if len(inputResults) > 0 {
-		newInput := "[]"
-		firstMessageHandled := false
-		for _, item := range inputResults {
-			if extractedSystemInstructions && strings.EqualFold(item.Get("role").String(), "system") {
-				continue
-			}
-			if !firstMessageHandled {
-				firstText := item.Get("content.0.text")
-				firstInstructions := "EXECUTE ACCORDING TO THE FOLLOWING INSTRUCTIONS!!!"
-				if firstText.Exists() && firstText.String() != firstInstructions {
-					firstTextTemplate := `{"type":"message","role":"user","content":[{"type":"input_text","text":"EXECUTE ACCORDING TO THE FOLLOWING INSTRUCTIONS!!!"}]}`
-					firstTextTemplate, _ = sjson.Set(firstTextTemplate, "content.1.text", originalInstructionsText)
-					firstTextTemplate, _ = sjson.Set(firstTextTemplate, "content.1.type", "input_text")
-					newInput, _ = sjson.SetRaw(newInput, "-1", firstTextTemplate)
+	// If the caller already provided instructions (or a system message we extracted),
+	// keep them as-is to avoid duplicating large prompts.
+	if strings.TrimSpace(originalInstructionsText) != "" {
+		if extractedSystemInstructions && len(inputResults) > 0 {
+			// Remove system messages from input since they're now represented via "instructions".
+			newInput := "[]"
+			for _, item := range inputResults {
+				if strings.EqualFold(item.Get("role").String(), "system") {
+					continue
 				}
-				firstMessageHandled = true
+				newInput, _ = sjson.SetRaw(newInput, "-1", item.Raw)
 			}
-			newInput, _ = sjson.SetRaw(newInput, "-1", item.Raw)
+			rawJSON, _ = sjson.SetRawBytes(rawJSON, "input", []byte(newInput))
 		}
-		rawJSON, _ = sjson.SetRawBytes(rawJSON, "input", []byte(newInput))
+		rawJSON, _ = sjson.SetBytes(rawJSON, "instructions", originalInstructionsText)
+		return rawJSON
 	}
 
+	// Otherwise, inject standard Codex instructions.
 	rawJSON, _ = sjson.SetBytes(rawJSON, "instructions", instructions)
-
 	return rawJSON
 }

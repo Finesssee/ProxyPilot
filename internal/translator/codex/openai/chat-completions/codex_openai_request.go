@@ -94,25 +94,51 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 		}
 	}
 
-	// Extract system instructions from first system message (string or text object)
+	// Extract system instructions from the first system message.
+	// If present, prefer caller-provided instructions to avoid duplicating large system prompts.
 	messages := gjson.GetBytes(rawJSON, "messages")
-	_, instructions := misc.CodexInstructionsForModel(modelName, "")
-	out, _ = sjson.Set(out, "instructions", instructions)
-	// if messages.IsArray() {
-	// 	arr := messages.Array()
-	// 	for i := 0; i < len(arr); i++ {
-	// 		m := arr[i]
-	// 		if m.Get("role").String() == "system" {
-	// 			c := m.Get("content")
-	// 			if c.Type == gjson.String {
-	// 				out, _ = sjson.Set(out, "instructions", c.String())
-	// 			} else if c.IsObject() && c.Get("type").String() == "text" {
-	// 				out, _ = sjson.Set(out, "instructions", c.Get("text").String())
-	// 			}
-	// 			break
-	// 		}
-	// 	}
-	// }
+	systemInstructions := ""
+	if messages.IsArray() {
+		arr := messages.Array()
+		for i := 0; i < len(arr); i++ {
+			m := arr[i]
+			if m.Get("role").String() != "system" {
+				continue
+			}
+			c := m.Get("content")
+			switch {
+			case c.Type == gjson.String:
+				systemInstructions = c.String()
+			case c.IsObject() && c.Get("type").String() == "text":
+				systemInstructions = c.Get("text").String()
+			case c.IsArray():
+				var b strings.Builder
+				items := c.Array()
+				for j := 0; j < len(items); j++ {
+					it := items[j]
+					if it.Get("type").String() != "text" {
+						continue
+					}
+					t := it.Get("text").String()
+					if t == "" {
+						continue
+					}
+					if b.Len() > 0 {
+						b.WriteByte('\n')
+					}
+					b.WriteString(t)
+				}
+				systemInstructions = b.String()
+			}
+			break
+		}
+	}
+	if strings.TrimSpace(systemInstructions) != "" {
+		out, _ = sjson.Set(out, "instructions", systemInstructions)
+	} else {
+		_, instructions := misc.CodexInstructionsForModel(modelName, "")
+		out, _ = sjson.Set(out, "instructions", instructions)
+	}
 
 	// Build input from messages, handling all message types including tool calls
 	out, _ = sjson.SetRaw(out, "input", `[]`)
@@ -123,6 +149,9 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 			role := m.Get("role").String()
 
 			switch role {
+			case "system":
+				// System content is represented via the top-level "instructions" field.
+				continue
 			case "tool":
 				// Handle tool response messages as top-level function_call_output objects
 				toolCallID := m.Get("tool_call_id").String()
@@ -139,11 +168,7 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 				// Handle regular messages
 				msg := `{}`
 				msg, _ = sjson.Set(msg, "type", "message")
-				if role == "system" {
-					msg, _ = sjson.Set(msg, "role", "user")
-				} else {
-					msg, _ = sjson.Set(msg, "role", role)
-				}
+				msg, _ = sjson.Set(msg, "role", role)
 
 				msg, _ = sjson.SetRaw(msg, "content", `[]`)
 
