@@ -2,10 +2,8 @@ package responses
 
 import (
 	"bytes"
-	"strconv"
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -24,15 +22,11 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 	rawJSON, _ = sjson.DeleteBytes(rawJSON, "top_p")
 	rawJSON, _ = sjson.DeleteBytes(rawJSON, "service_tier")
 
-	originalInstructions := ""
 	originalInstructionsText := ""
 	originalInstructionsResult := gjson.GetBytes(rawJSON, "instructions")
 	if originalInstructionsResult.Exists() {
-		originalInstructions = originalInstructionsResult.Raw
 		originalInstructionsText = originalInstructionsResult.String()
 	}
-
-	hasOfficialInstructions, instructions := misc.CodexInstructionsForModel(modelName, originalInstructionsResult.String())
 
 	inputResult := gjson.GetBytes(rawJSON, "input")
 	var inputResults []gjson.Result
@@ -48,58 +42,23 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 		inputResults = []gjson.Result{}
 	}
 
-	extractedSystemInstructions := false
-	if originalInstructions == "" && len(inputResults) > 0 {
-		for _, item := range inputResults {
-			if strings.EqualFold(item.Get("role").String(), "system") {
-				var builder strings.Builder
-				if content := item.Get("content"); content.Exists() && content.IsArray() {
-					content.ForEach(func(_, contentItem gjson.Result) bool {
-						text := contentItem.Get("text").String()
-						if builder.Len() > 0 && text != "" {
-							builder.WriteByte('\n')
-						}
-						builder.WriteString(text)
-						return true
-					})
-				}
-				originalInstructionsText = builder.String()
-				originalInstructions = strconv.Quote(originalInstructionsText)
-				extractedSystemInstructions = true
-				break
-			}
-		}
-	}
-
-	// If the caller already provided official Codex instructions, keep as-is.
-	if hasOfficialInstructions {
-		return rawJSON
-	}
-
-	// If the caller provided non-Codex instructions (or we extracted a system message),
-	// prefix with the official Codex instructions so upstream validators accept it.
+	// The chatgpt.com Codex backend rejects "instructions" in many cases (400: "Instructions are not valid").
+	// Preserve caller instructions by converting them into an explicit system message inside "input",
+	// and then delete the top-level "instructions" field.
 	if strings.TrimSpace(originalInstructionsText) != "" {
-		if extractedSystemInstructions && len(inputResults) > 0 {
-			// Remove system messages from input since they're now represented via "instructions".
-			newInput := "[]"
-			for _, item := range inputResults {
-				if strings.EqualFold(item.Get("role").String(), "system") {
-					continue
-				}
-				newInput, _ = sjson.SetRaw(newInput, "-1", item.Raw)
-			}
-			rawJSON, _ = sjson.SetRawBytes(rawJSON, "input", []byte(newInput))
-		}
-		combined := strings.TrimSpace(instructions)
-		if combined != "" {
-			combined += "\n\n"
-		}
-		combined += strings.TrimSpace(originalInstructionsText)
-		rawJSON, _ = sjson.SetBytes(rawJSON, "instructions", combined)
-		return rawJSON
-	}
+		sys := `{"type":"message","role":"system","content":[{"type":"input_text","text":""}]}`
+		sys, _ = sjson.Set(sys, "content.0.text", originalInstructionsText)
 
-	// Otherwise, inject standard Codex instructions.
-	rawJSON, _ = sjson.SetBytes(rawJSON, "instructions", instructions)
+		newInput := "[]"
+		newInput, _ = sjson.SetRaw(newInput, "-1", sys)
+		for _, item := range inputResults {
+			newInput, _ = sjson.SetRaw(newInput, "-1", item.Raw)
+		}
+		rawJSON, _ = sjson.SetRawBytes(rawJSON, "input", []byte(newInput))
+	}
+	rawJSON, _ = sjson.DeleteBytes(rawJSON, "instructions")
+
+	// modelName is part of the fixed method signature
+	_ = modelName
 	return rawJSON
 }
