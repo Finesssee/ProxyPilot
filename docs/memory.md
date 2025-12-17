@@ -52,3 +52,20 @@ The session key is chosen in this order:
   - set to `0`, `false`, `off`, or `no` to disable persistence + retrieval
 - `CLIPROXY_MEMORY_DIR`: override the base directory used to store memory
 
+## Persistent TODO (never dropped)
+
+CLIProxyAPI maintains an optional per-session TODO file:
+
+- `.proxypilot/memory/sessions/<sessionKey>/todo.md`
+
+If present, it is injected on **every** agentic request (before any trimming). This keeps the agent aligned even across many compression cycles.
+
+Ways to set it:
+
+- Write the file directly
+- Or send a request header `X-CLIProxyAPI-Todo` (the proxy stores it to `todo.md` and strips the header before forwarding upstream)
+
+Environment variables:
+
+- `CLIPROXY_TODO_ENABLED` (default: enabled)
+- `CLIPROXY_TODO_MAX_CHARS` (default: `4000`)
