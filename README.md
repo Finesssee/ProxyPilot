@@ -1,12 +1,12 @@
-# CLI Proxy API
+# ProxyPilot (CLIProxyAPI fork)
 
 English | [中文](README_CN.md)
 
-A proxy server that provides OpenAI/Gemini/Claude/Codex compatible API interfaces for CLI.
+ProxyPilot is a desktop-friendly wrapper around the `CLIProxyAPI` proxy engine (this repo), focused on running and managing a local proxy with a tray app + installer.
 
-It now also supports OpenAI Codex (GPT models) and Claude Code via OAuth.
+ProxyPilot is forked from the original **CLIProxyAPI** project and rebranded; the underlying engine remains compatible with OpenAI/Gemini/Claude/Codex-style clients and SDKs.
 
-So you can use local or multi-account CLI access with OpenAI(include Responses)/Gemini/Claude-compatible clients and SDKs.
+Windows app packaging: `docs/proxypilot.md`
 
 ## Sponsor
 
@@ -16,7 +16,7 @@ This project is sponsored by Z.ai, supporting us with their GLM CODING PLAN.
 
 GLM CODING PLAN is a subscription service designed for AI coding, starting at just $3/month. It provides access to their flagship GLM-4.6 model across 10+ popular AI coding tools (Claude Code, Cline, Roo Code, etc.), offering developers top-tier, fast, and stable coding experiences.
 
-Get 10% OFF GLM CODING PLAN：https://z.ai/subscribe?ic=8JVLJQFSKB
+Get 10% OFF GLM CODING PLAN: https://z.ai/subscribe?ic=8JVLJQFSKB
 
 ## Overview
 
@@ -40,28 +40,27 @@ Get 10% OFF GLM CODING PLAN：https://z.ai/subscribe?ic=8JVLJQFSKB
 - OpenAI-compatible upstream providers via config (e.g., OpenRouter)
 - Reusable Go SDK for embedding the proxy (see `docs/sdk-usage.md`)
 
-## Getting Started
+## Getting Started (Engine)
 
-CLIProxyAPI Guides: [https://help.router-for.me/](https://help.router-for.me/)
+Upstream-style docs for the engine live here:
+
+- CLIProxyAPI Guides: https://help.router-for.me/
+- Management API: https://help.router-for.me/management/api
 
 ## Cursor IDE
 
-- Integration guide: [docs/cursor-ide.md](docs/cursor-ide.md)
+- Integration guide: `docs/cursor-ide.md`
 
 ## Compatibility
 
-- Quick matrix: [docs/compat-matrix.md](docs/compat-matrix.md)
-
-## Management API
-
-see [MANAGEMENT_API.md](https://help.router-for.me/management/api)
+- Quick matrix: `docs/compat-matrix.md`
 
 ## SDK Docs
 
-- Usage: [docs/sdk-usage.md](docs/sdk-usage.md)
-- Advanced (executors & translators): [docs/sdk-advanced.md](docs/sdk-advanced.md)
-- Access: [docs/sdk-access.md](docs/sdk-access.md)
-- Watcher: [docs/sdk-watcher.md](docs/sdk-watcher.md)
+- Usage: `docs/sdk-usage.md`
+- Advanced (executors & translators): `docs/sdk-advanced.md`
+- Access: `docs/sdk-access.md`
+- Watcher: `docs/sdk-watcher.md`
 - Custom Provider Example: `examples/custom-provider`
 
 ## Contributing
@@ -94,9 +93,10 @@ CLI wrapper for instant switching between multiple Claude accounts and alternati
 
 Native macOS GUI for managing CLIProxyAPI: configure providers, model mappings, and endpoints via OAuth - no API keys needed.
 
-> [!NOTE]  
+> [!NOTE]
 > If you developed a project based on CLIProxyAPI, please open a PR to add it to this list.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see `LICENSE`.
+

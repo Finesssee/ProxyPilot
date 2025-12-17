@@ -1,6 +1,8 @@
-# Desktop UI for CLIProxyAPI — Shared Spec (Windows first)
+# Desktop UI (ProxyPilot) — Shared Spec (Windows first)
 
-This doc captures shared architecture and product decisions for a desktop “controller app” that manages a local `CLIProxyAPI` instance. OS-specific details live in:
+This doc captures shared architecture and product decisions for a desktop “controller app” that manages a local `CLIProxyAPI` instance.
+
+OS-specific details live in:
 
 - Windows: `docs/windows-ui-spec.md`
 - macOS (future): `docs/macos-ui-spec.md` (not yet)
@@ -9,7 +11,7 @@ This doc captures shared architecture and product decisions for a desktop “con
 
 A small tray-first desktop app that can:
 
-- start/stop/restart the local proxy
+- start/stop/restart the local proxy engine (CLIProxyAPI)
 - show health + port + “copy base URL” snippets for IDE/agentic CLIs
 - surface logs/request diagnostics to debug issues like 400/429, “prompt too long”, streaming quirks
 
@@ -33,7 +35,7 @@ We can support both Wails and Tauri without forking business logic by standardiz
 
 ## Shared control interface
 
-### Proposed Go package
+### Go package
 
 - `internal/desktopctl`
   - Pure Go logic for process management, config reading/writing, health, logs, autostart primitives.
@@ -54,7 +56,7 @@ Wails can call `internal/desktopctl` directly; Tauri can call `cliproxyctl`.
 
 ### Core controls
 
-- Start/Stop/Restart `CLIProxyAPI`.
+- Start/Stop/Restart the proxy engine.
 - Detect if a proxy is already running:
   - If owned by UI: show as “Managed”.
   - If not owned: show as “External” and offer “Attach” (read-only) vs “Stop anyway” behind a confirmation.
@@ -109,7 +111,7 @@ Wails can call `internal/desktopctl` directly; Tauri can call `cliproxyctl`.
 
 ## Cross-platform notes
 
-We should split OS-specific operations behind small interfaces in `internal/desktopctl`:
+Split OS-specific operations behind small interfaces in `internal/desktopctl`:
 
 - Process operations (spawn, signal/terminate, pid discovery)
 - Autostart
@@ -122,6 +124,6 @@ Windows and macOS implementations can live in separate files via Go build tags:
 
 ## Open questions
 
-- Should the desktop app bundle `cliproxyapi-latest` or manage an existing install?
+- Should the desktop app bundle the engine binary, or manage an existing install?
 - Do we want a dedicated “desktop control” HTTP endpoint in the proxy (vs local process control only)?
 
