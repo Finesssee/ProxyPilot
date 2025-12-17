@@ -40,15 +40,15 @@ func run(repoRoot, configPath, exePath string) {
 			systray.SetIcon(ico)
 		}
 		systray.SetTitle("ProxyPilot")
-		systray.SetTooltip("ProxyPilot")
+		systray.SetTooltip("ProxyPilot (powered by CLIProxyAPI)")
 
 		statusItem := systray.AddMenuItem("Status: ...", "Current status")
 		statusItem.Disable()
 		systray.AddSeparator()
 
-		startItem := systray.AddMenuItem("Start", "Start CLIProxyAPI (proxy server)")
-		stopItem := systray.AddMenuItem("Stop", "Stop CLIProxyAPI (proxy server)")
-		restartItem := systray.AddMenuItem("Restart", "Restart CLIProxyAPI (proxy server)")
+		startItem := systray.AddMenuItem("Start", "Start proxy engine (CLIProxyAPI)")
+		stopItem := systray.AddMenuItem("Stop", "Stop proxy engine (CLIProxyAPI)")
+		restartItem := systray.AddMenuItem("Restart", "Restart proxy engine (CLIProxyAPI)")
 		systray.AddSeparator()
 
 		autoOn, _, _ := desktopctl.IsWindowsRunAutostartEnabled(autostartAppName)
@@ -57,7 +57,7 @@ func run(repoRoot, configPath, exePath string) {
 		autoStartProxyItem := systray.AddMenuItemCheckbox("Auto-start proxy", "Start the proxy server automatically when ProxyPilot launches", autoProxyOn)
 		systray.AddSeparator()
 
-		openProxyUI := systray.AddMenuItem("Open Proxy UI", "Open CLIProxyAPI built-in management UI")
+		openProxyUI := systray.AddMenuItem("Open Dashboard", "Open ProxyPilot dashboard (local)")
 		openLogs := systray.AddMenuItem("Open Logs", "Open logs folder")
 		systray.AddSeparator()
 

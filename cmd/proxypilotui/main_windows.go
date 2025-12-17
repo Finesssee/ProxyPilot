@@ -22,7 +22,7 @@ func main() {
 	var exePath string
 	flag.StringVar(&repoRoot, "repo", "", "Repo root (used to locate bin/ and logs/)")
 	flag.StringVar(&configPath, "config", "", "Path to config.yaml (defaults to <repo>/config.yaml)")
-	flag.StringVar(&exePath, "exe", "", "Path to CLIProxyAPI binary (defaults to <repo>/bin/cliproxyapi-latest.exe)")
+	flag.StringVar(&exePath, "exe", "", "Path to proxy engine binary (defaults to <repo>/bin/cliproxyapi-latest.exe)")
 	flag.Parse()
 
 	repoRoot, configPath, exePath = applyDefaults(repoRoot, configPath, exePath)
