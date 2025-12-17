@@ -49,6 +49,10 @@ CLIProxyAPI Guides: [https://help.router-for.me/](https://help.router-for.me/)
 
 - Integration guide: [docs/cursor-ide.md](docs/cursor-ide.md)
 
+## Compatibility
+
+- Quick matrix: [docs/compat-matrix.md](docs/compat-matrix.md)
+
 ## Management API
 
 see [MANAGEMENT_API.md](https://help.router-for.me/management/api)
