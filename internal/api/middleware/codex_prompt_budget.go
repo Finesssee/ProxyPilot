@@ -171,11 +171,12 @@ func CodexPromptBudgetMiddleware() gin.HandlerFunc {
 		originalLen := len(body)
 		maxBytes := agenticMaxBodyBytesForModel(body)
 
-		// Session-scoped TODO is injected on every agentic request (never dropped).
-		// We do this before trimming, but keep the injection bounded and safe.
+		// Session-scoped state (pinned + anchor + TODO) is packed into the *last user message*
+		// so we don't mutate instructions/system blocks. This is more prompt-cache friendly
+		// and survives trimming (we prepend state so head-truncation keeps it).
 		if agenticTodoEnabled() {
 			session := extractAgenticSessionKey(req, body)
-			body = agenticMaybeUpsertAndInjectTodo(req, session, body, maxBytes)
+			body = agenticMaybeUpsertAndInjectPackedState(req, session, body, maxBytes)
 			originalLen = len(body)
 		}
 
@@ -218,7 +219,7 @@ func CodexPromptBudgetMiddleware() gin.HandlerFunc {
 	}
 }
 
-func agenticMaybeUpsertAndInjectTodo(req *http.Request, session string, body []byte, maxBytes int) []byte {
+func agenticMaybeUpsertAndInjectPackedState(req *http.Request, session string, body []byte, maxBytes int) []byte {
 	if req == nil || session == "" || len(body) == 0 {
 		return body
 	}
@@ -239,6 +240,11 @@ func agenticMaybeUpsertAndInjectTodo(req *http.Request, session string, body []b
 		req.Header.Del("X-CLIProxyAPI-Todo")
 	}
 
+	// Upgrade pinned context: capture coding guidelines / AGENTS.md content when present in the payload.
+	if pinned := extractCodingGuidelinesFromBody(body); strings.TrimSpace(pinned) != "" {
+		_ = fs.WritePinned(session, pinned, 8000)
+	}
+
 	todo := fs.ReadTodo(session, agenticTodoMaxChars())
 	if strings.TrimSpace(todo) == "" {
 		// Seed a minimal TODO from the last user intent if we have nothing yet.
@@ -250,12 +256,15 @@ func agenticMaybeUpsertAndInjectTodo(req *http.Request, session string, body []b
 			todo = fs.ReadTodo(session, agenticTodoMaxChars())
 		}
 	}
-	if strings.TrimSpace(todo) == "" {
+	shape := detectShapeFromPath(req.URL.Path)
+	pinned := fs.ReadPinned(session, 6000)
+	anchor := fs.ReadSummary(session, 2500)
+	block := buildPackedState(pinned, anchor, todo)
+	if strings.TrimSpace(block) == "" {
 		return body
 	}
-	block := "<todo>\n" + todo + "\n</todo>\n"
 	// Inject TODO as pinned instructions/system, not as memory (so it’s always present).
-	return injectMemoryIntoBody(detectShapeFromPath(req.URL.Path), body, block, maxBytes)
+	return prependToLastUserText(shape, body, block, maxBytes)
 }
 
 func detectShapeFromPath(path string) string {
@@ -279,6 +288,270 @@ func extractLastUserIntent(shape string, body []byte) string {
 		return extractLastUserTextFromChat(arr)
 	default:
 		return ""
+	}
+}
+
+func buildPackedState(pinned string, anchor string, todo string) string {
+	pinned = strings.TrimSpace(pinned)
+	anchor = strings.TrimSpace(anchor)
+	todo = strings.TrimSpace(todo)
+	if pinned == "" && anchor == "" && todo == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("<proxypilot_state>\n")
+	if pinned != "" {
+		b.WriteString("<pinned>\n")
+		b.WriteString(pinned)
+		b.WriteString("\n</pinned>\n")
+	}
+	if anchor != "" {
+		b.WriteString("<anchor>\n")
+		b.WriteString(anchor)
+		b.WriteString("\n</anchor>\n")
+	}
+	if todo != "" {
+		b.WriteString("<todo>\n")
+		b.WriteString(todo)
+		b.WriteString("\n</todo>\n")
+	}
+	b.WriteString("</proxypilot_state>\n\n")
+	return b.String()
+}
+
+func extractCodingGuidelinesFromBody(body []byte) string {
+	// Best-effort extraction for agentic CLIs that embed <coding_guidelines>...</coding_guidelines>
+	// (commonly from AGENTS.md) into the request history.
+	if len(body) == 0 {
+		return ""
+	}
+	const maxScan = 350_000
+	raw := string(body)
+	if len(raw) > maxScan {
+		raw = raw[:maxScan]
+	}
+	start := strings.Index(raw, "<coding_guidelines>")
+	if start < 0 {
+		// PowerShell ConvertTo-Json escapes '<' and '>' into \\u003c/\\u003e.
+		start = strings.Index(raw, "\\u003ccoding_guidelines\\u003e")
+	}
+	if start < 0 {
+		return ""
+	}
+	end := strings.Index(raw[start:], "</coding_guidelines>")
+	if end < 0 {
+		end = strings.Index(raw[start:], "\\u003c/coding_guidelines\\u003e")
+	}
+	if end < 0 {
+		return ""
+	}
+	// Keep the closing tag if we can find it.
+	endAbs := start + end
+	if strings.HasPrefix(raw[start+end:], "</coding_guidelines>") {
+		endAbs += len("</coding_guidelines>")
+	} else if strings.HasPrefix(raw[start+end:], "\\u003c/coding_guidelines\\u003e") {
+		endAbs += len("\\u003c/coding_guidelines\\u003e")
+	}
+	out := strings.TrimSpace(raw[start:endAbs])
+	out = strings.ReplaceAll(out, "\\u003c", "<")
+	out = strings.ReplaceAll(out, "\\u003e", ">")
+	out = strings.ReplaceAll(out, "\\u003C", "<")
+	out = strings.ReplaceAll(out, "\\u003E", ">")
+	out = strings.ReplaceAll(out, "\\n", "\n")
+	out = strings.ReplaceAll(out, "\\r", "\r")
+	if len(out) > 8000 {
+		out = out[:8000] + "\n...[truncated]..."
+	}
+	return out
+}
+
+func prependToLastUserText(shape string, body []byte, prefix string, maxBytes int) []byte {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return body
+	}
+	limit := maxBytes - len(body) - 512
+	if maxBytes > 0 && limit <= 0 {
+		return body
+	}
+	if maxBytes > 0 && len(prefix) > limit {
+		prefix = prefix[:limit] + "\n...[truncated]..."
+	}
+	prefix = prefix + "\n"
+
+	switch shape {
+	case "responses":
+		input := gjson.GetBytes(body, "input")
+		if !input.Exists() || !input.IsArray() {
+			return body
+		}
+		arr := input.Array()
+		for i := len(arr) - 1; i >= 0; i-- {
+			if !strings.EqualFold(arr[i].Get("role").String(), "user") {
+				continue
+			}
+			content := arr[i].Get("content")
+			if !content.Exists() || !content.IsArray() {
+				continue
+			}
+			parts := content.Array()
+			for j := 0; j < len(parts); j++ {
+				t := parts[j].Get("type").String()
+				if t == "" && parts[j].Get("text").Exists() {
+					t = "input_text"
+				}
+				if t != "input_text" {
+					continue
+				}
+				old := parts[j].Get("text").String()
+				newText := prefix + old
+				out, err := sjson.SetBytes(body, "input."+strconv.Itoa(i)+".content."+strconv.Itoa(j)+".text", newText)
+				if err == nil {
+					return out
+				}
+				return body
+			}
+		}
+		return body
+
+	case "chat":
+		msgs := gjson.GetBytes(body, "messages")
+		if !msgs.Exists() || !msgs.IsArray() {
+			return body
+		}
+		arr := msgs.Array()
+		for i := len(arr) - 1; i >= 0; i-- {
+			if !strings.EqualFold(arr[i].Get("role").String(), "user") {
+				continue
+			}
+			content := arr[i].Get("content")
+			switch {
+			case content.Type == gjson.String:
+				old := content.String()
+				newText := prefix + old
+				out, err := sjson.SetBytes(body, "messages."+strconv.Itoa(i)+".content", newText)
+				if err == nil {
+					return out
+				}
+				return body
+			case content.IsArray():
+				parts := content.Array()
+				for j := 0; j < len(parts); j++ {
+					txt := parts[j].Get("text")
+					if !txt.Exists() || txt.Type != gjson.String {
+						continue
+					}
+					old := txt.String()
+					newText := prefix + old
+					out, err := sjson.SetBytes(body, "messages."+strconv.Itoa(i)+".content."+strconv.Itoa(j)+".text", newText)
+					if err == nil {
+						return out
+					}
+					return body
+				}
+				return body
+			default:
+				return body
+			}
+		}
+		return body
+	default:
+		return body
+	}
+}
+
+func appendToLastUserText(shape string, body []byte, suffix string, maxBytes int) []byte {
+	suffix = strings.TrimSpace(suffix)
+	if suffix == "" {
+		return body
+	}
+	limit := maxBytes - len(body) - 512
+	if maxBytes > 0 && limit <= 0 {
+		return body
+	}
+	if maxBytes > 0 && len(suffix) > limit {
+		suffix = suffix[:limit] + "\n...[truncated]..."
+	}
+	suffix = "\n" + suffix
+
+	switch shape {
+	case "responses":
+		input := gjson.GetBytes(body, "input")
+		if !input.Exists() || !input.IsArray() {
+			return body
+		}
+		arr := input.Array()
+		for i := len(arr) - 1; i >= 0; i-- {
+			if !strings.EqualFold(arr[i].Get("role").String(), "user") {
+				continue
+			}
+			content := arr[i].Get("content")
+			if !content.Exists() || !content.IsArray() {
+				continue
+			}
+			parts := content.Array()
+			for j := 0; j < len(parts); j++ {
+				t := parts[j].Get("type").String()
+				if t == "" && parts[j].Get("text").Exists() {
+					t = "input_text"
+				}
+				if t != "input_text" {
+					continue
+				}
+				old := parts[j].Get("text").String()
+				newText := old + suffix
+				out, err := sjson.SetBytes(body, "input."+strconv.Itoa(i)+".content."+strconv.Itoa(j)+".text", newText)
+				if err == nil {
+					return out
+				}
+				return body
+			}
+		}
+		return body
+
+	case "chat":
+		msgs := gjson.GetBytes(body, "messages")
+		if !msgs.Exists() || !msgs.IsArray() {
+			return body
+		}
+		arr := msgs.Array()
+		for i := len(arr) - 1; i >= 0; i-- {
+			if !strings.EqualFold(arr[i].Get("role").String(), "user") {
+				continue
+			}
+			content := arr[i].Get("content")
+			switch {
+			case content.Type == gjson.String:
+				old := content.String()
+				newText := old + suffix
+				out, err := sjson.SetBytes(body, "messages."+strconv.Itoa(i)+".content", newText)
+				if err == nil {
+					return out
+				}
+				return body
+			case content.IsArray():
+				parts := content.Array()
+				for j := 0; j < len(parts); j++ {
+					txt := parts[j].Get("text")
+					if !txt.Exists() || txt.Type != gjson.String {
+						continue
+					}
+					old := txt.String()
+					newText := old + suffix
+					out, err := sjson.SetBytes(body, "messages."+strconv.Itoa(i)+".content."+strconv.Itoa(j)+".text", newText)
+					if err == nil {
+						return out
+					}
+					return body
+				}
+				return body
+			default:
+				return body
+			}
+		}
+		return body
+	default:
+		return body
 	}
 }
 
@@ -325,7 +598,7 @@ func agenticStoreAndInjectMemory(req *http.Request, session string, res *trimWit
 	}
 
 	memBlock := buildMemoryBlock(snips)
-	res.Body = injectMemoryIntoBody(res.Shape, res.Body, memBlock, maxBytes)
+	res.Body = appendToLastUserText(res.Shape, res.Body, memBlock, maxBytes)
 }
 
 func extractPinnedContext(req *http.Request, shape string, body []byte) string {
