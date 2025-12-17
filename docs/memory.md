@@ -69,3 +69,14 @@ Environment variables:
 
 - `CLIPROXY_TODO_ENABLED` (default: enabled)
 - `CLIPROXY_TODO_MAX_CHARS` (default: `4000`)
+
+## Prompt-cache friendly packing
+
+To preserve stable prompt prefixes for long sessions, CLIProxyAPI packs session state into the **last user message** (as a prepended block), instead of mutating `instructions` / system messages.
+
+Packed block format:
+
+- `<proxypilot_state>`
+  - `<pinned>` from `pinned.md`
+  - `<anchor>` from `summary.md`
+  - `<todo>` from `todo.md`
