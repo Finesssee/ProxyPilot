@@ -329,7 +329,21 @@ func shouldEmitDoneSentinel(c *gin.Context) bool {
 	return true
 }
 
+func stripDoneSentinel(body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+	out := bytes.ReplaceAll(body, []byte("\r\ndata: [DONE]\r\n\r\n"), []byte("\r\n\r\n"))
+	out = bytes.ReplaceAll(out, []byte("data: [DONE]\r\n\r\n"), []byte(""))
+	out = bytes.ReplaceAll(out, []byte("\ndata: [DONE]\n\n"), []byte("\n\n"))
+	out = bytes.ReplaceAll(out, []byte("data: [DONE]\n\n"), []byte(""))
+	return out
+}
+
 func (h *OpenAIResponsesAPIHandler) writeSSEBody(c *gin.Context, flusher http.Flusher, body []byte) {
+	if !shouldEmitDoneSentinel(c) {
+		body = stripDoneSentinel(body)
+	}
 	_, _ = c.Writer.Write(body)
 	if shouldEmitDoneSentinel(c) && !bytes.Contains(body, []byte("[DONE]")) {
 		_, _ = c.Writer.Write([]byte("\n\ndata: [DONE]\n\n"))
