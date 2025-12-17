@@ -179,10 +179,9 @@ func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJ
 		nonStreamReq := forceResponsesNonStreaming(rawJSON)
 		resp, errMsg := h.ExecuteWithAuthManager(cliCtx, h.HandlerType(), modelName, nonStreamReq, "")
 		if errMsg != nil {
-			// Factory/Stainless clients often set stream:true; when we fail before emitting any SSE,
-			// return a JSON error so clients can surface the message (instead of "400 no body").
-			c.Header("Content-Type", "application/json")
-			h.WriteErrorResponse(c, errMsg)
+			// Factory/Stainless clients request stream:true and may not surface non-2xx JSON bodies well.
+			// Emit a synthetic SSE response with an assistant-facing error message to avoid "no body".
+			h.writeSyntheticResponsesErrorSSE(c, flusher, errMsg)
 			cliCancel(errMsg.Error)
 			return
 		}
@@ -207,6 +206,50 @@ func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJ
 	dataChan, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, "")
 	h.forwardResponsesStream(c, flusher, func(err error) { cliCancel(err) }, dataChan, errChan)
 	return
+}
+
+func (h *OpenAIResponsesAPIHandler) writeSyntheticResponsesErrorSSE(c *gin.Context, flusher http.Flusher, errMsg *interfaces.ErrorMessage) {
+	// Always emit SSE with HTTP 200 so strict streaming clients can display the message.
+	c.Status(http.StatusOK)
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
+
+	msg := "Request failed."
+	statusCode := 0
+	if errMsg != nil {
+		statusCode = errMsg.StatusCode
+		if errMsg.Error != nil && errMsg.Error.Error() != "" {
+			raw := errMsg.Error.Error()
+			// Try to extract a user-facing message from common upstream error shapes.
+			if gjson.Valid(raw) {
+				if v := gjson.Get(raw, "error.message"); v.Exists() && v.String() != "" {
+					msg = v.String()
+				} else if v := gjson.Get(raw, "error.error.message"); v.Exists() && v.String() != "" {
+					msg = v.String()
+				} else if v := gjson.Get(raw, "message"); v.Exists() && v.String() != "" {
+					msg = v.String()
+				} else {
+					msg = raw
+				}
+			} else {
+				msg = raw
+			}
+		}
+	}
+	if statusCode > 0 {
+		msg = fmt.Sprintf("[HTTP %d] %s", statusCode, strings.TrimSpace(msg))
+	}
+
+	// Keep the message short; some clients stuff huge upstream JSON error blobs.
+	const maxChars = 1800
+	if len(msg) > maxChars {
+		msg = msg[:maxChars] + "\n...[truncated]..."
+	}
+
+	resp := fmt.Sprintf(`{"id":"resp_error_%d","output_text":%q}`, time.Now().UnixNano(), msg)
+	h.writeSyntheticResponsesSSE(c, flusher, []byte(resp))
 }
 
 func (h *OpenAIResponsesAPIHandler) forwardResponsesStream(c *gin.Context, flusher http.Flusher, cancel func(error), data <-chan []byte, errs <-chan *interfaces.ErrorMessage) {
