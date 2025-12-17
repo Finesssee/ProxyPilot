@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -15,9 +17,39 @@ import (
 const (
 	// codexHardReadLimit is a safety ceiling to avoid unbounded memory reads.
 	codexHardReadLimit = 10 * 1024 * 1024
-	// codexMaxBodyBytes is a best-effort budget to keep Codex CLI requests under common model limits.
-	codexMaxBodyBytes = 350 * 1024
+	// codexMaxBodyBytesDefault is a best-effort budget to keep agentic CLI requests under common model limits.
+	// It is intentionally conservative to avoid upstream "prompt too long" failures.
+	codexMaxBodyBytesDefault = 200 * 1024
 )
+
+var (
+	codexMaxBodyBytesOnce sync.Once
+	codexMaxBodyBytes     int
+)
+
+func agenticMaxBodyBytes() int {
+	codexMaxBodyBytesOnce.Do(func() {
+		codexMaxBodyBytes = codexMaxBodyBytesDefault
+
+		// Optional override (bytes). Useful when running behind very large-context models.
+		// Examples:
+		//   set CLIPROXY_AGENTIC_MAX_BODY_BYTES=350000
+		//   export CLIPROXY_AGENTIC_MAX_BODY_BYTES=350000
+		if v := strings.TrimSpace(os.Getenv("CLIPROXY_AGENTIC_MAX_BODY_BYTES")); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				// Clamp to a sane range: 32KB..2MB
+				if n < 32*1024 {
+					n = 32 * 1024
+				}
+				if n > 2*1024*1024 {
+					n = 2 * 1024 * 1024
+				}
+				codexMaxBodyBytes = n
+			}
+		}
+	})
+	return codexMaxBodyBytes
+}
 
 // CodexPromptBudgetMiddleware trims oversized OpenAI requests coming from Codex CLI.
 //
@@ -36,8 +68,10 @@ func CodexPromptBudgetMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		ua := req.Header.Get("User-Agent")
-		if !strings.Contains(strings.ToLower(ua), "openai codex") {
+		ua := strings.ToLower(req.Header.Get("User-Agent"))
+		isStainless := req.Header.Get("X-Stainless-Lang") != "" || req.Header.Get("X-Stainless-Package-Version") != ""
+		isAgenticCLI := strings.Contains(ua, "openai codex") || strings.Contains(ua, "factory-cli") || strings.Contains(ua, "warp") || isStainless
+		if !isAgenticCLI {
 			c.Next()
 			return
 		}
@@ -76,7 +110,8 @@ func CodexPromptBudgetMiddleware() gin.HandlerFunc {
 		}
 
 		originalLen := len(body)
-		if originalLen <= codexMaxBodyBytes {
+		maxBytes := agenticMaxBodyBytes()
+		if originalLen <= maxBytes {
 			req.Body = io.NopCloser(bytes.NewReader(body))
 			req.ContentLength = int64(originalLen)
 			req.Header.Set("Content-Length", strconv.Itoa(originalLen))
@@ -88,9 +123,9 @@ func CodexPromptBudgetMiddleware() gin.HandlerFunc {
 		trimmed := body
 		switch {
 		case strings.HasSuffix(path, "/v1/chat/completions"):
-			trimmed = trimOpenAIChatCompletions(trimmed, codexMaxBodyBytes)
+			trimmed = trimOpenAIChatCompletions(trimmed, maxBytes)
 		case strings.HasSuffix(path, "/v1/responses"):
-			trimmed = trimOpenAIResponses(trimmed, codexMaxBodyBytes)
+			trimmed = trimOpenAIResponses(trimmed, maxBytes)
 		default:
 			// Not a known OpenAI payload shape; keep as-is.
 		}
@@ -130,7 +165,14 @@ func trimOpenAIChatCompletions(body []byte, maxBytes int) []byte {
 
 	keep := 20
 	perTextLimit := 20_000
+	dropTools := false
 	for keep >= 1 {
+		outBody := body
+		if dropTools {
+			outBody, _ = sjson.DeleteBytes(outBody, "tools")
+			outBody, _ = sjson.SetBytes(outBody, "tool_choice", "none")
+		}
+
 		newMsgs := make([]string, 0, keep+1)
 		if firstSystem.Exists() {
 			newMsgs = append(newMsgs, truncateMessageContent(firstSystem.Raw, perTextLimit))
@@ -152,7 +194,7 @@ func trimOpenAIChatCompletions(body []byte, maxBytes int) []byte {
 			reverseStrings(newMsgs)
 		}
 
-		out := setJSONArrayBytes(body, "messages", newMsgs)
+		out := setJSONArrayBytes(outBody, "messages", newMsgs)
 		if len(out) <= maxBytes {
 			return out
 		}
@@ -162,6 +204,7 @@ func trimOpenAIChatCompletions(body []byte, maxBytes int) []byte {
 		if perTextLimit > 5_000 {
 			perTextLimit = perTextLimit / 2
 		}
+		dropTools = true
 	}
 
 	return body
@@ -181,12 +224,22 @@ func trimOpenAIResponses(body []byte, maxBytes int) []byte {
 
 	keep := 30
 	perTextLimit := 20_000
+	dropTools := false
 	for keep >= 1 {
 		outBody := body
+		if dropTools {
+			outBody, _ = sjson.DeleteBytes(outBody, "tools")
+			outBody, _ = sjson.SetBytes(outBody, "tool_choice", "none")
+		}
 		if inst := root.Get("instructions"); inst.Exists() && inst.Type == gjson.String {
 			s := inst.String()
-			if len(s) > perTextLimit {
-				outBody, _ = sjson.SetBytes(outBody, "instructions", s[:perTextLimit]+"\n...[truncated]...")
+			// Instructions can be validated separately upstream; keep it much shorter than message text.
+			instructionsLimit := perTextLimit
+			if instructionsLimit > 2048 {
+				instructionsLimit = 2048
+			}
+			if len(s) > instructionsLimit {
+				outBody, _ = sjson.SetBytes(outBody, "instructions", s[:instructionsLimit]+"\n...[truncated]...")
 			}
 		}
 
@@ -207,6 +260,7 @@ func trimOpenAIResponses(body []byte, maxBytes int) []byte {
 		if perTextLimit > 5_000 {
 			perTextLimit = perTextLimit / 2
 		}
+		dropTools = true
 	}
 
 	return body
