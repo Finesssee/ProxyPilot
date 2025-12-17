@@ -52,22 +52,9 @@ func ConvertOpenAIResponsesRequestToClaude(modelName string, inputRawJSON []byte
 
 	root := gjson.ParseBytes(rawJSON)
 
-	if v := root.Get("reasoning.effort"); v.Exists() {
-		out, _ = sjson.Set(out, "thinking.type", "enabled")
-
-		switch v.String() {
-		case "none":
-			out, _ = sjson.Set(out, "thinking.type", "disabled")
-		case "minimal":
-			out, _ = sjson.Set(out, "thinking.budget_tokens", 1024)
-		case "low":
-			out, _ = sjson.Set(out, "thinking.budget_tokens", 4096)
-		case "medium":
-			out, _ = sjson.Set(out, "thinking.budget_tokens", 8192)
-		case "high":
-			out, _ = sjson.Set(out, "thinking.budget_tokens", 24576)
-		}
-	}
+	// Do not map OpenAI "reasoning.effort" to Claude extended thinking by default.
+	// Enabling Claude thinking requires assistant messages to start with a thinking block,
+	// which OpenAI-format requests do not provide and will be rejected upstream.
 
 	// Helper for generating tool call IDs when missing
 	genToolCallID := func() string {
