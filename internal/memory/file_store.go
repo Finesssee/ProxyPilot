@@ -84,7 +84,7 @@ func (s *FileStore) Search(session string, query string, maxChars int, maxSnippe
 	path := filepath.Join(dir, "events.jsonl")
 
 	// Anchored summary is always the first snippet when present.
-	summary := strings.TrimSpace(s.readSmallTextFile(filepath.Join(dir, "summary.md"), 12_000))
+	summary := strings.TrimSpace(s.ReadSummary(session, 12_000))
 
 	data, err := readTailBytes(path, 2*1024*1024)
 	if err != nil {
@@ -209,7 +209,7 @@ func (s *FileStore) UpsertAnchoredSummary(session string, dropped []Event, pinne
 	}
 	pinned = strings.TrimSpace(RedactText(pinned))
 	if pinned != "" {
-		_ = os.WriteFile(filepath.Join(dir, "pinned.txt"), []byte(pinned), 0o644)
+		_ = s.WritePinned(session, pinned, 8000)
 	}
 
 	prev := s.readSmallTextFile(filepath.Join(dir, "summary.md"), 60_000)
@@ -404,6 +404,77 @@ func (s *FileStore) WriteTodo(session string, todo string, maxChars int) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dir, "todo.md"), []byte(todo), 0o644)
+}
+
+func (s *FileStore) ReadPinned(session string, maxChars int) string {
+	if s == nil || s.BaseDir == "" {
+		return ""
+	}
+	if session == "" {
+		return ""
+	}
+	if maxChars <= 0 {
+		maxChars = 6000
+	}
+	dir := s.sessionDir(session)
+	txt := strings.TrimSpace(s.readSmallTextFile(filepath.Join(dir, "pinned.md"), int64(maxChars*2)))
+	if txt == "" {
+		txt = strings.TrimSpace(s.readSmallTextFile(filepath.Join(dir, "pinned.txt"), int64(maxChars*2)))
+	}
+	if txt == "" {
+		return ""
+	}
+	if len(txt) > maxChars {
+		txt = txt[:maxChars] + "\n...[truncated]..."
+	}
+	return txt
+}
+
+func (s *FileStore) WritePinned(session string, pinned string, maxChars int) error {
+	if s == nil || s.BaseDir == "" {
+		return errors.New("memory store not configured")
+	}
+	if session == "" {
+		return nil
+	}
+	if maxChars <= 0 {
+		maxChars = 8000
+	}
+	pinned = strings.TrimSpace(RedactText(pinned))
+	if pinned == "" {
+		return nil
+	}
+	if len(pinned) > maxChars {
+		pinned = pinned[:maxChars] + "\n...[truncated]..."
+	}
+	dir := s.sessionDir(session)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	// Keep legacy pinned.txt for compatibility with earlier builds.
+	_ = os.WriteFile(filepath.Join(dir, "pinned.txt"), []byte(pinned), 0o644)
+	return os.WriteFile(filepath.Join(dir, "pinned.md"), []byte(pinned), 0o644)
+}
+
+func (s *FileStore) ReadSummary(session string, maxChars int) string {
+	if s == nil || s.BaseDir == "" {
+		return ""
+	}
+	if session == "" {
+		return ""
+	}
+	if maxChars <= 0 {
+		maxChars = 6000
+	}
+	dir := s.sessionDir(session)
+	txt := strings.TrimSpace(s.readSmallTextFile(filepath.Join(dir, "summary.md"), int64(maxChars*2)))
+	if txt == "" {
+		return ""
+	}
+	if len(txt) > maxChars {
+		txt = txt[:maxChars] + "\n...[truncated]..."
+	}
+	return txt
 }
 
 func readTailBytes(path string, max int64) ([]byte, error) {
