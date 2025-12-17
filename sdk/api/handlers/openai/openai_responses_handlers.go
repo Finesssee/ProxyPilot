@@ -89,6 +89,7 @@ func (h *OpenAIResponsesAPIHandler) Responses(c *gin.Context) {
 	rawJSON = util.NormalizeOpenAIResponsesToolOrder(rawJSON)
 	rawJSON = tightenToolSchemas(rawJSON, true)
 	rawJSON = maybeCompactFactoryInput(c, rawJSON)
+	rawJSON = maybeInjectFactoryInstructions(c, rawJSON)
 
 	// Check if the client requested a streaming response.
 	streamResult := gjson.GetBytes(rawJSON, "stream")

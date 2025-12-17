@@ -38,16 +38,27 @@ func maybeCompactFactoryInput(c *gin.Context, rawJSON []byte) []byte {
 		}
 		parts := content.Array()
 		for pi, part := range parts {
-			if part.Get("type").String() != "input_text" {
+			partType := part.Get("type").String()
+			if partType == "" && part.Get("text").Exists() {
+				// Some Factory/Droid payloads omit the "type" field and just send {text:"..."} items.
+				partType = "input_text"
+			}
+			if partType != "input_text" {
 				continue
 			}
 			text := part.Get("text").String()
-			if len(text) <= factoryMaxInputTextChars {
-				continue
-			}
 			text = stripToolCallTags(text)
-			if len(text) > factoryMaxInputTextChars {
+			// Special case: Droid /compact dumps a huge "previous instance summary" into a single input_text.
+			// Keeping the head is counterproductive (it's mostly stale); keep only the tail which contains
+			// the latest user intent and near-term steps.
+			if strings.Contains(text, "A previous instance of Droid") && strings.Contains(text, "<summary>") {
+				if len(text) > factoryKeepTailChars {
+					text = compactText(text, 0, factoryKeepTailChars)
+				}
+			} else if len(text) > factoryMaxInputTextChars {
 				text = compactText(text, factoryKeepHeadChars, factoryKeepTailChars)
+			} else {
+				continue
 			}
 			updated, err := sjson.SetBytes(out, "input."+itoa(mi)+".content."+itoa(pi)+".text", text)
 			if err == nil {
