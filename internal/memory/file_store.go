@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -361,6 +362,42 @@ func (s *FileStore) readSmallTextFile(path string, maxBytes int64) string {
 	return string(b)
 }
 
+func normalizeEscapedText(s string) string {
+	// Fix common “double escaped” artifacts from JSON stringification (PowerShell ConvertTo-Json, etc).
+	// Example: "\\n" should become "\n", and "\\u2019" should become "’".
+	//
+	// Best-effort only: on invalid escape sequences, return original.
+	if s == "" {
+		return s
+	}
+	looksEscaped := strings.Contains(s, `\n`) || strings.Contains(s, `\u`) || strings.Contains(s, `\r`) || strings.Contains(s, `\t`)
+	if !looksEscaped {
+		return s
+	}
+
+	// If the text already has real newlines, escape them so Unquote can parse a single-line literal.
+	if strings.Contains(s, "\n") || strings.Contains(s, "\r") {
+		s = strings.ReplaceAll(s, "\r", `\r`)
+		s = strings.ReplaceAll(s, "\n", `\n`)
+	}
+
+	quoted := `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
+	decoded, err := strconv.Unquote(quoted)
+	if err != nil {
+		return s
+	}
+	// Normalize “smart quotes” to plain ASCII to avoid mojibake in some Windows terminals.
+	decoded = strings.NewReplacer(
+		"’", "'",
+		"‘", "'",
+		"“", "\"",
+		"”", "\"",
+		"–", "-",
+		"—", "-",
+	).Replace(decoded)
+	return decoded
+}
+
 func (s *FileStore) ReadTodo(session string, maxChars int) string {
 	if s == nil || s.BaseDir == "" {
 		return ""
@@ -376,6 +413,7 @@ func (s *FileStore) ReadTodo(session string, maxChars int) string {
 	if txt == "" {
 		return ""
 	}
+	txt = normalizeEscapedText(txt)
 	if len(txt) > maxChars {
 		txt = txt[:maxChars] + "\n...[truncated]..."
 	}
@@ -396,6 +434,7 @@ func (s *FileStore) WriteTodo(session string, todo string, maxChars int) error {
 	if todo == "" {
 		return nil
 	}
+	todo = normalizeEscapedText(todo)
 	if len(todo) > maxChars {
 		todo = todo[:maxChars] + "\n...[truncated]..."
 	}
@@ -424,6 +463,7 @@ func (s *FileStore) ReadPinned(session string, maxChars int) string {
 	if txt == "" {
 		return ""
 	}
+	txt = normalizeEscapedText(txt)
 	if len(txt) > maxChars {
 		txt = txt[:maxChars] + "\n...[truncated]..."
 	}
@@ -444,6 +484,7 @@ func (s *FileStore) WritePinned(session string, pinned string, maxChars int) err
 	if pinned == "" {
 		return nil
 	}
+	pinned = normalizeEscapedText(pinned)
 	if len(pinned) > maxChars {
 		pinned = pinned[:maxChars] + "\n...[truncated]..."
 	}
@@ -471,6 +512,7 @@ func (s *FileStore) ReadSummary(session string, maxChars int) string {
 	if txt == "" {
 		return ""
 	}
+	txt = normalizeEscapedText(txt)
 	if len(txt) > maxChars {
 		txt = txt[:maxChars] + "\n...[truncated]..."
 	}
