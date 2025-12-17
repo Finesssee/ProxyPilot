@@ -16,6 +16,7 @@ gitstore/*
 objectstore/*
 static/*
 refs/*
+dist/*
 
 # Authentication data
 auths/*
