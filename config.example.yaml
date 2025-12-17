@@ -20,7 +20,7 @@ remote-management:
   # Management key. If a plaintext value is provided here, it will be hashed on startup.
   # All management requests (even from localhost) require this key.
   # Leave empty to disable the Management API entirely (404 for all /v0/management routes).
-  secret-key: ""
+  secret-key: "local-dev-key"
 
   # Disable the bundled management control panel asset download and HTTP route when true.
   disable-control-panel: false
@@ -30,8 +30,7 @@ auth-dir: "~/.cli-proxy-api"
 
 # API keys for authentication
 api-keys:
-  - "your-api-key-1"
-  - "your-api-key-2"
+  - "local-dev-key"
 
 # Enable debug logging
 debug: false
@@ -166,3 +165,7 @@ ws-auth: false
 #           protocol: "codex" # restricts the rule to a specific protocol, options: openai, gemini, claude, codex
 #       params: # JSON path (gjson/sjson syntax) -> value
 #         "reasoning.effort": "high"
+
+# Strict fallback primary account for antigravity (optional).
+# When set, the proxy prefers this antigravity OAuth account and only uses other antigravity auths when it is blocked.
+# antigravity-primary-email: "yuhh00704@gmail.com"

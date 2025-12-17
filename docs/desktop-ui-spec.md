@@ -22,12 +22,12 @@ We can support both Wails and Tauri without forking business logic by standardiz
 ### Primary shell: Wails (Go)
 
 - Pros: simplest integration with existing Go codebase, easiest to ship v1 fast.
-- Architecture: Wails UI ⇄ Go control layer (in-process).
+- Architecture: Wails UI ↔ Go control layer (in-process).
 
 ### Secondary shell: Tauri (Rust)
 
 - Pros: smaller footprint, strong native tray/window tooling, good distribution story.
-- Architecture (recommended): Tauri UI ⇄ helper CLI ⇄ Go control layer.
+- Architecture (recommended): Tauri UI ↔ helper CLI ↔ Go control layer.
   - Tauri calls `cliproxyctl` (or similar) as a subprocess.
   - Benefits: no Rust↔Go FFI, no duplicated process logic, easy testing.
 
@@ -46,7 +46,6 @@ We can support both Wails and Tauri without forking business logic by standardiz
   - `cliproxyctl start --config <path>`
   - `cliproxyctl stop`
   - `cliproxyctl restart --config <path>`
-  - `cliproxyctl autostart on|off`
   - `cliproxyctl diag --config <path> --out <file|clipboard>`
 
 Wails can call `internal/desktopctl` directly; Tauri can call `cliproxyctl`.
@@ -62,7 +61,7 @@ Wails can call `internal/desktopctl` directly; Tauri can call `cliproxyctl`.
 
 ### Health
 
-- Health check: `GET http://127.0.0.1:<port>/v1/models` (or add `/healthz` later).
+- Health check: `GET http://127.0.0.1:<port>/healthz`.
 - Show last successful check time and last error message.
 
 ### Config
@@ -124,6 +123,5 @@ Windows and macOS implementations can live in separate files via Go build tags:
 ## Open questions
 
 - Should the desktop app bundle `cliproxyapi-latest` or manage an existing install?
-- Do we add a stable `/healthz` endpoint to make health checks cheaper and consistent?
 - Do we want a dedicated “desktop control” HTTP endpoint in the proxy (vs local process control only)?
 

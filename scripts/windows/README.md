@@ -24,17 +24,7 @@ Logs:
 
 ## Auto-start at logon (Windows)
 
-Recommended: install a per-user startup entry (no admin required):
-
-- Install: `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-cliproxyapi-startup-run.ps1`
-- Uninstall: `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\uninstall-cliproxyapi-startup-run.ps1`
-
-Optional: install a scheduled task (may require admin depending on your system policy):
-
-- Install: `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-cliproxyapi-startup-task.ps1`
-- Uninstall: `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\uninstall-cliproxyapi-startup-task.ps1`
-
-This uses `scripts\run-cliproxyapi-hidden.vbs` to start the server hidden and write logs to `logs\`.
+Prefer using **ProxyPilot** for autostart (it can toggle “Launch on login” in the tray menu), and start/stop the proxy from there.
 
 ### One-time cleanup (if stop says "Access is denied")
 
@@ -43,7 +33,7 @@ That means CLIProxyAPI was started **elevated** (commonly via a scheduled task w
 Run once in an **elevated PowerShell**:
 
 - `taskkill /IM cliproxyapi.exe /F`
-- `schtasks /Delete /TN "CLIProxyAPI-Logon" /F` (if it exists)
+- `schtasks /Delete /TN "CLIProxyAPI-Logon" /F` (if it exists; legacy autostart)
 
 ## Use it in Droid
 

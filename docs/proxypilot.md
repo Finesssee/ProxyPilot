@@ -19,7 +19,8 @@ If you have Go installed, you can build/package from a single command (no `.ps1`
 
 - Build: `go run .\cmd\proxypilotpack build`
 - Zip: `go run .\cmd\proxypilotpack package-zip`
-- Installer: `go run .\cmd\proxypilotpack package-setup`
+- Installer (legacy, IExpress): `go run .\cmd\proxypilotpack package-setup`
+- Installer (recommended, Inno Setup): `go run .\cmd\proxypilotpack package-inno` (requires Inno Setup `ISCC.exe`)
 
 ### Build the proxy
 
@@ -122,7 +123,10 @@ The proxy saves it to `todo.md` and strips the header before forwarding upstream
 
 ## Autostart
 
-ProxyPilot tray app can toggle “Launch on login”.
+ProxyPilot tray app can toggle:
+- “Launch on login” (starts ProxyPilot)
+- “Auto-start proxy” (starts `cliproxyapi-latest` when ProxyPilot launches)
+
 On Windows this uses a per-user autostart mechanism (no admin required).
 
 ## Logs / diagnostics
