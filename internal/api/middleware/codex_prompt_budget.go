@@ -2,15 +2,20 @@ package middleware
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/memory"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -26,6 +31,9 @@ const (
 var (
 	codexMaxBodyBytesOnce sync.Once
 	codexMaxBodyBytes     int
+
+	memOnce  sync.Once
+	memStore memory.Store
 )
 
 func agenticMaxBodyBytes() int {
@@ -50,6 +58,28 @@ func agenticMaxBodyBytes() int {
 		}
 	})
 	return codexMaxBodyBytes
+}
+
+func agenticMemoryStore() memory.Store {
+	memOnce.Do(func() {
+		if v := strings.TrimSpace(os.Getenv("CLIPROXY_MEMORY_ENABLED")); v != "" {
+			if strings.EqualFold(v, "0") || strings.EqualFold(v, "false") || strings.EqualFold(v, "off") || strings.EqualFold(v, "no") {
+				memStore = nil
+				return
+			}
+		}
+
+		base := strings.TrimSpace(os.Getenv("CLIPROXY_MEMORY_DIR"))
+		if base == "" {
+			if w := util.WritablePath(); w != "" {
+				base = filepath.Join(w, ".proxypilot", "memory")
+			} else {
+				base = filepath.Join(".proxypilot", "memory")
+			}
+		}
+		memStore = memory.NewFileStore(base)
+	})
+	return memStore
 }
 
 // CodexPromptBudgetMiddleware trims oversized OpenAI requests coming from Codex CLI.
@@ -123,11 +153,18 @@ func CodexPromptBudgetMiddleware() gin.HandlerFunc {
 
 		path := req.URL.Path
 		trimmed := body
+		session := extractAgenticSessionKey(req, body)
 		switch {
 		case strings.HasSuffix(path, "/v1/chat/completions"):
-			trimmed = trimOpenAIChatCompletions(trimmed, maxBytes, mustKeepTools)
+			res := trimOpenAIChatCompletionsWithMemory(trimmed, maxBytes, mustKeepTools)
+			trimmed = res.Body
+			agenticStoreAndInjectMemory(req, session, res, maxBytes)
+			trimmed = res.Body
 		case strings.HasSuffix(path, "/v1/responses"):
-			trimmed = trimOpenAIResponses(trimmed, maxBytes, mustKeepTools)
+			res := trimOpenAIResponsesWithMemory(trimmed, maxBytes, mustKeepTools)
+			trimmed = res.Body
+			agenticStoreAndInjectMemory(req, session, res, maxBytes)
+			trimmed = res.Body
 		default:
 			// Not a known OpenAI payload shape; keep as-is.
 		}
@@ -143,6 +180,159 @@ func CodexPromptBudgetMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+type trimWithMemoryResult struct {
+	Body    []byte
+	Query   string
+	Dropped []memory.Event
+	Shape   string // "chat" or "responses"
+}
+
+func agenticStoreAndInjectMemory(req *http.Request, session string, res *trimWithMemoryResult, maxBytes int) {
+	if req == nil || res == nil {
+		return
+	}
+	if session == "" {
+		return
+	}
+	store := agenticMemoryStore()
+	if store == nil {
+		return
+	}
+
+	if len(res.Dropped) > 0 {
+		_ = store.Append(session, res.Dropped)
+	}
+
+	// Only inject retrieval when we actually trimmed (otherwise it just spends tokens).
+	// Also avoid injecting if tools were forcibly disabled by the client.
+	if strings.TrimSpace(res.Query) == "" {
+		return
+	}
+
+	maxSnips := 8
+	maxChars := 6000
+	snips, err := store.Search(session, res.Query, maxChars, maxSnips)
+	if err != nil || len(snips) == 0 {
+		return
+	}
+
+	memBlock := buildMemoryBlock(snips)
+	res.Body = injectMemoryIntoBody(res.Shape, res.Body, memBlock, maxBytes)
+}
+
+func buildMemoryBlock(snips []string) string {
+	if len(snips) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("<memory>\n")
+	b.WriteString("Relevant prior context (auto-retrieved):\n")
+	for i := range snips {
+		b.WriteString("\n---\n")
+		b.WriteString(snips[i])
+		b.WriteString("\n")
+	}
+	b.WriteString("</memory>\n")
+	return b.String()
+}
+
+func injectMemoryIntoBody(shape string, body []byte, memText string, maxBytes int) []byte {
+	memText = strings.TrimSpace(memText)
+	if memText == "" {
+		return body
+	}
+	if maxBytes <= 0 || len(body) >= maxBytes {
+		return body
+	}
+
+	// Budget the injection to fit.
+	limit := maxBytes - len(body) - 512
+	if limit <= 0 {
+		return body
+	}
+	if len(memText) > limit {
+		memText = memText[:limit] + "\n...[truncated]..."
+	}
+
+	out := body
+	switch shape {
+	case "responses":
+		inst := gjson.GetBytes(out, "instructions")
+		if inst.Exists() && inst.Type == gjson.String && strings.TrimSpace(inst.String()) != "" {
+			merged := inst.String() + "\n\n" + memText
+			if updated, err := sjson.SetBytes(out, "instructions", merged); err == nil {
+				out = updated
+			}
+		} else {
+			if updated, err := sjson.SetBytes(out, "instructions", memText); err == nil {
+				out = updated
+			}
+		}
+	case "chat":
+		// Prefer to append to existing system message; otherwise prepend a new one.
+		msgs := gjson.GetBytes(out, "messages")
+		if !msgs.Exists() || !msgs.IsArray() {
+			return out
+		}
+		arr := msgs.Array()
+		for i := 0; i < len(arr); i++ {
+			if strings.EqualFold(arr[i].Get("role").String(), "system") {
+				content := arr[i].Get("content")
+				if content.Type == gjson.String {
+					merged := content.String() + "\n\n" + memText
+					if updated, err := sjson.SetBytes(out, "messages."+strconv.Itoa(i)+".content", merged); err == nil {
+						out = updated
+					}
+					return out
+				}
+			}
+		}
+		sys := `{"role":"system","content":""}`
+		sys, _ = sjson.Set(sys, "content", memText)
+		newMsgs := make([]string, 0, len(arr)+1)
+		newMsgs = append(newMsgs, sys)
+		for i := 0; i < len(arr); i++ {
+			newMsgs = append(newMsgs, arr[i].Raw)
+		}
+		out = setJSONArrayBytes(out, "messages", newMsgs)
+	}
+
+	// If we still exceeded budget, drop memory (better than breaking requests).
+	if len(out) > maxBytes {
+		return body
+	}
+	return out
+}
+
+func extractAgenticSessionKey(req *http.Request, body []byte) string {
+	if req != nil {
+		if v := strings.TrimSpace(req.Header.Get("X-CLIProxyAPI-Session")); v != "" {
+			return v
+		}
+		if v := strings.TrimSpace(req.Header.Get("X-Session-Id")); v != "" {
+			return v
+		}
+	}
+	if v := gjson.GetBytes(body, "prompt_cache_key"); v.Exists() && v.Type == gjson.String && v.String() != "" {
+		return v.String()
+	}
+	if v := gjson.GetBytes(body, "metadata.session_id"); v.Exists() && v.Type == gjson.String && v.String() != "" {
+		return v.String()
+	}
+	if v := gjson.GetBytes(body, "session_id"); v.Exists() && v.Type == gjson.String && v.String() != "" {
+		return v.String()
+	}
+	// Fallback: stable-ish hash of auth + UA (never store the raw values as session).
+	ua := ""
+	auth := ""
+	if req != nil {
+		ua = req.Header.Get("User-Agent")
+		auth = req.Header.Get("Authorization")
+	}
+	sum := sha256.Sum256([]byte(auth + "|" + ua))
+	return "ua_" + hex.EncodeToString(sum[:8])
 }
 
 func agenticMaxBodyBytesForModel(body []byte) int {
@@ -372,6 +562,315 @@ func trimOpenAIResponses(body []byte, maxBytes int, mustKeepTools bool) []byte {
 	}
 
 	return body
+}
+
+func trimOpenAIChatCompletionsWithMemory(body []byte, maxBytes int, mustKeepTools bool) *trimWithMemoryResult {
+	root := gjson.ParseBytes(body)
+	msgs := root.Get("messages")
+	if !msgs.IsArray() {
+		return &trimWithMemoryResult{Body: body, Shape: "chat"}
+	}
+	arr := msgs.Array()
+	if len(arr) == 0 {
+		return &trimWithMemoryResult{Body: body, Shape: "chat"}
+	}
+
+	firstSystem := gjson.Result{}
+	firstSystemIndex := -1
+	for i := 0; i < len(arr); i++ {
+		if strings.EqualFold(arr[i].Get("role").String(), "system") {
+			firstSystem = arr[i]
+			firstSystemIndex = i
+			break
+		}
+	}
+
+	query := extractLastUserTextFromChat(arr)
+	keep := 20
+	perTextLimit := 20_000
+	dropTools := false
+	for keep >= 1 {
+		outBody := body
+		if dropTools && !mustKeepTools {
+			outBody, _ = sjson.DeleteBytes(outBody, "tools")
+			outBody, _ = sjson.SetBytes(outBody, "tool_choice", "none")
+		}
+
+		newMsgs := make([]string, 0, keep+1)
+		keptIdx := make(map[int]struct{}, keep+2)
+		if firstSystem.Exists() {
+			newMsgs = append(newMsgs, truncateMessageContent(firstSystem.Raw, perTextLimit))
+			keptIdx[firstSystemIndex] = struct{}{}
+		}
+
+		kept := 0
+		for i := len(arr) - 1; i >= 0 && kept < keep; i-- {
+			if strings.EqualFold(arr[i].Get("role").String(), "system") {
+				continue
+			}
+			newMsgs = append(newMsgs, truncateMessageContent(arr[i].Raw, perTextLimit))
+			keptIdx[i] = struct{}{}
+			kept++
+		}
+
+		if firstSystem.Exists() {
+			reverseStrings(newMsgs[1:])
+		} else {
+			reverseStrings(newMsgs)
+		}
+
+		out := setJSONArrayBytes(outBody, "messages", newMsgs)
+		if len(out) <= maxBytes {
+			dropped := collectDroppedChat(arr, keptIdx)
+			return &trimWithMemoryResult{Body: out, Query: query, Dropped: dropped, Shape: "chat"}
+		}
+
+		keep = keep / 2
+		if perTextLimit > 5_000 {
+			perTextLimit = perTextLimit / 2
+		}
+		dropTools = true
+	}
+	return &trimWithMemoryResult{Body: body, Query: query, Shape: "chat"}
+}
+
+func collectDroppedChat(arr []gjson.Result, kept map[int]struct{}) []memory.Event {
+	out := make([]memory.Event, 0, 32)
+	for i := 0; i < len(arr); i++ {
+		if _, ok := kept[i]; ok {
+			continue
+		}
+		role := arr[i].Get("role").String()
+		txt := extractTextFromChatMessage(arr[i])
+		if strings.TrimSpace(txt) == "" {
+			continue
+		}
+		out = append(out, memory.Event{Kind: "dropped_chat", Role: role, Text: txt})
+	}
+	return out
+}
+
+func extractLastUserTextFromChat(arr []gjson.Result) string {
+	for i := len(arr) - 1; i >= 0; i-- {
+		if !strings.EqualFold(arr[i].Get("role").String(), "user") {
+			continue
+		}
+		txt := extractTextFromChatMessage(arr[i])
+		if strings.TrimSpace(txt) != "" {
+			return txt
+		}
+	}
+	return ""
+}
+
+func extractTextFromChatMessage(msg gjson.Result) string {
+	content := msg.Get("content")
+	switch {
+	case content.Type == gjson.String:
+		return content.String()
+	case content.IsArray():
+		var b strings.Builder
+		for _, it := range content.Array() {
+			if t := it.Get("text"); t.Exists() && t.Type == gjson.String {
+				if b.Len() > 0 {
+					b.WriteString("\n")
+				}
+				b.WriteString(t.String())
+			}
+		}
+		return b.String()
+	default:
+		return ""
+	}
+}
+
+func trimOpenAIResponsesWithMemory(body []byte, maxBytes int, mustKeepTools bool) *trimWithMemoryResult {
+	root := gjson.ParseBytes(body)
+	input := root.Get("input")
+	if !input.Exists() || !input.IsArray() {
+		return &trimWithMemoryResult{Body: body, Shape: "responses"}
+	}
+	arr := input.Array()
+	if len(arr) == 0 {
+		return &trimWithMemoryResult{Body: body, Shape: "responses"}
+	}
+
+	query := extractLastUserTextFromResponses(arr)
+	keep := 30
+	perTextLimit := 20_000
+	dropTools := false
+	for keep >= 1 {
+		outBody := body
+		if dropTools && !mustKeepTools {
+			outBody, _ = sjson.DeleteBytes(outBody, "tools")
+			outBody, _ = sjson.SetBytes(outBody, "tool_choice", "none")
+		}
+		if inst := root.Get("instructions"); inst.Exists() && inst.Type == gjson.String {
+			s := inst.String()
+			instructionsLimit := perTextLimit
+			if instructionsLimit > 2048 {
+				instructionsLimit = 2048
+			}
+			if len(s) > instructionsLimit {
+				outBody, _ = sjson.SetBytes(outBody, "instructions", s[:instructionsLimit]+"\n...[truncated]...")
+			}
+		}
+
+		callByID := make(map[string]gjson.Result, 16)
+		for i := 0; i < len(arr); i++ {
+			item := arr[i]
+			t := item.Get("type").String()
+			if t == "" && item.Get("role").String() != "" {
+				t = "message"
+			}
+			if t != "function_call" {
+				continue
+			}
+			callID := item.Get("call_id").String()
+			if callID == "" {
+				continue
+			}
+			if _, ok := callByID[callID]; !ok {
+				callByID[callID] = item
+			}
+		}
+
+		needCall := make(map[string]struct{}, 8)
+		newItems := make([]string, 0, keep+8)
+		keptIdx := make(map[int]struct{}, keep+16)
+		kept := 0
+		for i := len(arr) - 1; i >= 0 && kept < keep; i-- {
+			item := arr[i]
+			t := item.Get("type").String()
+			if t == "" && item.Get("role").String() != "" {
+				t = "message"
+			}
+
+			if dropTools && !mustKeepTools && (t == "function_call" || t == "function_call_output") {
+				continue
+			}
+			if t == "function_call_output" {
+				callID := item.Get("call_id").String()
+				if callID != "" {
+					needCall[callID] = struct{}{}
+				}
+			}
+			if t == "function_call" {
+				callID := item.Get("call_id").String()
+				if callID != "" {
+					delete(needCall, callID)
+				}
+			}
+
+			newItems = append(newItems, truncateMessageContent(item.Raw, perTextLimit))
+			keptIdx[i] = struct{}{}
+			kept++
+		}
+		reverseStrings(newItems)
+
+		// Prepend missing function_call items required by kept outputs.
+		if !dropTools && len(needCall) > 0 {
+			ordered := make([]string, 0, len(needCall))
+			for i := 0; i < len(arr); i++ {
+				item := arr[i]
+				if item.Get("type").String() != "function_call" {
+					continue
+				}
+				callID := item.Get("call_id").String()
+				if callID == "" {
+					continue
+				}
+				if _, ok := needCall[callID]; ok {
+					if call, ok2 := callByID[callID]; ok2 {
+						ordered = append(ordered, call.Raw)
+						keptIdx[i] = struct{}{}
+					}
+				}
+			}
+			if len(ordered) > 0 {
+				newItems = append(ordered, newItems...)
+			}
+		}
+
+		out := setJSONArrayBytes(outBody, "input", newItems)
+		if len(out) <= maxBytes {
+			dropped := collectDroppedResponses(arr, keptIdx)
+			return &trimWithMemoryResult{Body: out, Query: query, Dropped: dropped, Shape: "responses"}
+		}
+
+		keep = keep / 2
+		if perTextLimit > 5_000 {
+			perTextLimit = perTextLimit / 2
+		}
+		if !mustKeepTools {
+			dropTools = true
+		}
+	}
+
+	return &trimWithMemoryResult{Body: body, Query: query, Shape: "responses"}
+}
+
+func collectDroppedResponses(arr []gjson.Result, kept map[int]struct{}) []memory.Event {
+	out := make([]memory.Event, 0, 64)
+	for i := 0; i < len(arr); i++ {
+		if _, ok := kept[i]; ok {
+			continue
+		}
+		item := arr[i]
+		t := item.Get("type").String()
+		role := item.Get("role").String()
+		txt := extractTextFromResponsesItem(item)
+		if strings.TrimSpace(txt) == "" {
+			continue
+		}
+		out = append(out, memory.Event{Kind: "dropped_responses", Type: t, Role: role, Text: txt})
+	}
+	return out
+}
+
+func extractLastUserTextFromResponses(arr []gjson.Result) string {
+	for i := len(arr) - 1; i >= 0; i-- {
+		item := arr[i]
+		role := item.Get("role").String()
+		if !strings.EqualFold(role, "user") {
+			continue
+		}
+		txt := extractTextFromResponsesItem(item)
+		if strings.TrimSpace(txt) != "" {
+			return txt
+		}
+	}
+	return ""
+}
+
+func extractTextFromResponsesItem(item gjson.Result) string {
+	// Typical Responses input item: {role:"user", content:[{type:"input_text", text:"..."}]}
+	content := item.Get("content")
+	if content.IsArray() {
+		var b strings.Builder
+		for _, part := range content.Array() {
+			text := part.Get("text")
+			if !text.Exists() || text.Type != gjson.String {
+				continue
+			}
+			if b.Len() > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(text.String())
+		}
+		return b.String()
+	}
+	if content.Type == gjson.String {
+		return content.String()
+	}
+	if t := item.Get("text"); t.Exists() && t.Type == gjson.String {
+		return t.String()
+	}
+	// function_call_output has output or content; capture raw-ish summary.
+	if out := item.Get("output"); out.Exists() && out.Type == gjson.String {
+		return out.String()
+	}
+	return ""
 }
 
 func truncateMessageContent(msgRaw string, maxTextChars int) string {
