@@ -26,6 +26,7 @@ docs/*
 !docs/claude-code-local-proxy.md
 !docs/cursor-ide.md
 !docs/compat-matrix.md
+!docs/hindsight.md
 AGENTS.md
 CLAUDE.md
 GEMINI.md
