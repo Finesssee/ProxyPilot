@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -28,6 +29,12 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 		originalInstructionsText = originalInstructionsResult.String()
 	}
 
+	// The chatgpt.com Codex backend requires a specific instruction prefix (Codex CLI prompt).
+	// Always provide the official Codex instructions for the target model, and move any caller
+	// instructions into a system message in the conversation history.
+	_, official := misc.CodexInstructionsForModel(modelName, "")
+	rawJSON, _ = sjson.SetBytes(rawJSON, "instructions", official)
+
 	inputResult := gjson.GetBytes(rawJSON, "input")
 	var inputResults []gjson.Result
 	if inputResult.Exists() {
@@ -42,9 +49,7 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 		inputResults = []gjson.Result{}
 	}
 
-	// The chatgpt.com Codex backend rejects "instructions" in many cases (400: "Instructions are not valid").
-	// Preserve caller instructions by converting them into an explicit system message inside "input",
-	// and then delete the top-level "instructions" field.
+	// Preserve caller instructions by converting them into an explicit system message inside "input".
 	if strings.TrimSpace(originalInstructionsText) != "" {
 		sys := `{"type":"message","role":"system","content":[{"type":"input_text","text":""}]}`
 		sys, _ = sjson.Set(sys, "content.0.text", originalInstructionsText)
@@ -56,9 +61,5 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 		}
 		rawJSON, _ = sjson.SetRawBytes(rawJSON, "input", []byte(newInput))
 	}
-	rawJSON, _ = sjson.DeleteBytes(rawJSON, "instructions")
-
-	// modelName is part of the fixed method signature
-	_ = modelName
 	return rawJSON
 }

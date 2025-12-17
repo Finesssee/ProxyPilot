@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -64,6 +65,11 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 	out, _ = sjson.Set(out, "parallel_tool_calls", true)
 	out, _ = sjson.Set(out, "reasoning.summary", "auto")
 	out, _ = sjson.Set(out, "include", []string{"reasoning.encrypted_content"})
+
+	// The chatgpt.com Codex backend requires a specific instruction prefix (Codex CLI prompt).
+	// Always provide the official Codex instructions for the target model.
+	_, official := misc.CodexInstructionsForModel(modelName, "")
+	out, _ = sjson.Set(out, "instructions", official)
 
 	// Model
 	out, _ = sjson.Set(out, "model", modelName)
