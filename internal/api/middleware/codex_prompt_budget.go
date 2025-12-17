@@ -243,13 +243,92 @@ func trimOpenAIResponses(body []byte, maxBytes int) []byte {
 			}
 		}
 
-		newItems := make([]string, 0, keep)
+		// Preserve tool call/result pairs:
+		// - If we keep a function_call_output, we must also keep the matching function_call (same call_id),
+		//   otherwise downstream Claude-style validators can reject with tool_result/tool_use mismatches.
+		// - If we've decided to drop tools, remove both calls and outputs from the conversation history.
+		callByID := make(map[string]string, 16)
+		for i := 0; i < len(arr); i++ {
+			item := arr[i]
+			t := item.Get("type").String()
+			if t == "" && item.Get("role").String() != "" {
+				t = "message"
+			}
+			if t != "function_call" {
+				continue
+			}
+			callID := item.Get("call_id").String()
+			if callID == "" {
+				continue
+			}
+			// Keep the first occurrence to avoid reordering/duplication surprises.
+			if _, ok := callByID[callID]; !ok {
+				callByID[callID] = item.Raw
+			}
+		}
+
+		needCall := make(map[string]struct{}, 8)
+		newItems := make([]string, 0, keep+8)
 		kept := 0
 		for i := len(arr) - 1; i >= 0 && kept < keep; i-- {
-			newItems = append(newItems, truncateMessageContent(arr[i].Raw, perTextLimit))
+			item := arr[i]
+			t := item.Get("type").String()
+			if t == "" && item.Get("role").String() != "" {
+				t = "message"
+			}
+
+			if dropTools && (t == "function_call" || t == "function_call_output") {
+				continue
+			}
+
+			if t == "function_call_output" {
+				callID := item.Get("call_id").String()
+				if callID != "" {
+					needCall[callID] = struct{}{}
+				}
+			}
+			if t == "function_call" {
+				callID := item.Get("call_id").String()
+				if callID != "" {
+					delete(needCall, callID)
+				}
+			}
+
+			newItems = append(newItems, truncateMessageContent(item.Raw, perTextLimit))
 			kept++
 		}
 		reverseStrings(newItems)
+
+		// Prepend any missing function_call items required by kept outputs.
+		// If we don't have the matching call, drop the orphan outputs later in the loop by tightening keep/perTextLimit.
+		if !dropTools && len(needCall) > 0 {
+			prefix := make([]string, 0, len(needCall))
+			for callID := range needCall {
+				if raw, ok := callByID[callID]; ok {
+					prefix = append(prefix, raw)
+				}
+			}
+			if len(prefix) > 0 {
+				// Keep stable order by inserting in original array order.
+				ordered := make([]string, 0, len(prefix))
+				for i := 0; i < len(arr); i++ {
+					item := arr[i]
+					if item.Get("type").String() != "function_call" {
+						continue
+					}
+					callID := item.Get("call_id").String()
+					if callID == "" {
+						continue
+					}
+					if _, ok := needCall[callID]; ok {
+						if raw, ok2 := callByID[callID]; ok2 {
+							ordered = append(ordered, raw)
+						}
+					}
+				}
+				newItems = append(ordered, newItems...)
+			}
+		}
 
 		out := setJSONArrayBytes(outBody, "input", newItems)
 		if len(out) <= maxBytes {
