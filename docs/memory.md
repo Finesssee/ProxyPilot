@@ -41,9 +41,7 @@ The session key is chosen in this order:
 
 - Dropped items are appended as JSONL events (`dropped_chat` / `dropped_responses`)
 - Retrieval is a lightweight keyword scorer over the last ~2MB of stored events
-- Up to 8 snippets (~6k chars) are injected:
-  - `/v1/responses`: appended to `instructions`
-  - `/v1/chat/completions`: appended to the first system message, or prepended as a new system message
+- Up to 8 snippets (~6k chars) are injected by appending to the **last user message** (best-effort).
 
 ## Environment variables
 
@@ -80,3 +78,8 @@ Packed block format:
   - `<pinned>` from `pinned.md`
   - `<anchor>` from `summary.md`
   - `<todo>` from `todo.md`
+
+## Text normalization
+
+Some clients (notably PowerShell `ConvertTo-Json`) can store TODO/pinned state with escaped sequences like `\\n` / `\\u2019`.
+CLIProxyAPI normalizes common escape sequences when reading/writing `todo.md`, `pinned.md`, and `summary.md` so the injected state stays readable.

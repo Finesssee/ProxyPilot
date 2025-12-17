@@ -33,6 +33,7 @@ docs/*
 !docs/desktop-ui-spec.md
 !docs/windows-ui-spec.md
 !docs/memory.md
+!docs/proxypilot.md
 AGENTS.md
 CLAUDE.md
 GEMINI.md
