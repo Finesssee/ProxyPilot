@@ -135,6 +135,7 @@ func (h *OpenAIResponsesAPIHandler) handleNonStreamingResponse(c *gin.Context, r
 		return
 	}
 	resp = sanitizeToolCallArguments(resp, rawJSON, true)
+	resp = convertToolCallTagsToResponsesFunctionCalls(resp)
 
 	// Some clients assume output[0] is a message. Ensure messages come first for known agentic CLIs.
 	resp = normalizeResponsesOutputOrder(c, resp)
@@ -189,6 +190,7 @@ func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJ
 			return
 		}
 		resp = sanitizeToolCallArguments(resp, nonStreamReq, true)
+		resp = convertToolCallTagsToResponsesFunctionCalls(resp)
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
