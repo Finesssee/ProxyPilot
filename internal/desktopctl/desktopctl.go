@@ -1,0 +1,254 @@
+package desktopctl
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"syscall"
+	"time"
+)
+
+func StatusFor(configPath string) (Status, error) {
+	statePath := defaultStatePath()
+	s, _ := loadState(statePath)
+
+	resolvedConfig := strings.TrimSpace(configPath)
+	if resolvedConfig == "" && s != nil {
+		resolvedConfig = s.ConfigPath
+	}
+	if resolvedConfig == "" {
+		return Status{Running: false, Managed: false}, nil
+	}
+
+	port, err := loadPort(resolvedConfig)
+	if err != nil {
+		return Status{Running: false, Managed: s != nil, PID: pidOrZero(s), ConfigPath: resolvedConfig, ExePath: exeOrEmpty(s), StartedAt: startedAtOrZero(s), LastError: err.Error()}, nil
+	}
+
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+	healthErr := checkHealth(baseURL)
+
+	running := healthErr == nil
+	managed := s != nil && s.PID > 0
+	if managed {
+		if alive, _ := isProcessAlive(s.PID); !alive {
+			managed = false
+		}
+	}
+
+	out := Status{
+		Running:    running,
+		Managed:    managed,
+		PID:        pidOrZero(s),
+		Port:       port,
+		BaseURL:    baseURL,
+		ConfigPath: resolvedConfig,
+		ExePath:    exeOrEmpty(s),
+		StartedAt:  startedAtOrZero(s),
+	}
+	if healthErr != nil {
+		out.LastError = healthErr.Error()
+	}
+	return out, nil
+}
+
+func Start(opts StartOptions) (Status, error) {
+	statePath := defaultStatePath()
+	configPath, err := resolveConfigPath(opts.RepoRoot, opts.ConfigPath)
+	if err != nil {
+		return Status{}, err
+	}
+	exePath := resolveExePath(opts.RepoRoot, opts.ExePath)
+	if exePath == "" {
+		return Status{}, fmt.Errorf("exe path is required")
+	}
+	if _, err := os.Stat(exePath); err != nil {
+		return Status{}, fmt.Errorf("binary not found: %s", exePath)
+	}
+	if _, err := os.Stat(configPath); err != nil {
+		return Status{}, fmt.Errorf("config not found: %s", configPath)
+	}
+
+	port, err := loadPort(configPath)
+	if err != nil {
+		return Status{}, err
+	}
+
+	if inUse, _ := isLocalPortInUse(port); inUse {
+		// If something is already listening, treat it as running and don't stomp on it.
+		return StatusFor(configPath)
+	}
+
+	logDir := strings.TrimSpace(opts.LogDir)
+	if logDir == "" {
+		if strings.TrimSpace(opts.RepoRoot) != "" {
+			logDir = filepath.Join(opts.RepoRoot, "logs")
+		} else {
+			logDir = filepath.Join(filepath.Dir(configPath), "logs")
+		}
+	}
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return Status{}, err
+	}
+
+	stdoutLog := filepath.Join(logDir, "cliproxyapi.out.log")
+	stderrLog := filepath.Join(logDir, "cliproxyapi.err.log")
+
+	stdoutFile, err := os.OpenFile(stdoutLog, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return Status{}, err
+	}
+	defer stdoutFile.Close()
+
+	stderrFile, err := os.OpenFile(stderrLog, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return Status{}, err
+	}
+	defer stderrFile.Close()
+
+	cmd := exec.Command(exePath, "-config", configPath)
+	cmd.Stdout = stdoutFile
+	cmd.Stderr = stderrFile
+	if strings.TrimSpace(opts.RepoRoot) != "" {
+		cmd.Dir = opts.RepoRoot
+	}
+	if runtime.GOOS == "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	}
+
+	if err := cmd.Start(); err != nil {
+		return Status{}, err
+	}
+
+	s := &state{
+		PID:        cmd.Process.Pid,
+		ConfigPath: configPath,
+		ExePath:    exePath,
+		StartedAt:  time.Now(),
+	}
+	_ = saveState(statePath, s)
+
+	// Give it a moment to bind before status/health checks.
+	time.Sleep(250 * time.Millisecond)
+	return StatusFor(configPath)
+}
+
+func Stop(opts StopOptions) error {
+	statePath := defaultStatePath()
+	s, _ := loadState(statePath)
+	pid := opts.PID
+	if pid == 0 && s != nil {
+		pid = s.PID
+	}
+	if pid <= 0 {
+		return nil
+	}
+
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		_ = deleteState(statePath)
+		return nil
+	}
+
+	// Best-effort graceful: attempt to interrupt on non-Windows.
+	if runtime.GOOS != "windows" {
+		_ = p.Signal(os.Interrupt)
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	_ = p.Kill()
+	_ = deleteState(statePath)
+	return nil
+}
+
+func Restart(opts StartOptions) (Status, error) {
+	_ = Stop(StopOptions{})
+	return Start(opts)
+}
+
+func OpenManagementUI(configPath string) error {
+	st, err := StatusFor(configPath)
+	if err != nil {
+		return err
+	}
+	if st.BaseURL == "" {
+		return errors.New("proxy base URL not available")
+	}
+	return OpenBrowser(managementURL(st.BaseURL))
+}
+
+func OpenLogsFolder(repoRoot, configPath string) error {
+	logDir := ""
+	if strings.TrimSpace(repoRoot) != "" {
+		logDir = filepath.Join(repoRoot, "logs")
+	} else if strings.TrimSpace(configPath) != "" {
+		logDir = filepath.Join(filepath.Dir(configPath), "logs")
+	} else {
+		logDir = filepath.Join(".", "logs")
+	}
+	return OpenFolder(logDir)
+}
+
+func checkHealth(baseURL string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/healthz", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("health check: %s", resp.Status)
+	}
+	return nil
+}
+
+func isLocalPortInUse(port int) (bool, error) {
+	if port <= 0 {
+		return false, nil
+	}
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
+	if err == nil {
+		_ = conn.Close()
+		return true, nil
+	}
+	var ne *net.OpError
+	if errors.As(err, &ne) {
+		return false, nil
+	}
+	return false, nil
+}
+
+func pidOrZero(s *state) int {
+	if s == nil {
+		return 0
+	}
+	return s.PID
+}
+
+func exeOrEmpty(s *state) string {
+	if s == nil {
+		return ""
+	}
+	return s.ExePath
+}
+
+func startedAtOrZero(s *state) time.Time {
+	if s == nil {
+		return time.Time{}
+	}
+	return s.StartedAt
+}
