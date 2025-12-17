@@ -17,6 +17,8 @@ objectstore/*
 static/*
 refs/*
 dist/*
+.proxypilot/*
+memory/*
 
 # Authentication data
 auths/*
@@ -30,6 +32,7 @@ docs/*
 !docs/hindsight.md
 !docs/desktop-ui-spec.md
 !docs/windows-ui-spec.md
+!docs/memory.md
 AGENTS.md
 CLAUDE.md
 GEMINI.md
