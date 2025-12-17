@@ -552,6 +552,19 @@ func (r *ModelRegistry) ClientSupportsModel(clientID, modelID string) bool {
 	return false
 }
 
+// ClientModelSupportKnown reports whether the registry has an explicit model list for the client.
+// When false, the caller should treat model support as unknown (and typically allow probing).
+func (r *ModelRegistry) ClientModelSupportKnown(clientID string) bool {
+	clientID = strings.TrimSpace(clientID)
+	if clientID == "" {
+		return false
+	}
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+	models, exists := r.clientModels[clientID]
+	return exists && len(models) > 0
+}
+
 // GetAvailableModels returns all models that have at least one available client
 // Parameters:
 //   - handlerType: The handler type to filter models for (e.g., "openai", "claude", "gemini")

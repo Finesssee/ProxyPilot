@@ -1126,8 +1126,12 @@ func (m *Manager) pickNext(ctx context.Context, provider, model string, opts cli
 		if _, used := tried[candidate.ID]; used {
 			continue
 		}
-		if modelKey != "" && registryRef != nil && !registryRef.ClientSupportsModel(candidate.ID, modelKey) {
-			continue
+		if modelKey != "" && registryRef != nil {
+			// Only enforce the registry filter when we have an explicit model list for the client.
+			// New/unused credentials may not have registered models yet; allow probing so we can rotate.
+			if registryRef.ClientModelSupportKnown(candidate.ID) && !registryRef.ClientSupportsModel(candidate.ID, modelKey) {
+				continue
+			}
 		}
 		candidates = append(candidates, candidate)
 	}
