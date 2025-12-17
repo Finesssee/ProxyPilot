@@ -544,6 +544,9 @@ func (m *Manager) rotateProviders(model string, providers []string) []string {
 	if len(providers) == 0 {
 		return nil
 	}
+	if shouldKeepProviderOrder(model, providers) {
+		return providers
+	}
 	m.mu.RLock()
 	offset := m.providerOffsets[model]
 	m.mu.RUnlock()
@@ -569,10 +572,35 @@ func (m *Manager) advanceProviderCursor(model string, providers []string) {
 		m.mu.Unlock()
 		return
 	}
+	if shouldKeepProviderOrder(model, providers) {
+		return
+	}
 	m.mu.Lock()
 	current := m.providerOffsets[model]
 	m.providerOffsets[model] = (current + 1) % len(providers)
 	m.mu.Unlock()
+}
+
+func shouldKeepProviderOrder(model string, providers []string) bool {
+	if len(providers) < 2 {
+		return false
+	}
+	normalizedModel := strings.ToLower(strings.TrimSpace(model))
+	if !strings.HasPrefix(normalizedModel, "gemini-3-pro") {
+		return false
+	}
+	hasAntigravity := false
+	hasGeminiCLI := false
+	for _, p := range providers {
+		switch strings.ToLower(strings.TrimSpace(p)) {
+		case "antigravity":
+			hasAntigravity = true
+		case "gemini-cli":
+			hasGeminiCLI = true
+		}
+	}
+	// When both providers exist, antigravity should remain primary and gemini-cli should be fallback.
+	return hasAntigravity && hasGeminiCLI
 }
 
 func (m *Manager) retrySettings() (int, time.Duration) {

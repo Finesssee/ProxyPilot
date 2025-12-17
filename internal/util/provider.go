@@ -49,11 +49,43 @@ func GetProviderName(modelName string) []string {
 		providers = append(providers, name)
 	}
 
-	for _, provider := range registry.GetGlobalRegistry().GetModelProviders(modelName) {
+	regProviders := registry.GetGlobalRegistry().GetModelProviders(modelName)
+	for _, provider := range regProviders {
 		appendProvider(provider)
 	}
 
 	if len(providers) > 0 {
+		// Special-case: for gemini-3-pro models we prefer antigravity as primary and
+		// keep gemini-cli as a fallback (no load balancing between them).
+		normalizedModel := strings.ToLower(strings.TrimSpace(modelName))
+		if strings.HasPrefix(normalizedModel, "gemini-3-pro") {
+			hasAntigravity := false
+			hasGeminiCLI := false
+			for _, p := range providers {
+				switch p {
+				case "antigravity":
+					hasAntigravity = true
+				case "gemini-cli":
+					hasGeminiCLI = true
+				}
+			}
+			if hasAntigravity || hasGeminiCLI {
+				ordered := make([]string, 0, len(providers))
+				if hasAntigravity {
+					ordered = append(ordered, "antigravity")
+				}
+				if hasGeminiCLI {
+					ordered = append(ordered, "gemini-cli")
+				}
+				for _, p := range providers {
+					if p == "antigravity" || p == "gemini-cli" {
+						continue
+					}
+					ordered = append(ordered, p)
+				}
+				return ordered
+			}
+		}
 		return providers
 	}
 
