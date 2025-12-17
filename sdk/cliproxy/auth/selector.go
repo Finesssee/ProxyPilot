@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -181,6 +183,54 @@ func (e *authBlockedError) Headers() http.Header {
 	return headers
 }
 
+func antigravityPrimaryEmail() string {
+	// Optional override: CLIPROXY_ANTIGRAVITY_PRIMARY_EMAIL=primary@example.com
+	return strings.ToLower(strings.TrimSpace(os.Getenv("CLIPROXY_ANTIGRAVITY_PRIMARY_EMAIL")))
+}
+
+func authEmail(auth *Auth) string {
+	if auth == nil || auth.Metadata == nil {
+		return ""
+	}
+	if v, ok := auth.Metadata["email"].(string); ok {
+		return strings.ToLower(strings.TrimSpace(v))
+	}
+	return ""
+}
+
+func authProjectID(auth *Auth) string {
+	if auth == nil || auth.Metadata == nil {
+		return ""
+	}
+	if v, ok := auth.Metadata["project_id"].(string); ok {
+		return strings.TrimSpace(v)
+	}
+	return ""
+}
+
+func isPrimaryAntigravityAuth(auth *Auth, primaryEmail string) bool {
+	if auth == nil {
+		return false
+	}
+	// Explicit primary flag wins.
+	if auth.Metadata != nil {
+		if v, ok := auth.Metadata["primary"].(bool); ok && v {
+			return true
+		}
+	}
+	if primaryEmail == "" {
+		return false
+	}
+	// Match by email (preferred) or by label (fallback).
+	if authEmail(auth) == primaryEmail {
+		return true
+	}
+	if strings.ToLower(strings.TrimSpace(auth.Label)) == primaryEmail {
+		return true
+	}
+	return false
+}
+
 // Pick selects the next available auth for the provider in a round-robin manner.
 func (s *RoundRobinSelector) Pick(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*Auth) (*Auth, error) {
 	_ = ctx
@@ -253,6 +303,54 @@ func (s *RoundRobinSelector) Pick(ctx context.Context, provider, model string, o
 		}
 		return nil, &Error{Code: "auth_unavailable", Message: "no auth available", HTTPStatus: http.StatusServiceUnavailable}
 	}
+
+	// Strict fallback for Antigravity: prefer a primary auth when it is available.
+	// Motivation: keep one account as "primary usage" and only use the backup when primary is blocked.
+	if strings.EqualFold(provider, "antigravity") && len(available) > 1 {
+		primaryEmail := antigravityPrimaryEmail()
+		var candidates []*Auth
+
+		// 1) Explicit primary flag in auth metadata.
+		for _, a := range available {
+			if a == nil {
+				continue
+			}
+			if a.Metadata != nil {
+				if v, ok := a.Metadata["primary"].(bool); ok && v {
+					candidates = append(candidates, a)
+				}
+			}
+		}
+
+		// 2) Match primary by email/label via env override.
+		if len(candidates) == 0 && primaryEmail != "" {
+			for _, a := range available {
+				if isPrimaryAntigravityAuth(a, primaryEmail) {
+					candidates = append(candidates, a)
+				}
+			}
+		}
+
+		// 3) Heuristic: if only one auth has a project_id, treat it as primary.
+		if len(candidates) == 0 && primaryEmail == "" {
+			var hasProjectID []*Auth
+			for _, a := range available {
+				if authProjectID(a) != "" {
+					hasProjectID = append(hasProjectID, a)
+				}
+			}
+			if len(hasProjectID) == 1 {
+				candidates = hasProjectID
+			}
+		}
+
+		// Enforce "strict" fallback by picking a single deterministic primary.
+		if len(candidates) > 0 {
+			sort.Slice(candidates, func(i, j int) bool { return candidates[i].ID < candidates[j].ID })
+			available = candidates[:1]
+		}
+	}
+
 	// Make round-robin deterministic even if caller's candidate order is unstable.
 	if len(available) > 1 {
 		sort.Slice(available, func(i, j int) bool { return available[i].ID < available[j].ID })
