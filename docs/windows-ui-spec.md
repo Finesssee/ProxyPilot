@@ -1,13 +1,15 @@
 # Windows UI for CLIProxyAPI — Spec (Wails + Tauri)
 
+This is the Windows-specific portion of the desktop UI plan. Shared (cross-platform) decisions and architecture live in `docs/desktop-ui-spec.md`.
+
 ## Goals
 
 - Provide a Windows-friendly way to run and manage `CLIProxyAPI` without PowerShell.
-- Avoid “prompt too long” / runaway context issues by surfacing request/log diagnostics.
-- Support two UI implementations over time:
+- Surface request/log diagnostics to reduce “prompt too long” + debugging pain.
+- Support two desktop shells over time:
   - Primary: Wails (Go backend + web UI)
   - Secondary/experimental: Tauri (Rust + web UI)
-- Share as much logic as possible via a Go control layer so features don’t fork.
+- Share logic via a Go control layer so features don’t fork.
 
 ## Non-goals (v1)
 
@@ -72,7 +74,7 @@
 - Safe defaults:
   - warn if management routes are remotely accessible.
 
-### Autostart
+### Autostart (Windows)
 
 - Enable/disable per-user startup on Windows.
 - Backend supports:
@@ -92,40 +94,15 @@
   - version, config path, port, PID, last 200 lines of logs
   - recent request logs list (or last N request IDs)
 
-## Shared Go control layer
+## Shared Go control layer (Windows notes)
 
-### Why
+Wails and Tauri should both call the same operations (process management, config, logs, autostart, health checks). See `docs/desktop-ui-spec.md` for the proposed package/API shape.
 
-Wails and Tauri can both use the same battle-tested operations: process management, config, logs, autostart, health checks.
+Windows-specific notes:
 
-### Proposed module (new)
-
-- Package: `internal/desktopctl` (or `sdk/desktopctl` if you want it reusable externally)
-- Responsibilities:
-  - `Build(repoRoot) error`
-  - `Start(configPath) (pid int, err error)`
-  - `Stop(pidOrDiscovery) error`
-  - `Restart(configPath) (pid int, err error)`
-  - `Status(configPath) (Status, error)`
-  - `TailLog(path, nLines) (string, error)`
-  - `EnableAutostart(mode) error` / `DisableAutostart(mode) error`
-  - `OpenBrowser(url) error`
-- Notes:
-  - Prefer discover-by-port over discover-by-process-name.
-  - Persist UI-owned PID/state in `%LOCALAPPDATA%/CLIProxyAPI/ui-state.json`.
-
-## Suggested helper CLI (for Tauri and scripting)
-
-Even if Wails is primary, a tiny CLI is useful:
-
-- `cmd/cliproxyctl` (new)
-  - `cliproxyctl status --config <path>`
-  - `cliproxyctl start --config <path>`
-  - `cliproxyctl stop`
-  - `cliproxyctl restart --config <path>`
-  - `cliproxyctl autostart on|off`
-
-This should call the same `internal/desktopctl` code.
+- Persist UI state in `%LOCALAPPDATA%/CLIProxyAPI/ui-state.json`.
+- Prefer discover-by-port over discover-by-process-name.
+- When opening folders/URLs, use native Windows shell APIs (no admin).
 
 ## Wails app (primary) — MVP
 
@@ -175,18 +152,13 @@ This should call the same `internal/desktopctl` code.
 - When enabling autostart, show what command will run.
 - Avoid writing outside the user profile unless configured.
 
-## Versioning / releases
-
-- v0: tray app + start/stop/restart + open logs + open management UI.
-- v1: config selection + autostart toggle + basic health check + copy snippets.
-- v1.1: diagnostics bundle and log tail UI.
-
 ## Open decisions
 
 - Where config lives by default (repo-local vs user config dir).
 - Whether UI bundles the server binary or manages an existing install.
 - Whether to add a stable `/healthz` endpoint for fast health checks.
 - Whether “Generate local key” should mutate `config.yaml` or use a UI-only key store.
+- Whether the UI should surface auth selection state (primary/backup) for providers like `antigravity`.
 
 ## Acceptance criteria (v1)
 
@@ -197,3 +169,4 @@ This should call the same `internal/desktopctl` code.
   - endpoint reachable with `GET /v1/models` returning 200
 - Open logs opens the correct folder.
 - Copy base URL copies `http://127.0.0.1:<port>` (and optionally `/v1`).
+
