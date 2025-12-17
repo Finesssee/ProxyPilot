@@ -14,7 +14,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/desktopctl"
 )
 
-const autostartAppName = "CLIProxyAPI Manager"
+const autostartAppName = "ProxyPilot"
 
 func main() {
 	var repoRoot string
@@ -30,23 +30,23 @@ func main() {
 
 func run(repoRoot, configPath, exePath string) {
 	systray.Run(func() {
-		systray.SetTitle("CLIProxyAPI")
-		systray.SetTooltip("CLIProxyAPI")
+		systray.SetTitle("ProxyPilot")
+		systray.SetTooltip("ProxyPilot")
 
 		statusItem := systray.AddMenuItem("Status: …", "Current status")
 		statusItem.Disable()
 		systray.AddSeparator()
 
-		startItem := systray.AddMenuItem("Start", "Start CLIProxyAPI")
-		stopItem := systray.AddMenuItem("Stop", "Stop CLIProxyAPI")
-		restartItem := systray.AddMenuItem("Restart", "Restart CLIProxyAPI")
+		startItem := systray.AddMenuItem("Start", "Start CLIProxyAPI (proxy server)")
+		stopItem := systray.AddMenuItem("Stop", "Stop CLIProxyAPI (proxy server)")
+		restartItem := systray.AddMenuItem("Restart", "Restart CLIProxyAPI (proxy server)")
 		systray.AddSeparator()
 
 		autoOn, _, _ := desktopctl.IsWindowsRunAutostartEnabled(autostartAppName)
 		autoStartItem := systray.AddMenuItemCheckbox("Launch on login", "Start this tray app when you log in", autoOn)
 		systray.AddSeparator()
 
-		openProxyUI := systray.AddMenuItem("Open Proxy UI", "Open the built-in management UI")
+		openProxyUI := systray.AddMenuItem("Open Proxy UI", "Open CLIProxyAPI built-in management UI")
 		openLogs := systray.AddMenuItem("Open Logs", "Open logs folder")
 		systray.AddSeparator()
 
@@ -62,7 +62,7 @@ func run(repoRoot, configPath, exePath string) {
 				title = title + " — " + shorten(lastErr, 80)
 			}
 			statusItem.SetTitle("Status: " + title)
-			systray.SetTooltip("CLIProxyAPI — " + title)
+			systray.SetTooltip("ProxyPilot — " + title)
 
 			if st.Running {
 				startItem.Disable()

@@ -24,16 +24,16 @@ if (-not (Test-Path -LiteralPath $iexpress)) {
 $distRoot = Join-Path $repoRoot "dist"
 Ensure-Dir $distRoot
 
-$staging = Join-Path $distRoot "CLIProxyAPI-Manager-Staging"
+$staging = Join-Path $distRoot "ProxyPilot-Staging"
 if (Test-Path -LiteralPath $staging) { Remove-Item -Recurse -Force -LiteralPath $staging }
 Ensure-Dir $staging
 
 # Payload files
-$mgrExe = Join-Path $repoRoot "bin\\CLIProxyAPI-Manager.exe"
+$mgrExe = Join-Path $repoRoot "bin\\ProxyPilot.exe"
 $srvExe = Join-Path $repoRoot "bin\\cliproxyapi-latest.exe"
 $cfgSrc = Join-Path $repoRoot "config.example.yaml"
 
-Copy-Item -Force -LiteralPath $mgrExe -Destination (Join-Path $staging "CLIProxyAPI-Manager.exe")
+Copy-Item -Force -LiteralPath $mgrExe -Destination (Join-Path $staging "ProxyPilot.exe")
 Copy-Item -Force -LiteralPath $srvExe -Destination (Join-Path $staging "cliproxyapi-latest.exe")
 if (Test-Path -LiteralPath $cfgSrc) {
   Copy-Item -Force -LiteralPath $cfgSrc -Destination (Join-Path $staging "config.example.yaml")
@@ -44,12 +44,12 @@ $runCmd = Join-Path $staging "run-manager.cmd"
 @"
 @echo off
 setlocal
-start """" ""%~dp0CLIProxyAPI-Manager.exe""
+start """" ""%~dp0ProxyPilot.exe""
 "@ | Set-Content -Encoding ASCII -LiteralPath $runCmd
 
 # IExpress configuration (SED)
 $sedPath = Join-Path $staging "package.sed"
-$outExe = Join-Path $distRoot "CLIProxyAPI-Manager-Setup.exe"
+$outExe = Join-Path $distRoot "ProxyPilot-Setup.exe"
 if (Test-Path -LiteralPath $outExe) { Remove-Item -Force -LiteralPath $outExe }
 
 $escapedStaging = $staging.Replace("\", "\\")
@@ -72,7 +72,7 @@ InstallPrompt=
 DisplayLicense=
 FinishMessage=
 TargetName=$escapedOutExe
-FriendlyName=CLIProxyAPI Manager
+FriendlyName=ProxyPilot
 AppLaunched=run-manager.cmd
 PostInstallCmd=
 AdminQuietInstCmd=
@@ -81,12 +81,12 @@ SourceFiles=SourceFiles
 [SourceFiles]
 SourceFiles0=$escapedStaging
 [SourceFiles0]
-%FILE0%=CLIProxyAPI-Manager.exe
+%FILE0%=ProxyPilot.exe
 %FILE1%=cliproxyapi-latest.exe
 %FILE2%=config.example.yaml
 %FILE3%=run-manager.cmd
 [Strings]
-FILE0=CLIProxyAPI-Manager.exe
+FILE0=ProxyPilot.exe
 FILE1=cliproxyapi-latest.exe
 FILE2=config.example.yaml
 FILE3=run-manager.cmd
@@ -108,4 +108,3 @@ if (-not (Test-Path -LiteralPath $outExe)) {
 
 Write-Host "Built installer:"
 Write-Host "  $outExe"
-

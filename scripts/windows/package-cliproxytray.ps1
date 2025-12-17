@@ -9,21 +9,20 @@ $repoRoot = Get-RepoRoot
 
 & (Join-Path $repoRoot "scripts\\windows\\build-cliproxytray.ps1")
 
-$distDir = Join-Path $repoRoot "dist\\CLIProxyAPI-Manager"
+$distDir = Join-Path $repoRoot "dist\\ProxyPilot"
 if (Test-Path -LiteralPath $distDir) {
   Remove-Item -Recurse -Force -LiteralPath $distDir
 }
 New-Item -ItemType Directory -Path $distDir | Out-Null
 
-$exeSrc = Join-Path $repoRoot "bin\\CLIProxyAPI-Manager.exe"
-$exeDst = Join-Path $distDir "CLIProxyAPI-Manager.exe"
+$exeSrc = Join-Path $repoRoot "bin\\ProxyPilot.exe"
+$exeDst = Join-Path $distDir "ProxyPilot.exe"
 Copy-Item -Force -LiteralPath $exeSrc -Destination $exeDst
 
-$zipPath = Join-Path $repoRoot "dist\\CLIProxyAPI-Manager.zip"
+$zipPath = Join-Path $repoRoot "dist\\ProxyPilot.zip"
 if (Test-Path -LiteralPath $zipPath) { Remove-Item -Force -LiteralPath $zipPath }
 
 Compress-Archive -Path $distDir\\* -DestinationPath $zipPath
 
 Write-Host "Packaged:"
 Write-Host "  $zipPath"
-

@@ -11,9 +11,9 @@ if (-not (Test-Path -LiteralPath $outDir)) {
   New-Item -ItemType Directory -Path $outDir | Out-Null
 }
 
-$outPath = Join-Path $outDir "CLIProxyAPI-Manager.exe"
+$outPath = Join-Path $outDir "ProxyPilot.exe"
 
-Write-Host "Building CLIProxyAPI Manager (tray)..."
+Write-Host "Building ProxyPilot (tray)..."
 Write-Host "  out: $outPath"
 
 Push-Location $repoRoot
@@ -25,4 +25,3 @@ try {
 }
 
 Write-Host "Done."
-
