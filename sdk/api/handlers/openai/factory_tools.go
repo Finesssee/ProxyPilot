@@ -112,7 +112,9 @@ func maybeInjectFactoryTools(c *gin.Context, rawJSON []byte) []byte {
 		return rawJSON
 	}
 	// Encourage tool selection when tools exist (but do not force).
-	if !gjson.GetBytes(out, "tool_choice").Exists() {
+	// If middleware previously set tool_choice:"none" while trimming, override to "auto" for Droid/Factory.
+	tc := gjson.GetBytes(out, "tool_choice")
+	if !tc.Exists() || tc.String() == "" || strings.EqualFold(tc.String(), "none") {
 		if with, err2 := sjson.SetBytes(out, "tool_choice", "auto"); err2 == nil {
 			out = with
 		}

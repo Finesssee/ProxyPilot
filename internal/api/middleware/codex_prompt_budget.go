@@ -71,6 +71,7 @@ func CodexPromptBudgetMiddleware() gin.HandlerFunc {
 
 		ua := strings.ToLower(req.Header.Get("User-Agent"))
 		isStainless := req.Header.Get("X-Stainless-Lang") != "" || req.Header.Get("X-Stainless-Package-Version") != ""
+		mustKeepTools := strings.Contains(ua, "factory-cli") || strings.Contains(ua, "droid") || isStainless
 		isAgenticCLI := strings.Contains(ua, "openai codex") || strings.Contains(ua, "factory-cli") || strings.Contains(ua, "warp") || strings.Contains(ua, "droid") || isStainless
 		if !isAgenticCLI {
 			c.Next()
@@ -124,9 +125,9 @@ func CodexPromptBudgetMiddleware() gin.HandlerFunc {
 		trimmed := body
 		switch {
 		case strings.HasSuffix(path, "/v1/chat/completions"):
-			trimmed = trimOpenAIChatCompletions(trimmed, maxBytes)
+			trimmed = trimOpenAIChatCompletions(trimmed, maxBytes, mustKeepTools)
 		case strings.HasSuffix(path, "/v1/responses"):
-			trimmed = trimOpenAIResponses(trimmed, maxBytes)
+			trimmed = trimOpenAIResponses(trimmed, maxBytes, mustKeepTools)
 		default:
 			// Not a known OpenAI payload shape; keep as-is.
 		}
@@ -170,7 +171,7 @@ func agenticMaxBodyBytesForModel(body []byte) int {
 }
 
 // trimOpenAIChatCompletions trims an OpenAI Chat Completions payload by shortening the messages array.
-func trimOpenAIChatCompletions(body []byte, maxBytes int) []byte {
+func trimOpenAIChatCompletions(body []byte, maxBytes int, mustKeepTools bool) []byte {
 	root := gjson.ParseBytes(body)
 	msgs := root.Get("messages")
 	if !msgs.IsArray() {
@@ -194,7 +195,7 @@ func trimOpenAIChatCompletions(body []byte, maxBytes int) []byte {
 	dropTools := false
 	for keep >= 1 {
 		outBody := body
-		if dropTools {
+		if dropTools && !mustKeepTools {
 			outBody, _ = sjson.DeleteBytes(outBody, "tools")
 			outBody, _ = sjson.SetBytes(outBody, "tool_choice", "none")
 		}
@@ -237,7 +238,7 @@ func trimOpenAIChatCompletions(body []byte, maxBytes int) []byte {
 }
 
 // trimOpenAIResponses trims an OpenAI Responses payload by shortening the input array.
-func trimOpenAIResponses(body []byte, maxBytes int) []byte {
+func trimOpenAIResponses(body []byte, maxBytes int, mustKeepTools bool) []byte {
 	root := gjson.ParseBytes(body)
 	input := root.Get("input")
 	if !input.Exists() || !input.IsArray() {
@@ -253,7 +254,7 @@ func trimOpenAIResponses(body []byte, maxBytes int) []byte {
 	dropTools := false
 	for keep >= 1 {
 		outBody := body
-		if dropTools {
+		if dropTools && !mustKeepTools {
 			outBody, _ = sjson.DeleteBytes(outBody, "tools")
 			outBody, _ = sjson.SetBytes(outBody, "tool_choice", "none")
 		}
@@ -303,7 +304,7 @@ func trimOpenAIResponses(body []byte, maxBytes int) []byte {
 				t = "message"
 			}
 
-			if dropTools && (t == "function_call" || t == "function_call_output") {
+			if dropTools && !mustKeepTools && (t == "function_call" || t == "function_call_output") {
 				continue
 			}
 
@@ -365,7 +366,9 @@ func trimOpenAIResponses(body []byte, maxBytes int) []byte {
 		if perTextLimit > 5_000 {
 			perTextLimit = perTextLimit / 2
 		}
-		dropTools = true
+		if !mustKeepTools {
+			dropTools = true
+		}
 	}
 
 	return body
