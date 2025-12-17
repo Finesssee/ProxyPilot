@@ -534,7 +534,7 @@ func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *cliproxyau
 			projectID = strings.TrimSpace(pid)
 		}
 	}
-	payload = geminiToAntigravity(modelName, payload, projectID)
+	payload = geminiToAntigravity(modelName, payload, projectID, stream)
 	payload, _ = sjson.SetBytes(payload, "model", alias2ModelName(modelName))
 
 	if strings.Contains(modelName, "claude") {
@@ -730,7 +730,7 @@ func resolveCustomAntigravityBaseURL(auth *cliproxyauth.Auth) string {
 	return ""
 }
 
-func geminiToAntigravity(modelName string, payload []byte, projectID string) []byte {
+func geminiToAntigravity(modelName string, payload []byte, projectID string, stream bool) []byte {
 	template, _ := sjson.Set(string(payload), "model", modelName)
 	template, _ = sjson.Set(template, "userAgent", "antigravity")
 
