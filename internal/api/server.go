@@ -324,9 +324,22 @@ func (s *Server) setupRoutes() {
 		v1.GET("/models", s.unifiedModelsHandler(openaiHandlers, claudeCodeHandlers))
 		v1.POST("/chat/completions", openaiHandlers.ChatCompletions)
 		v1.POST("/completions", openaiHandlers.Completions)
+		v1.POST("/embeddings", openaiHandlers.Embeddings)
 		v1.POST("/messages", claudeCodeHandlers.ClaudeMessages)
 		v1.POST("/messages/count_tokens", claudeCodeHandlers.ClaudeCountTokens)
 		v1.POST("/responses", openaiResponsesHandlers.Responses)
+	}
+
+	// OpenAI base-URL alias routes (for clients that configure baseURL ending with /v1).
+	// Example: baseURL=http://localhost:8318/v1 -> client calls /models, /chat/completions, etc.
+	openaiAlias := s.engine.Group("")
+	openaiAlias.Use(AuthMiddleware(s.accessManager))
+	{
+		openaiAlias.GET("/models", s.unifiedModelsHandler(openaiHandlers, claudeCodeHandlers))
+		openaiAlias.POST("/chat/completions", openaiHandlers.ChatCompletions)
+		openaiAlias.POST("/completions", openaiHandlers.Completions)
+		openaiAlias.POST("/embeddings", openaiHandlers.Embeddings)
+		openaiAlias.POST("/responses", openaiResponsesHandlers.Responses)
 	}
 
 	// Gemini compatible API routes
@@ -345,6 +358,7 @@ func (s *Server) setupRoutes() {
 			"endpoints": []string{
 				"POST /v1/chat/completions",
 				"POST /v1/completions",
+				"POST /v1/embeddings",
 				"GET /v1/models",
 			},
 		})
