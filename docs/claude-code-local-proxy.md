@@ -2,12 +2,17 @@
 
 This documents how to route Claude Code through CLIProxyAPI, and the related server changes made to improve model aliasing and auth error reporting.
 
-## What we configured (Windows)
+## What we configured (Windows/macOS)
 
 1. Run CLIProxyAPI locally (default in this repo uses `127.0.0.1:8318`).
 2. Point Claude Code at the local proxy by setting Anthropic environment variables in your Claude Code user settings.
 
-Claude Code reads settings from `C:\Users\<you>\.claude\settings.json` (Windows). Example:
+Claude Code reads settings from:
+
+- Windows: `C:\Users\<you>\.claude\settings.json`
+- macOS/Linux: `~/.claude/settings.json`
+
+Example:
 
 ```json
 {
@@ -55,6 +60,15 @@ $hdr=@{ 'User-Agent'='claude-cli'; 'Authorization'='Bearer local-dev-key' }
 Invoke-RestMethod -Headers $hdr -Uri 'http://127.0.0.1:8318/v1/models' -Method Get
 ```
 
+Or with `curl` (macOS/Linux):
+
+```bash
+curl -s \
+  -H 'User-Agent: claude-cli' \
+  -H 'Authorization: Bearer local-dev-key' \
+  'http://127.0.0.1:8318/v1/models'
+```
+
 Send a minimal Claude Messages request through the proxy:
 
 ```powershell
@@ -63,3 +77,13 @@ $body=@{ model='opus'; max_tokens=16; stream=$false; messages=@(@{ role='user'; 
 Invoke-RestMethod -Headers $hdr -Uri 'http://127.0.0.1:8318/v1/messages' -Method Post -Body $body
 ```
 
+Or with `curl` (macOS/Linux):
+
+```bash
+curl -s \
+  -H 'User-Agent: claude-cli' \
+  -H 'Authorization: Bearer local-dev-key' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"opus","max_tokens":16,"stream":false,"messages":[{"role":"user","content":"hi"}]}' \
+  'http://127.0.0.1:8318/v1/messages'
+```
