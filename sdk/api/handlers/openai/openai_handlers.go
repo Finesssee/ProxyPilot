@@ -107,6 +107,8 @@ func (h *OpenAIAPIHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 
+	rawJSON = tightenToolSchemas(rawJSON, false)
+
 	// Check if the client requested a streaming response.
 	streamResult := gjson.GetBytes(rawJSON, "stream")
 	if streamResult.Type == gjson.True {
@@ -136,6 +138,8 @@ func (h *OpenAIAPIHandler) Completions(c *gin.Context) {
 		})
 		return
 	}
+
+	rawJSON = tightenToolSchemas(rawJSON, false)
 
 	// Check if the client requested a streaming response.
 	streamResult := gjson.GetBytes(rawJSON, "stream")
@@ -405,6 +409,7 @@ func (h *OpenAIAPIHandler) handleNonStreamingResponse(c *gin.Context, rawJSON []
 		cliCancel(errMsg.Error)
 		return
 	}
+	resp = sanitizeToolCallArguments(resp, rawJSON, false)
 	_, _ = c.Writer.Write(resp)
 	cliCancel()
 }
@@ -452,6 +457,7 @@ func (h *OpenAIAPIHandler) handleCompletionsNonStreamingResponse(c *gin.Context,
 
 	// Convert completions request to chat completions format
 	chatCompletionsJSON := convertCompletionsRequestToChatCompletions(rawJSON)
+	chatCompletionsJSON = tightenToolSchemas(chatCompletionsJSON, false)
 
 	modelName := gjson.GetBytes(chatCompletionsJSON, "model").String()
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
@@ -461,6 +467,7 @@ func (h *OpenAIAPIHandler) handleCompletionsNonStreamingResponse(c *gin.Context,
 		cliCancel(errMsg.Error)
 		return
 	}
+	resp = sanitizeToolCallArguments(resp, chatCompletionsJSON, false)
 	completionsResp := convertChatCompletionsResponseToCompletions(resp)
 	_, _ = c.Writer.Write(completionsResp)
 	cliCancel()

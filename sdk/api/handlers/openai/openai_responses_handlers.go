@@ -87,6 +87,7 @@ func (h *OpenAIResponsesAPIHandler) Responses(c *gin.Context) {
 	}
 
 	rawJSON = util.NormalizeOpenAIResponsesToolOrder(rawJSON)
+	rawJSON = tightenToolSchemas(rawJSON, true)
 
 	// Check if the client requested a streaming response.
 	streamResult := gjson.GetBytes(rawJSON, "stream")
@@ -133,6 +134,7 @@ func (h *OpenAIResponsesAPIHandler) handleNonStreamingResponse(c *gin.Context, r
 		h.WriteErrorResponse(c, errMsg)
 		return
 	}
+	resp = sanitizeToolCallArguments(resp, rawJSON, true)
 
 	// Some clients assume output[0] is a message. Ensure messages come first for known agentic CLIs.
 	resp = normalizeResponsesOutputOrder(c, resp)
@@ -177,6 +179,7 @@ func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJ
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
 	if strings.Contains(ua, "factory-cli") || isStainless {
 		nonStreamReq := forceResponsesNonStreaming(rawJSON)
+		nonStreamReq = tightenToolSchemas(nonStreamReq, true)
 		resp, errMsg := h.ExecuteWithAuthManager(cliCtx, h.HandlerType(), modelName, nonStreamReq, "")
 		if errMsg != nil {
 			// Factory/Stainless clients request stream:true and may not surface non-2xx JSON bodies well.
@@ -185,6 +188,7 @@ func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJ
 			cliCancel(errMsg.Error)
 			return
 		}
+		resp = sanitizeToolCallArguments(resp, nonStreamReq, true)
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
