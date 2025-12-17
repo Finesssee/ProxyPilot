@@ -13,7 +13,7 @@ func maybeInjectFactoryTools(c *gin.Context, rawJSON []byte) []byte {
 		return rawJSON
 	}
 	ua := strings.ToLower(c.GetHeader("User-Agent"))
-	isFactory := strings.Contains(ua, "factory-cli") || c.GetHeader("X-Stainless-Lang") != "" || c.GetHeader("X-Stainless-Package-Version") != ""
+	isFactory := strings.Contains(ua, "factory-cli") || strings.Contains(ua, "droid") || c.GetHeader("X-Stainless-Lang") != "" || c.GetHeader("X-Stainless-Package-Version") != ""
 	if !isFactory {
 		return rawJSON
 	}
