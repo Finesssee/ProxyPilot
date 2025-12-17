@@ -13,6 +13,14 @@ This doc summarizes the current behavior and the key “quality of life” featu
 
 ## Quickstart (Windows)
 
+## Build/Package without PowerShell
+
+If you have Go installed, you can build/package from a single command (no `.ps1` scripts):
+
+- Build: `go run .\cmd\proxypilotpack build`
+- Zip: `go run .\cmd\proxypilotpack package-zip`
+- Installer: `go run .\cmd\proxypilotpack package-setup`
+
 ### Build the proxy
 
 - `.\scripts\build-cliproxyapi.ps1`
@@ -129,4 +137,3 @@ Useful paths:
 
 - `config.yaml`, auth files, logs, binaries, and memory state are gitignored.
 - Use `local-dev-key` only as an example; real keys should stay out of git.
-
