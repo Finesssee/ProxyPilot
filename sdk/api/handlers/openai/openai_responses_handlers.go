@@ -154,11 +154,6 @@ func (h *OpenAIResponsesAPIHandler) handleNonStreamingResponse(c *gin.Context, r
 //   - c: The Gin context containing the HTTP request and response
 //   - rawJSON: The raw JSON bytes of the OpenAIResponses-compatible request
 func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJSON []byte) {
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("Access-Control-Allow-Origin", "*")
-
 	// Get the http.Flusher interface to manually flush the response.
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
@@ -184,11 +179,17 @@ func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJ
 		nonStreamReq := forceResponsesNonStreaming(rawJSON)
 		resp, errMsg := h.ExecuteWithAuthManager(cliCtx, h.HandlerType(), modelName, nonStreamReq, "")
 		if errMsg != nil {
+			// Factory/Stainless clients often set stream:true; when we fail before emitting any SSE,
+			// return a JSON error so clients can surface the message (instead of "400 no body").
+			c.Header("Content-Type", "application/json")
 			h.WriteErrorResponse(c, errMsg)
-			flusher.Flush()
 			cliCancel(errMsg.Error)
 			return
 		}
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("Access-Control-Allow-Origin", "*")
 		if isLikelySSE(resp) {
 			h.writeSSEBody(c, flusher, resp)
 		} else {
@@ -197,6 +198,11 @@ func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJ
 		cliCancel(nil)
 		return
 	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
 
 	dataChan, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, "")
 	h.forwardResponsesStream(c, flusher, func(err error) { cliCancel(err) }, dataChan, errChan)
@@ -229,6 +235,12 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesStream(c *gin.Context, flush
 				continue
 			}
 			if errMsg != nil {
+				// If we haven't started streaming, prefer a JSON error payload (SSE errors are often dropped by clients).
+				if !c.Writer.Written() {
+					c.Header("Content-Type", "application/json")
+					c.Writer.Header().Del("Cache-Control")
+					c.Writer.Header().Del("Connection")
+				}
 				h.WriteErrorResponse(c, errMsg)
 				flusher.Flush()
 			}
