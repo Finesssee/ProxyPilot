@@ -82,6 +82,33 @@ func agenticMemoryStore() memory.Store {
 	return memStore
 }
 
+func agenticTodoEnabled() bool {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_TODO_ENABLED")); v != "" {
+		if strings.EqualFold(v, "0") || strings.EqualFold(v, "false") || strings.EqualFold(v, "off") || strings.EqualFold(v, "no") {
+			return false
+		}
+	}
+	return true
+}
+
+func agenticTodoMaxChars() int {
+	v := strings.TrimSpace(os.Getenv("CLIPROXY_TODO_MAX_CHARS"))
+	if v == "" {
+		return 4000
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 4000
+	}
+	if n < 512 {
+		return 512
+	}
+	if n > 20_000 {
+		return 20_000
+	}
+	return n
+}
+
 // CodexPromptBudgetMiddleware trims oversized OpenAI requests coming from Codex CLI.
 //
 // Rationale: Codex CLI can accumulate large workspace context and exceed upstream prompt limits.
@@ -143,6 +170,15 @@ func CodexPromptBudgetMiddleware() gin.HandlerFunc {
 
 		originalLen := len(body)
 		maxBytes := agenticMaxBodyBytesForModel(body)
+
+		// Session-scoped TODO is injected on every agentic request (never dropped).
+		// We do this before trimming, but keep the injection bounded and safe.
+		if agenticTodoEnabled() {
+			session := extractAgenticSessionKey(req, body)
+			body = agenticMaybeUpsertAndInjectTodo(req, session, body, maxBytes)
+			originalLen = len(body)
+		}
+
 		if originalLen <= maxBytes {
 			req.Body = io.NopCloser(bytes.NewReader(body))
 			req.ContentLength = int64(originalLen)
@@ -179,6 +215,70 @@ func CodexPromptBudgetMiddleware() gin.HandlerFunc {
 		}
 
 		c.Next()
+	}
+}
+
+func agenticMaybeUpsertAndInjectTodo(req *http.Request, session string, body []byte, maxBytes int) []byte {
+	if req == nil || session == "" || len(body) == 0 {
+		return body
+	}
+	store := agenticMemoryStore()
+	if store == nil {
+		return body
+	}
+	fs, ok := store.(*memory.FileStore)
+	if !ok {
+		return body
+	}
+
+	// Allow external controllers (ProxyPilot UI) to set TODO via header.
+	// Keep it small and redacted; no auth is stored.
+	if hdr := strings.TrimSpace(req.Header.Get("X-CLIProxyAPI-Todo")); hdr != "" {
+		_ = fs.WriteTodo(session, hdr, 8000)
+		// Avoid forwarding this header upstream.
+		req.Header.Del("X-CLIProxyAPI-Todo")
+	}
+
+	todo := fs.ReadTodo(session, agenticTodoMaxChars())
+	if strings.TrimSpace(todo) == "" {
+		// Seed a minimal TODO from the last user intent if we have nothing yet.
+		shape := detectShapeFromPath(req.URL.Path)
+		seed := extractLastUserIntent(shape, body)
+		if strings.TrimSpace(seed) != "" {
+			seedTodo := "# TODO\n\n- " + strings.TrimSpace(seed) + "\n"
+			_ = fs.WriteTodo(session, seedTodo, 8000)
+			todo = fs.ReadTodo(session, agenticTodoMaxChars())
+		}
+	}
+	if strings.TrimSpace(todo) == "" {
+		return body
+	}
+	block := "<todo>\n" + todo + "\n</todo>\n"
+	// Inject TODO as pinned instructions/system, not as memory (so it’s always present).
+	return injectMemoryIntoBody(detectShapeFromPath(req.URL.Path), body, block, maxBytes)
+}
+
+func detectShapeFromPath(path string) string {
+	switch {
+	case strings.HasSuffix(path, "/v1/chat/completions"):
+		return "chat"
+	case strings.HasSuffix(path, "/v1/responses"):
+		return "responses"
+	default:
+		return ""
+	}
+}
+
+func extractLastUserIntent(shape string, body []byte) string {
+	switch shape {
+	case "responses":
+		arr := gjson.GetBytes(body, "input").Array()
+		return extractLastUserTextFromResponses(arr)
+	case "chat":
+		arr := gjson.GetBytes(body, "messages").Array()
+		return extractLastUserTextFromChat(arr)
+	default:
+		return ""
 	}
 }
 
