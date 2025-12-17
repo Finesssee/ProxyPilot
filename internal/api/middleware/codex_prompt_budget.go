@@ -205,6 +205,12 @@ func agenticStoreAndInjectMemory(req *http.Request, session string, res *trimWit
 		_ = store.Append(session, res.Dropped)
 	}
 
+	// Update anchored summary and pinned context (best-effort).
+	if fs, ok := store.(*memory.FileStore); ok {
+		pinned := extractPinnedContext(req, res.Shape, res.Body)
+		_ = fs.UpsertAnchoredSummary(session, res.Dropped, pinned, res.Query)
+	}
+
 	// Only inject retrieval when we actually trimmed (otherwise it just spends tokens).
 	// Also avoid injecting if tools were forcibly disabled by the client.
 	if strings.TrimSpace(res.Query) == "" {
@@ -220,6 +226,46 @@ func agenticStoreAndInjectMemory(req *http.Request, session string, res *trimWit
 
 	memBlock := buildMemoryBlock(snips)
 	res.Body = injectMemoryIntoBody(res.Shape, res.Body, memBlock, maxBytes)
+}
+
+func extractPinnedContext(req *http.Request, shape string, body []byte) string {
+	// Pinned is intended to capture durable “always-on” state: system instructions / policies.
+	// For /v1/responses use instructions; for chat prefer first system message.
+	switch shape {
+	case "responses":
+		if v := gjson.GetBytes(body, "instructions"); v.Exists() && v.Type == gjson.String {
+			s := strings.TrimSpace(v.String())
+			if len(s) > 6000 {
+				s = s[:6000] + "\n...[truncated]..."
+			}
+			return s
+		}
+	case "chat":
+		msgs := gjson.GetBytes(body, "messages")
+		if msgs.Exists() && msgs.IsArray() {
+			for _, m := range msgs.Array() {
+				if !strings.EqualFold(m.Get("role").String(), "system") {
+					continue
+				}
+				c := m.Get("content")
+				if c.Type == gjson.String {
+					s := strings.TrimSpace(c.String())
+					if len(s) > 6000 {
+						s = s[:6000] + "\n...[truncated]..."
+					}
+					return s
+				}
+			}
+		}
+	}
+	// Fallback to UA to help debugging, but avoid storing auth.
+	if req != nil {
+		ua := strings.TrimSpace(req.Header.Get("User-Agent"))
+		if ua != "" {
+			return "User-Agent: " + ua
+		}
+	}
+	return ""
 }
 
 func buildMemoryBlock(snips []string) string {

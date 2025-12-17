@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -23,6 +24,11 @@ func NewFileStore(baseDir string) *FileStore {
 	return &FileStore{BaseDir: baseDir}
 }
 
+var (
+	reFilePath = regexp.MustCompile(`(?i)\b[a-z0-9_\-./\\]+?\.(go|js|ts|tsx|jsx|md|yaml|yml|json|ps1|sh|py|toml|txt)\b`)
+	reCommand  = regexp.MustCompile(`(?im)^\s*(?:\$|%|>|#)?\s*(go|git|node|npm|pnpm|yarn|python|python3|pip|pip3|deno|cargo)\b[^\n\r]*`)
+)
+
 func (s *FileStore) Append(session string, events []Event) error {
 	if s == nil || s.BaseDir == "" {
 		return errors.New("memory store not configured")
@@ -30,7 +36,7 @@ func (s *FileStore) Append(session string, events []Event) error {
 	if session == "" || len(events) == 0 {
 		return nil
 	}
-	dir := filepath.Join(s.BaseDir, "sessions", sanitizeSessionKey(session))
+	dir := s.sessionDir(session)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -74,23 +80,44 @@ func (s *FileStore) Search(session string, query string, maxChars int, maxSnippe
 		maxSnippets = 8
 	}
 
-	dir := filepath.Join(s.BaseDir, "sessions", sanitizeSessionKey(session))
+	dir := s.sessionDir(session)
 	path := filepath.Join(dir, "events.jsonl")
+
+	// Anchored summary is always the first snippet when present.
+	summary := strings.TrimSpace(s.readSmallTextFile(filepath.Join(dir, "summary.md"), 12_000))
 
 	data, err := readTailBytes(path, 2*1024*1024)
 	if err != nil {
 		if os.IsNotExist(err) {
+			if summary != "" {
+				if len(summary) > maxChars {
+					summary = summary[:maxChars] + "\n...[truncated]..."
+				}
+				return []string{summary}, nil
+			}
 			return nil, nil
 		}
 		return nil, err
 	}
 	lines := bytes.Split(data, []byte("\n"))
 	if len(lines) == 0 {
+		if summary != "" {
+			if len(summary) > maxChars {
+				summary = summary[:maxChars] + "\n...[truncated]..."
+			}
+			return []string{summary}, nil
+		}
 		return nil, nil
 	}
 
 	tokens := queryTokens(query, 10)
 	if len(tokens) == 0 {
+		if summary != "" {
+			if len(summary) > maxChars {
+				summary = summary[:maxChars] + "\n...[truncated]..."
+			}
+			return []string{summary}, nil
+		}
 		return nil, nil
 	}
 
@@ -133,8 +160,19 @@ func (s *FileStore) Search(session string, query string, maxChars int, maxSnippe
 	sort.Slice(scoredSnips, func(i, j int) bool { return scoredSnips[i].score > scoredSnips[j].score })
 
 	out := make([]string, 0, maxSnippets)
-	seen := make(map[string]struct{}, maxSnippets*2)
 	chars := 0
+	if summary != "" && len(out) < maxSnippets {
+		snip := summary
+		if len(snip) > 2000 {
+			snip = snip[:2000] + "\n...[truncated]..."
+		}
+		if len(snip) <= maxChars {
+			out = append(out, snip)
+			chars += len(snip) + 4
+		}
+	}
+
+	seen := make(map[string]struct{}, maxSnippets*2)
 	for _, s := range scoredSnips {
 		if len(out) >= maxSnippets {
 			break
@@ -156,6 +194,122 @@ func (s *FileStore) Search(session string, query string, maxChars int, maxSnippe
 		chars += len(snip) + 4
 	}
 	return out, nil
+}
+
+func (s *FileStore) UpsertAnchoredSummary(session string, dropped []Event, pinned string, latestIntent string) error {
+	if s == nil || s.BaseDir == "" {
+		return errors.New("memory store not configured")
+	}
+	if session == "" {
+		return nil
+	}
+	dir := s.sessionDir(session)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	pinned = strings.TrimSpace(RedactText(pinned))
+	if pinned != "" {
+		_ = os.WriteFile(filepath.Join(dir, "pinned.txt"), []byte(pinned), 0o644)
+	}
+
+	prev := s.readSmallTextFile(filepath.Join(dir, "summary.md"), 60_000)
+	next := buildAnchoredSummary(prev, dropped, latestIntent)
+	if strings.TrimSpace(next) == "" {
+		return nil
+	}
+	// Keep summary bounded to preserve token budget.
+	const maxSummaryChars = 14_000
+	if len(next) > maxSummaryChars {
+		next = next[len(next)-maxSummaryChars:]
+		next = "\n...[truncated]...\n" + next
+	}
+	return os.WriteFile(filepath.Join(dir, "summary.md"), []byte(next), 0o644)
+}
+
+func buildAnchoredSummary(prev string, dropped []Event, latestIntent string) string {
+	var b strings.Builder
+	prev = strings.TrimSpace(prev)
+	if prev != "" {
+		// Weight previous anchor by keeping it verbatim at the top.
+		b.WriteString(prev)
+		b.WriteString("\n\n")
+	} else {
+		b.WriteString("# Session Anchor Summary\n\n")
+	}
+	b.WriteString("## Updates\n")
+	b.WriteString("- Updated: ")
+	b.WriteString(time.Now().Format(time.RFC3339))
+	b.WriteString("\n")
+
+	lastUser := ""
+	fileHits := make([]string, 0, 16)
+	cmdHits := make([]string, 0, 16)
+	seenFile := make(map[string]struct{}, 32)
+	seenCmd := make(map[string]struct{}, 32)
+
+	for i := range dropped {
+		e := dropped[i]
+		txt := strings.TrimSpace(e.Text)
+		if txt == "" {
+			continue
+		}
+		if strings.EqualFold(e.Role, "user") {
+			lastUser = txt
+		}
+		for _, m := range reFilePath.FindAllString(txt, -1) {
+			if _, ok := seenFile[m]; ok {
+				continue
+			}
+			seenFile[m] = struct{}{}
+			fileHits = append(fileHits, m)
+			if len(fileHits) >= 12 {
+				break
+			}
+		}
+		for _, m := range reCommand.FindAllString(txt, -1) {
+			m = strings.TrimSpace(m)
+			if _, ok := seenCmd[m]; ok {
+				continue
+			}
+			seenCmd[m] = struct{}{}
+			cmdHits = append(cmdHits, m)
+			if len(cmdHits) >= 8 {
+				break
+			}
+		}
+	}
+
+	intent := strings.TrimSpace(latestIntent)
+	if intent == "" {
+		intent = lastUser
+	}
+	if intent != "" {
+		if len(intent) > 1200 {
+			intent = intent[:1200] + "\n...[truncated]..."
+		}
+		b.WriteString("- Latest user intent:\n\n")
+		b.WriteString("```text\n")
+		b.WriteString(intent)
+		b.WriteString("\n```\n")
+	}
+
+	if len(fileHits) > 0 {
+		b.WriteString("\n- Referenced files:\n")
+		for _, f := range fileHits {
+			b.WriteString("  - ")
+			b.WriteString(f)
+			b.WriteString("\n")
+		}
+	}
+	if len(cmdHits) > 0 {
+		b.WriteString("\n- Referenced commands:\n")
+		for _, c := range cmdHits {
+			b.WriteString("  - ")
+			b.WriteString(c)
+			b.WriteString("\n")
+		}
+	}
+	return strings.TrimSpace(b.String()) + "\n"
 }
 
 func sanitizeSessionKey(s string) string {
@@ -185,6 +339,26 @@ func sanitizeSessionKey(s string) string {
 		out = out[:120]
 	}
 	return out
+}
+
+func (s *FileStore) sessionDir(session string) string {
+	return filepath.Join(s.BaseDir, "sessions", sanitizeSessionKey(session))
+}
+
+func (s *FileStore) readSmallTextFile(path string, maxBytes int64) string {
+	if maxBytes <= 0 {
+		maxBytes = 16_000
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }()
+	b, err := io.ReadAll(io.LimitReader(f, maxBytes))
+	if err != nil || len(b) == 0 {
+		return ""
+	}
+	return string(b)
 }
 
 func readTailBytes(path string, max int64) ([]byte, error) {
