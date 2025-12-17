@@ -361,6 +361,51 @@ func (s *FileStore) readSmallTextFile(path string, maxBytes int64) string {
 	return string(b)
 }
 
+func (s *FileStore) ReadTodo(session string, maxChars int) string {
+	if s == nil || s.BaseDir == "" {
+		return ""
+	}
+	if session == "" {
+		return ""
+	}
+	if maxChars <= 0 {
+		maxChars = 4000
+	}
+	dir := s.sessionDir(session)
+	txt := strings.TrimSpace(s.readSmallTextFile(filepath.Join(dir, "todo.md"), int64(maxChars*2)))
+	if txt == "" {
+		return ""
+	}
+	if len(txt) > maxChars {
+		txt = txt[:maxChars] + "\n...[truncated]..."
+	}
+	return txt
+}
+
+func (s *FileStore) WriteTodo(session string, todo string, maxChars int) error {
+	if s == nil || s.BaseDir == "" {
+		return errors.New("memory store not configured")
+	}
+	if session == "" {
+		return nil
+	}
+	if maxChars <= 0 {
+		maxChars = 8000
+	}
+	todo = strings.TrimSpace(RedactText(todo))
+	if todo == "" {
+		return nil
+	}
+	if len(todo) > maxChars {
+		todo = todo[:maxChars] + "\n...[truncated]..."
+	}
+	dir := s.sessionDir(session)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "todo.md"), []byte(todo), 0o644)
+}
+
 func readTailBytes(path string, max int64) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
