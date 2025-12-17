@@ -54,7 +54,8 @@ func main() {
 	}
 
 	// Open as a desktop app window (no address bar) using Edge app mode.
-	_ = exec.Command(edge, "--app="+target, "--window-size=1200,850").Start()
+	// Force English UI for the embedded management app to avoid inheriting system/browser locale.
+	_ = exec.Command(edge, "--app="+target, "--window-size=1200,850", "--lang=en-US").Start()
 }
 
 func findEdge() (string, error) {
