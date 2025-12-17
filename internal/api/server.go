@@ -250,6 +250,7 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	}
 	managementasset.SetCurrentConfig(cfg)
 	auth.SetQuotaCooldownDisabled(cfg.DisableCooling)
+	auth.SetAntigravityPrimaryEmail(cfg.AntigravityPrimaryEmail)
 	// Initialize management handler
 	s.mgmt = managementHandlers.NewHandler(cfg, configFilePath, authManager)
 	if optionState.localPassword != "" {
@@ -563,6 +564,7 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/iflow-auth-url", s.mgmt.RequestIFlowToken)
 		mgmt.POST("/iflow-auth-url", s.mgmt.RequestIFlowCookieToken)
 		mgmt.GET("/get-auth-status", s.mgmt.GetAuthStatus)
+		mgmt.POST("/auth/reset-cooldown", s.mgmt.ResetAuthCooldown)
 	}
 }
 
@@ -843,6 +845,9 @@ func (s *Server) UpdateClients(cfg *config.Config) {
 		} else {
 			log.Debugf("disable_cooling toggled to %t", cfg.DisableCooling)
 		}
+	}
+	if oldCfg == nil || strings.TrimSpace(oldCfg.AntigravityPrimaryEmail) != strings.TrimSpace(cfg.AntigravityPrimaryEmail) {
+		auth.SetAntigravityPrimaryEmail(cfg.AntigravityPrimaryEmail)
 	}
 	if s.handlers != nil && s.handlers.AuthManager != nil {
 		s.handlers.AuthManager.SetRetryConfig(cfg.RequestRetry, time.Duration(cfg.MaxRetryInterval)*time.Second)

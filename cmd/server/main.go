@@ -404,6 +404,7 @@ func main() {
 	}
 	usage.SetStatisticsEnabled(cfg.UsageStatisticsEnabled)
 	coreauth.SetQuotaCooldownDisabled(cfg.DisableCooling)
+	coreauth.SetAntigravityPrimaryEmail(cfg.AntigravityPrimaryEmail)
 
 	if err = logging.ConfigureLogOutput(cfg.LoggingToFile); err != nil {
 		log.Errorf("failed to configure log output: %v", err)

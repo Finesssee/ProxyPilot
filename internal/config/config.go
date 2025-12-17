@@ -55,6 +55,10 @@ type Config struct {
 	// QuotaExceeded defines the behavior when a quota is exceeded.
 	QuotaExceeded QuotaExceeded `yaml:"quota-exceeded" json:"quota-exceeded"`
 
+	// AntigravityPrimaryEmail sets the preferred antigravity OAuth account for strict fallback.
+	// When set, the proxy will keep this account as primary and only use other antigravity auths when it is blocked.
+	AntigravityPrimaryEmail string `yaml:"antigravity-primary-email" json:"-"`
+
 	// WebsocketAuth enables or disables authentication for the WebSocket API.
 	WebsocketAuth bool `yaml:"ws-auth" json:"ws-auth"`
 

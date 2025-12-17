@@ -175,6 +175,8 @@ func (h *BaseAPIHandler) ExecuteWithAuthManager(ctx context.Context, handlerType
 	if errMsg != nil {
 		return nil, errMsg
 	}
+	trace := &coreauth.SelectionTrace{}
+	ctx = coreauth.WithSelectionTrace(ctx, trace)
 	req := coreexecutor.Request{
 		Model:   normalizedModel,
 		Payload: cloneBytes(rawJSON),
@@ -205,8 +207,10 @@ func (h *BaseAPIHandler) ExecuteWithAuthManager(ctx context.Context, handlerType
 				addon = hdr.Clone()
 			}
 		}
+		h.maybeSetSelectionHeaders(ctx, trace)
 		return nil, &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
 	}
+	h.maybeSetSelectionHeaders(ctx, trace)
 	return cloneBytes(resp.Payload), nil
 }
 
@@ -217,6 +221,8 @@ func (h *BaseAPIHandler) ExecuteCountWithAuthManager(ctx context.Context, handle
 	if errMsg != nil {
 		return nil, errMsg
 	}
+	trace := &coreauth.SelectionTrace{}
+	ctx = coreauth.WithSelectionTrace(ctx, trace)
 	req := coreexecutor.Request{
 		Model:   normalizedModel,
 		Payload: cloneBytes(rawJSON),
@@ -247,8 +253,10 @@ func (h *BaseAPIHandler) ExecuteCountWithAuthManager(ctx context.Context, handle
 				addon = hdr.Clone()
 			}
 		}
+		h.maybeSetSelectionHeaders(ctx, trace)
 		return nil, &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
 	}
+	h.maybeSetSelectionHeaders(ctx, trace)
 	return cloneBytes(resp.Payload), nil
 }
 
@@ -262,6 +270,8 @@ func (h *BaseAPIHandler) ExecuteStreamWithAuthManager(ctx context.Context, handl
 		close(errChan)
 		return nil, errChan
 	}
+	trace := &coreauth.SelectionTrace{}
+	ctx = coreauth.WithSelectionTrace(ctx, trace)
 	req := coreexecutor.Request{
 		Model:   normalizedModel,
 		Payload: cloneBytes(rawJSON),
@@ -293,10 +303,12 @@ func (h *BaseAPIHandler) ExecuteStreamWithAuthManager(ctx context.Context, handl
 				addon = hdr.Clone()
 			}
 		}
+		h.maybeSetSelectionHeaders(ctx, trace)
 		errChan <- &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
 		close(errChan)
 		return nil, errChan
 	}
+	h.maybeSetSelectionHeaders(ctx, trace)
 	dataChan := make(chan []byte)
 	errChan := make(chan *interfaces.ErrorMessage, 1)
 	go func() {
@@ -325,6 +337,38 @@ func (h *BaseAPIHandler) ExecuteStreamWithAuthManager(ctx context.Context, handl
 		}
 	}()
 	return dataChan, errChan
+}
+
+func (h *BaseAPIHandler) maybeSetSelectionHeaders(ctx context.Context, trace *coreauth.SelectionTrace) {
+	if trace == nil {
+		return
+	}
+	ginVal := ctx.Value("gin")
+	c, ok := ginVal.(*gin.Context)
+	if !ok || c == nil {
+		return
+	}
+	if c.GetHeader("X-CLIProxyAPI-Debug-Auth") == "" {
+		return
+	}
+	ip := strings.TrimSpace(c.ClientIP())
+	if ip != "127.0.0.1" && ip != "::1" && !strings.EqualFold(ip, "localhost") {
+		return
+	}
+	provider, authID, label, masked := trace.Snapshot()
+
+	if provider != "" {
+		c.Header("X-CLIProxyAPI-Selected-Provider", provider)
+	}
+	if authID != "" {
+		c.Header("X-CLIProxyAPI-Selected-Auth", authID)
+	}
+	if label != "" {
+		c.Header("X-CLIProxyAPI-Selected-Label", label)
+	}
+	if masked != "" {
+		c.Header("X-CLIProxyAPI-Selected-Account", masked)
+	}
 }
 
 func (h *BaseAPIHandler) getRequestDetails(modelName string) (providers []string, normalizedModel string, metadata map[string]any, err *interfaces.ErrorMessage) {

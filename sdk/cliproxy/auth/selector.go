@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
@@ -183,7 +184,26 @@ func (e *authBlockedError) Headers() http.Header {
 	return headers
 }
 
+var antigravityPrimaryEmailOverride atomic.Value // string
+
+// SetAntigravityPrimaryEmail configures the strict fallback primary account for antigravity.
+// When non-empty, it takes precedence over the CLIPROXY_ANTIGRAVITY_PRIMARY_EMAIL env var.
+func SetAntigravityPrimaryEmail(email string) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		antigravityPrimaryEmailOverride.Store("")
+		return
+	}
+	antigravityPrimaryEmailOverride.Store(email)
+}
+
 func antigravityPrimaryEmail() string {
+	if v, ok := antigravityPrimaryEmailOverride.Load().(string); ok {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if v != "" {
+			return v
+		}
+	}
 	// Optional override: CLIPROXY_ANTIGRAVITY_PRIMARY_EMAIL=primary@example.com
 	return strings.ToLower(strings.TrimSpace(os.Getenv("CLIPROXY_ANTIGRAVITY_PRIMARY_EMAIL")))
 }

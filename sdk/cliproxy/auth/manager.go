@@ -382,6 +382,7 @@ func (m *Manager) executeWithProvider(ctx context.Context, provider string, req 
 		}
 
 		tried[auth.ID] = struct{}{}
+		recordSelection(ctx, provider, auth)
 		execCtx := ctx
 		if rt := m.roundTripperFor(auth); rt != nil {
 			execCtx = context.WithValue(execCtx, roundTripperContextKey{}, rt)
@@ -430,6 +431,7 @@ func (m *Manager) executeCountWithProvider(ctx context.Context, provider string,
 		}
 
 		tried[auth.ID] = struct{}{}
+		recordSelection(ctx, provider, auth)
 		execCtx := ctx
 		if rt := m.roundTripperFor(auth); rt != nil {
 			execCtx = context.WithValue(execCtx, roundTripperContextKey{}, rt)
@@ -478,6 +480,7 @@ func (m *Manager) executeStreamWithProvider(ctx context.Context, provider string
 		}
 
 		tried[auth.ID] = struct{}{}
+		recordSelection(ctx, provider, auth)
 		execCtx := ctx
 		if rt := m.roundTripperFor(auth); rt != nil {
 			execCtx = context.WithValue(execCtx, roundTripperContextKey{}, rt)
