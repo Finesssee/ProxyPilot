@@ -1,10 +1,10 @@
-# ProxyPilot (CLIProxyAPI fork)
+# ProxyPilot (Windows)
 
 English | [中文](README_CN.md)
 
-ProxyPilot is a desktop-friendly wrapper around the `CLIProxyAPI` proxy engine (this repo), focused on running and managing a local proxy with a tray app + installer.
+ProxyPilot is a Windows “VibeProxy-style” desktop app for running and managing a local AI proxy (tray app + in-app dashboard), with extra compatibility for agentic CLIs (Factory/Droid, Codex CLI, Warp, etc.).
 
-ProxyPilot is forked from the original **CLIProxyAPI** project and rebranded; the underlying engine remains compatible with OpenAI/Gemini/Claude/Codex-style clients and SDKs.
+This repo started as a fork of **CLIProxyAPI**. For compatibility, some internal names (Go module path, `X-CLIProxyAPI-*` headers, legacy binary names) still exist, but the user-facing product is ProxyPilot.
 
 Windows app packaging: `docs/proxypilot.md`
 
@@ -44,7 +44,7 @@ Get 10% OFF GLM CODING PLAN: https://z.ai/subscribe?ic=8JVLJQFSKB
 
 Upstream-style docs for the engine live here:
 
-- CLIProxyAPI Guides: https://help.router-for.me/
+- Engine guides (upstream): https://help.router-for.me/
 - Management API: https://help.router-for.me/management/api
 
 ## Cursor IDE
@@ -99,4 +99,3 @@ Native macOS GUI for managing CLIProxyAPI: configure providers, model mappings, 
 ## License
 
 This project is licensed under the MIT License - see `LICENSE`.
-
