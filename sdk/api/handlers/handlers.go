@@ -5,6 +5,7 @@ package handlers
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -484,12 +485,34 @@ func (h *BaseAPIHandler) WriteErrorResponse(c *gin.Context, msg *interfaces.Erro
 			}
 		}
 	}
+
+	// Always return a JSON error envelope for OpenAI-compatible clients.
+	// Plain-text bodies (or invalid JSON) commonly show up as "(no body)" in the OpenAI Node SDK.
+	c.Header("Content-Type", "application/json")
 	c.Status(status)
+
+	message := http.StatusText(status)
 	if msg != nil && msg.Error != nil {
-		_, _ = c.Writer.Write([]byte(msg.Error.Error()))
-	} else {
-		_, _ = c.Writer.Write([]byte(http.StatusText(status)))
+		if s := strings.TrimSpace(msg.Error.Error()); s != "" {
+			message = s
+		}
 	}
+
+	errType := "invalid_request_error"
+	if status >= 500 {
+		errType = "server_error"
+	}
+
+	payload, _ := json.Marshal(ErrorResponse{
+		Error: ErrorDetail{
+			Message: message,
+			Type:    errType,
+		},
+	})
+	if len(payload) == 0 {
+		payload = []byte(`{"error":{"message":"unknown error","type":"server_error"}}`)
+	}
+	_, _ = c.Writer.Write(payload)
 }
 
 func (h *BaseAPIHandler) LoggingAPIResponseError(ctx context.Context, err *interfaces.ErrorMessage) {
