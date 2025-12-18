@@ -108,12 +108,18 @@ func applyDefaults(repoRoot, configPath, exePath string) (string, string, string
 		exeDir = filepath.Dir(filepath.Clean(exe))
 	}
 
-	if repoRoot == "" && exeDir != "" {
-		repoRoot = exeDir
+	// If launched from a repo/app "bin" directory, treat its parent as the root.
+	defaultRoot := exeDir
+	if strings.EqualFold(filepath.Base(defaultRoot), "bin") {
+		defaultRoot = filepath.Dir(defaultRoot)
+	}
+
+	if repoRoot == "" && defaultRoot != "" {
+		repoRoot = defaultRoot
 	}
 
 	if configPath == "" && exeDir != "" {
-		configPath = filepath.Join(exeDir, "config.yaml")
+		configPath = filepath.Join(repoRoot, "config.yaml")
 	}
 
 	if exePath == "" && exeDir != "" {

@@ -153,7 +153,14 @@ func Start(opts StartOptions) (Status, error) {
 	_ = saveState(statePath, s)
 
 	// Give it a moment to bind before status/health checks.
-	time.Sleep(250 * time.Millisecond)
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		st, _ := StatusFor(configPath)
+		if st.Running {
+			return st, nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 	return StatusFor(configPath)
 }
 
