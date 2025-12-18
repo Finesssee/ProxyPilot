@@ -1,6 +1,6 @@
 # Desktop UI (ProxyPilot) — Shared Spec (Windows first)
 
-This doc captures shared architecture and product decisions for a desktop “controller app” that manages a local `CLIProxyAPI` instance.
+This doc captures shared architecture and product decisions for a desktop “controller app” that manages a local `ProxyPilot` instance.
 
 OS-specific details live in:
 
@@ -11,7 +11,7 @@ OS-specific details live in:
 
 A small tray-first desktop app that can:
 
-- start/stop/restart the local proxy engine (CLIProxyAPI)
+- start/stop/restart the local proxy engine (ProxyPilot Engine)
 - show health + port + “copy base URL” snippets for IDE/agentic CLIs
 - surface logs/request diagnostics to debug issues like 400/429, “prompt too long”, streaming quirks
 

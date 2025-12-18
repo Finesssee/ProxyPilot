@@ -1,10 +1,10 @@
-# Windows UI for CLIProxyAPI — Spec (Wails + Tauri)
+# Windows UI for ProxyPilot — Spec (Wails + Tauri)
 
 This is the Windows-specific portion of the desktop UI plan. Shared (cross-platform) decisions and architecture live in `docs/desktop-ui-spec.md`.
 
 ## Goals
 
-- Provide a Windows-friendly way to run and manage `CLIProxyAPI` without PowerShell.
+- Provide a Windows-friendly way to run and manage `ProxyPilot` without PowerShell.
 - Surface request/log diagnostics to reduce “prompt too long” + debugging pain.
 - Support two desktop shells over time:
   - Primary: Wails (Go backend + web UI)
@@ -100,7 +100,7 @@ Wails and Tauri should both call the same operations (process management, config
 
 Windows-specific notes:
 
-- Persist UI state in `%LOCALAPPDATA%/CLIProxyAPI/ui-state.json`.
+- Persist UI state in `%LOCALAPPDATA%/ProxyPilot/ui-state.json`.
 - Prefer discover-by-port over discover-by-process-name.
 - When opening folders/URLs, use native Windows shell APIs (no admin).
 
@@ -108,7 +108,7 @@ Windows-specific notes:
 
 ### Packaging
 
-- Ship `CLIProxyAPI Manager.exe` with embedded web UI assets.
+- Ship `ProxyPilot.exe` with embedded web UI assets.
 - Bundle or download `proxypilot-engine.exe` (open decision).
 
 ### Screens
@@ -128,7 +128,7 @@ Windows-specific notes:
 ### First-run UX
 
 - If no config path is set:
-  - Detect `config.yaml` in common locations (repo root, `%LOCALAPPDATA%/CLIProxyAPI/`, user home).
+- Detect `config.yaml` in common locations (repo root, `%LOCALAPPDATA%/ProxyPilot/`, user home).
   - Offer “Use detected config” or “Browse…”.
 - If no API key is configured:
   - Offer “Generate local key” (writes to config) or “Open config” guidance.

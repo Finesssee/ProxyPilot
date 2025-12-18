@@ -8,7 +8,7 @@ This repo can run a local OpenAI-compatible proxy (`CLIProxyAPI`) and configure 
    - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-droid-cliproxy.ps1 -ProxyApiKey "<your-proxy-api-key>"`
 
 This will:
-- Build `bin\cliproxyapi.exe`
+- Build `bin\proxypilot-engine.exe` (and also writes a back-compat copy as `bin\cliproxyapi-latest.exe`)
 - Write `C:\Users\<you>\.factory\config.json` with a `custom_models` entry pointing at `http://127.0.0.1:8317/v1`
 
 ## Start / stop the proxy
@@ -32,7 +32,8 @@ That means CLIProxyAPI was started **elevated** (commonly via a scheduled task w
 
 Run once in an **elevated PowerShell**:
 
-- `taskkill /IM cliproxyapi.exe /F`
+- `taskkill /IM proxypilot-engine.exe /F`
+- `taskkill /IM cliproxyapi.exe /F` (back-compat)
 - `schtasks /Delete /TN "CLIProxyAPI-Logon" /F` (if it exists; legacy autostart)
 
 ## Use it in Droid

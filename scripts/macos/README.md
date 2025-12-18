@@ -8,7 +8,7 @@ From the repo root:
 
 - Build: `./scripts/build.sh`
 
-This builds `bin/cliproxyapi-latest`.
+This builds `bin/proxypilot-engine` (and also writes a back-compat copy as `bin/cliproxyapi-latest`).
 
 ## Start / stop the proxy
 

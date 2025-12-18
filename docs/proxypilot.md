@@ -1,8 +1,8 @@
-# ProxyPilot (Desktop wrapper for CLIProxyAPI)
+# ProxyPilot
 
-ProxyPilot is the desktop-facing packaging/branding for running and managing a local `CLIProxyAPI` instance, with extra compatibility features for agentic CLIs (Droid/Factory, Codex CLI, Warp).
+ProxyPilot is a local “AI proxy + desktop UX” for agentic CLIs (Droid/Factory, Codex CLI, Warp).
 
-ProxyPilot is a fork/rebrand of CLIProxyAPI: the engine is still `CLIProxyAPI`, and ProxyPilot is the Windows tray app + installer + updater UX around it.
+This repo started as a fork of CLIProxyAPI, but is now branded as ProxyPilot. For compatibility, some internal names and headers still use `CLIProxyAPI` (e.g. `X-CLIProxyAPI-*`).
 
 ## What’s included
 
@@ -51,7 +51,7 @@ When the proxy is started by the ProxyPilot tray app, it sets a per-user `MANAGE
 The password is stored in the ProxyPilot UI state file:
 
 - `%LOCALAPPDATA%\\ProxyPilot\\ui-state.json` (preferred)
-- legacy fallback: `%LOCALAPPDATA%\\CLIProxyAPI\\ui-state.json`
+- legacy fallback: `%LOCALAPPDATA%\\CLIProxyAPI\\ui-state.json` (migrates to `%LOCALAPPDATA%\\ProxyPilot\\ui-state.json`)
 
 ## OAuth helpers (tray)
 
