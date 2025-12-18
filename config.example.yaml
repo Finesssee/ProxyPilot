@@ -68,7 +68,7 @@ ws-auth: false
 #     excluded-models:
 #       - "gemini-2.5-pro"     # exclude specific models from this provider (exact match)
 #       - "gemini-2.5-*"       # wildcard matching prefix (e.g. gemini-2.5-flash, gemini-2.5-pro)
-#       - "*-preview"          # wildcard matching suffix (e.g. gemini-3-pro-preview)
+#       - "*-preview"          # wildcard matching suffix (e.g. gemini-3-pro-preview, gemini-3-flash-preview)
 #       - "*flash*"            # wildcard matching substring (e.g. gemini-2.5-flash-lite)
 #   - api-key: "AIzaSy...02"
 
@@ -134,10 +134,11 @@ ws-auth: false
 #   gemini-cli:
 #     - "gemini-2.5-pro"     # exclude specific models (exact match)
 #     - "gemini-2.5-*"       # wildcard matching prefix (e.g. gemini-2.5-flash, gemini-2.5-pro)
-#     - "*-preview"          # wildcard matching suffix (e.g. gemini-3-pro-preview)
+#     - "*-preview"          # wildcard matching suffix (e.g. gemini-3-pro-preview, gemini-3-flash-preview)
 #     - "*flash*"            # wildcard matching substring (e.g. gemini-2.5-flash-lite)
 #   vertex:
 #     - "gemini-3-pro-preview"
+#     - "gemini-3-flash-preview"
 #   aistudio:
 #     - "gemini-3-pro-preview"
 #   antigravity:

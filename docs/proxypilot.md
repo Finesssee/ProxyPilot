@@ -29,6 +29,7 @@ If you have Go installed:
 
 - `GET /healthz` (no auth)
 - `GET /v1/models` (requires API key)
+- `GET /proxypilot.html` (local-only ProxyPilot dashboard; no manual key entry)
 
 Example:
 
@@ -43,6 +44,23 @@ ProxyPilot tray app can toggle:
 
 On Windows this uses a per-user Run entry (no admin required).
 
+## Local management (Dashboard / tray)
+
+When the proxy is started by the ProxyPilot tray app, it sets a per-user `MANAGEMENT_PASSWORD` for the engine process so `/v0/management/*` endpoints are enabled for local use.
+
+The password is stored in the ProxyPilot UI state file:
+
+- `%LOCALAPPDATA%\\ProxyPilot\\ui-state.json` (preferred)
+- legacy fallback: `%LOCALAPPDATA%\\CLIProxyAPI\\ui-state.json`
+
+## OAuth helpers (tray)
+
+ProxyPilot tray app includes:
+
+- `Private OAuth window` toggle (opens Edge `--inprivate` when available)
+- One-click login launchers: Antigravity, Gemini CLI, Codex, Claude, Qwen, iFlow
+- `Open Auth Folder` shortcut
+
 ## Logs / diagnostics
 
 Useful paths:
@@ -50,4 +68,3 @@ Useful paths:
 - `logs/cliproxyapi.out.log`
 - `logs/cliproxyapi.err.log`
 - `logs/v1-responses-*.log` / `logs/v1-chat-completions-*.log` (request logs, if enabled)
-

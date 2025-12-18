@@ -33,7 +33,7 @@ This project proxies multiple “OpenAI-compatible” clients to multiple upstre
 
 ## Model routing rules
 
-### `gemini-3-pro*` provider preference
+### `gemini-3-*` provider preference
 
 - Primary: `antigravity`
 - Fallback: `gemini-cli` (only used if antigravity is unavailable/cooling)
@@ -44,4 +44,4 @@ This project proxies multiple “OpenAI-compatible” clients to multiple upstre
 - Droid SSE parsing: `sdk/api/handlers/openai/openai_responses_handlers_sse_done_test.go`
 - Codex SSE done sentinel: `sdk/api/handlers/openai/openai_responses_handlers_sse_json_compat_test.go`
 - Antigravity request shape: `internal/runtime/executor/antigravity_executor_shape_test.go`
-- Gemini-3-pro provider ordering: `internal/util/provider_test.go` and `sdk/cliproxy/auth/provider_rotation_test.go`
+- Gemini-3-* provider ordering: `internal/util/provider_test.go` and `sdk/cliproxy/auth/provider_rotation_test.go`
