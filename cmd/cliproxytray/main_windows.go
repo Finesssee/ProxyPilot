@@ -7,11 +7,15 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/getlantern/systray"
@@ -22,6 +26,7 @@ import (
 )
 
 const autostartAppName = "ProxyPilot"
+const thinkingProxyPort = 8317
 
 func main() {
 	var repoRoot string
@@ -38,19 +43,22 @@ func main() {
 
 func run(repoRoot, configPath, exePath string) {
 	systray.Run(func() {
+		thinkingProxy := startThinkingProxy(configPath)
+		defer thinkingProxy.Close()
+
 		if ico := trayicon.ProxyPilotICO(); len(ico) > 0 {
 			systray.SetIcon(ico)
 		}
 		systray.SetTitle("ProxyPilot")
-		systray.SetTooltip("ProxyPilot (powered by CLIProxyAPI)")
+		systray.SetTooltip("ProxyPilot")
 
 		statusItem := systray.AddMenuItem("Status: ...", "Current status")
 		statusItem.Disable()
 		systray.AddSeparator()
 
-		startItem := systray.AddMenuItem("Start", "Start proxy engine (CLIProxyAPI)")
-		stopItem := systray.AddMenuItem("Stop", "Stop proxy engine (CLIProxyAPI)")
-		restartItem := systray.AddMenuItem("Restart", "Restart proxy engine (CLIProxyAPI)")
+		startItem := systray.AddMenuItem("Start Engine", "Start the ProxyPilot engine")
+		stopItem := systray.AddMenuItem("Stop Engine", "Stop the ProxyPilot engine")
+		restartItem := systray.AddMenuItem("Restart Engine", "Restart the ProxyPilot engine")
 		systray.AddSeparator()
 
 		autoOn, _, _ := desktopctl.IsWindowsRunAutostartEnabled(autostartAppName)
@@ -60,7 +68,7 @@ func run(repoRoot, configPath, exePath string) {
 		systray.AddSeparator()
 
 		openProxyUI := systray.AddMenuItem("Open Dashboard", "Open ProxyPilot dashboard (local)")
-		openLegacyUI := systray.AddMenuItem("Open Legacy Management UI", "Open management.html (advanced)")
+		openLegacyUI := systray.AddMenuItem("Open Legacy UI", "Open management.html (advanced)")
 		openLogs := systray.AddMenuItem("Open Logs", "Open logs folder")
 		copyDiagnostics := systray.AddMenuItem("Copy Diagnostics", "Copy a support bundle to clipboard")
 		systray.AddSeparator()
@@ -359,6 +367,86 @@ func run(repoRoot, configPath, exePath string) {
 			}
 		}()
 	}, func() {})
+}
+
+type closeFn func() error
+
+func (c closeFn) Close() error { return c() }
+
+func startThinkingProxy(configPath string) ioCloser {
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", thinkingProxyPort))
+	if err != nil {
+		// Best effort: don't crash the tray app if the port is already taken.
+		return closeFn(func() error { return nil })
+	}
+
+	var (
+		mu         sync.Mutex
+		lastPort   int
+		lastProxy  *httputil.ReverseProxy
+		lastTarget *url.URL
+	)
+
+	getProxy := func() (*httputil.ReverseProxy, *url.URL) {
+		st, _ := desktopctl.StatusFor(configPath)
+		port := st.Port
+		if port <= 0 {
+			port = 8318
+		}
+		target, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
+
+		mu.Lock()
+		defer mu.Unlock()
+		if lastProxy != nil && lastTarget != nil && lastPort == port {
+			return lastProxy, lastTarget
+		}
+		rp := httputil.NewSingleHostReverseProxy(target)
+		rp.FlushInterval = 50 * time.Millisecond
+		origDirector := rp.Director
+		rp.Director = func(r *http.Request) {
+			origDirector(r)
+			// Preserve original Host header behavior for local forwarding.
+			r.Host = target.Host
+		}
+		rp.ErrorHandler = func(w http.ResponseWriter, r *http.Request, e error) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"error":{"message":"engine unavailable","type":"server_error"}}`))
+		}
+		lastPort = port
+		lastProxy = rp
+		lastTarget = target
+		return rp, target
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Only allow localhost clients to use the thinking proxy.
+		host, _, _ := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
+		if host != "127.0.0.1" && host != "::1" && !strings.EqualFold(host, "localhost") {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		rp, _ := getProxy()
+		rp.ServeHTTP(w, r)
+	})
+
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() { _ = srv.Serve(ln) }()
+
+	return closeFn(func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+		return ln.Close()
+	})
+}
+
+type ioCloser interface {
+	Close() error
 }
 
 func openProxyUIWithAutostart(repoRoot, configPath, exePath string) error {
