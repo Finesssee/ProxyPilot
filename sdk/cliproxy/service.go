@@ -436,6 +436,12 @@ func (s *Service) Run(ctx context.Context) error {
 		if errLoad := s.coreManager.Load(ctx); errLoad != nil {
 			log.Warnf("failed to load auth store: %v", errLoad)
 		}
+		// Ensure provider executors and model registry are initialized for the
+		// auths loaded from disk before serving the first request.
+		s.rebindExecutors()
+		for _, auth := range s.coreManager.List() {
+			s.registerModelsForAuth(auth)
+		}
 	}
 
 	tokenResult, err := s.tokenProvider.Load(ctx, s.cfg)
