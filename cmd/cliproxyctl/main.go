@@ -20,7 +20,7 @@ func main() {
 	fs := flag.NewFlagSet("cliproxyctl "+cmd, flag.ExitOnError)
 	configPath := fs.String("config", "", "Path to config.yaml")
 	repoRoot := fs.String("repo", "", "Repo root (used to locate bin/ and logs/)")
-	exePath := fs.String("exe", "", "Path to CLIProxyAPI binary")
+	exePath := fs.String("exe", "", "Path to ProxyPilot engine binary")
 	jsonOut := fs.Bool("json", true, "Output JSON when applicable")
 	_ = fs.Parse(os.Args[2:])
 

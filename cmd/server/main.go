@@ -1,4 +1,4 @@
-// Package main provides the entry point for the proxy engine (CLIProxyAPI).
+// Package main provides the entry point for the ProxyPilot engine.
 // This server acts as a proxy that provides OpenAI/Gemini/Claude compatible API interfaces
 // for CLI models, allowing CLI models to be used with tools and libraries designed for standard AI APIs.
 package main

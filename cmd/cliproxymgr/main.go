@@ -119,7 +119,7 @@ const indexHTML = `<!doctype html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>CLIProxyAPI Manager</title>
+  <title>ProxyPilot Manager</title>
   <style>
     :root { color-scheme: dark; }
     body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; background:#0b0f17; color:#e6edf3; }
@@ -134,7 +134,7 @@ const indexHTML = `<!doctype html>
   </style>
 </head>
 <body>
-  <h1>CLIProxyAPI Manager</h1>
+  <h1>ProxyPilot Manager</h1>
   <div class="card">
     <div class="row">
       <div><strong>Status:</strong> <span id="status">…</span></div>
