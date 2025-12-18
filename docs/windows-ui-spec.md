@@ -22,7 +22,7 @@ This is the Windows-specific portion of the desktop UI plan. Shared (cross-platf
 
 - v1 ships as Wails.
 - Tauri is optional later; it should reuse the same control layer via a helper CLI.
-- The UI controls an existing `cliproxyapi-latest.exe` (built by the UI or already present).
+- The UI controls an existing `proxypilot-engine.exe` (built by the UI or already present).
 - The UI should not require elevated privileges and should default to localhost-only behavior.
 
 ## Personas / Use-cases
@@ -43,7 +43,7 @@ This is the Windows-specific portion of the desktop UI plan. Shared (cross-platf
 
 ### Process control
 
-- Build (optional): build `cmd/server` into `bin/cliproxyapi-latest.exe`.
+- Build (optional): build `cmd/server` into `bin/proxypilot-engine.exe`.
 - Start:
   - Uses a selectable config path (default: repo `config.yaml` if present).
 - Writes logs to `logs/proxypilot-engine.out.log` and `logs/proxypilot-engine.err.log`.
@@ -109,7 +109,7 @@ Windows-specific notes:
 ### Packaging
 
 - Ship `CLIProxyAPI Manager.exe` with embedded web UI assets.
-- Bundle or download `cliproxyapi-latest.exe` (open decision).
+- Bundle or download `proxypilot-engine.exe` (open decision).
 
 ### Screens
 

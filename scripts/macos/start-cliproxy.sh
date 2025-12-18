@@ -3,9 +3,14 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 default_exe="$repo_root/bin/cliproxyapi"
+preferred_exe="$repo_root/bin/proxypilot-engine"
 latest_exe="$repo_root/bin/cliproxyapi-latest"
 exe="$default_exe"
-if [[ -f "$latest_exe" ]]; then exe="$latest_exe"; fi
+if [[ -f "$preferred_exe" ]]; then
+  exe="$preferred_exe"
+elif [[ -f "$latest_exe" ]]; then
+  exe="$latest_exe"
+fi
 
 config_path="$repo_root/config.yaml"
 logs_dir="$repo_root/logs"
@@ -37,7 +42,7 @@ if [[ -z "${port:-}" ]]; then port="8318"; fi
 if [[ -f "$pid_file" ]]; then
   existing_pid="$(cat "$pid_file" 2>/dev/null || true)"
   if [[ -n "${existing_pid:-}" ]] && kill -0 "$existing_pid" 2>/dev/null; then
-    echo "CLIProxyAPI already running (PID $existing_pid)."
+    echo "ProxyPilot Engine already running (PID $existing_pid)."
     exit 0
   fi
 fi
@@ -45,12 +50,12 @@ fi
 if command -v lsof >/dev/null 2>&1; then
   if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "Port $port is already in use." >&2
-    echo "If this is CLIProxyAPI, run: ./scripts/restart.sh" >&2
+    echo "If this is ProxyPilot Engine, run: ./scripts/restart.sh" >&2
     exit 0
   fi
 fi
 
-echo "Starting CLIProxyAPI..."
+echo "Starting ProxyPilot Engine..."
 echo "  exe:    $exe"
 echo "  config: $config_path"
 echo "  logs:   $logs_dir"

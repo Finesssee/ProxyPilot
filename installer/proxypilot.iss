@@ -36,7 +36,7 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 [Files]
 Source: "{#RepoRoot}\\bin\\ProxyPilot.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\\bin\\ProxyPilotUI.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#RepoRoot}\\bin\\cliproxyapi-latest.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\\bin\\proxypilot-engine.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\\bin\\ProxyPilot.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\\config.example.yaml"; DestDir: "{app}"; Flags: ignoreversion
 

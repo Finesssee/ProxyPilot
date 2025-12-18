@@ -26,12 +26,14 @@ function Build-CLIProxy([string]$RepoRoot) {
   $binDir = Join-Path $RepoRoot "bin"
   Ensure-Dir $binDir
 
-  $exePath = Join-Path $binDir "cliproxyapi.exe"
+  $exePath = Join-Path $binDir "proxypilot-engine.exe"
+  $compatPath = Join-Path $binDir "cliproxyapi-latest.exe"
 
-  Write-Host "Building CLIProxyAPI -> $exePath"
+  Write-Host "Building ProxyPilot Engine -> $exePath"
   Push-Location $RepoRoot
   try {
     & go build -o $exePath .\cmd\server
+    Copy-Item -Force -LiteralPath $exePath -Destination $compatPath
   } finally {
     Pop-Location
   }
@@ -98,7 +100,7 @@ function Ensure-DroidConfig([string]$BaseUrl, [string]$ApiKey, [string]$Model) {
       $displayModelId = ($modelId -replace '\((low|medium|high|xhigh|none|auto)\)$', ' (reasoning: $1)')
     }
     [PSCustomObject]@{
-      model_display_name = "CLIProxy (local): $displayModelId"
+      model_display_name = "ProxyPilot (local): $displayModelId"
       model              = $modelId
       base_url           = $BaseUrl
       api_key            = $ApiKey

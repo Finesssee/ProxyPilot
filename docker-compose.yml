@@ -1,5 +1,5 @@
 services:
-  cli-proxy-api:
+  proxypilot:
     image: ${CLI_PROXY_IMAGE:-eceasy/cli-proxy-api:latest}
     pull_policy: always
     build:
@@ -9,7 +9,7 @@ services:
         VERSION: ${VERSION:-dev}
         COMMIT: ${COMMIT:-none}
         BUILD_DATE: ${BUILD_DATE:-unknown}
-    container_name: cli-proxy-api
+    container_name: proxypilot
     # env_file:
     #   - .env
     environment:
@@ -22,7 +22,7 @@ services:
       - "51121:51121"
       - "11451:11451"
     volumes:
-      - ./config.yaml:/CLIProxyAPI/config.yaml
+      - ./config.yaml:/ProxyPilot/config.yaml
       - ./auths:/root/.cli-proxy-api
-      - ./logs:/CLIProxyAPI/logs
+      - ./logs:/ProxyPilot/logs
     restart: unless-stopped

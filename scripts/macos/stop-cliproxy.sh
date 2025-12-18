@@ -9,7 +9,7 @@ stop_pid() {
   if ! kill -0 "$pid" 2>/dev/null; then
     return 1
   fi
-  echo "Stopping CLIProxyAPI (PID $pid)"
+  echo "Stopping ProxyPilot Engine (PID $pid)"
   kill "$pid" 2>/dev/null || true
   for _ in {1..20}; do
     if ! kill -0 "$pid" 2>/dev/null; then
@@ -17,7 +17,7 @@ stop_pid() {
     fi
     sleep 0.25
   done
-  echo "Force killing CLIProxyAPI (PID $pid)"
+  echo "Force killing ProxyPilot Engine (PID $pid)"
   kill -9 "$pid" 2>/dev/null || true
   return 0
 }
@@ -32,7 +32,7 @@ if [[ -f "$pid_file" ]]; then
   rm -f "$pid_file"
 fi
 
-for name in cliproxyapi-latest cliproxyapi; do
+for name in proxypilot-engine cliproxyapi-latest cliproxyapi; do
   if command -v pkill >/dev/null 2>&1; then
     if pkill -x "$name" 2>/dev/null; then
       echo "Stopping $name"
@@ -42,6 +42,5 @@ for name in cliproxyapi-latest cliproxyapi; do
 done
 
 if [[ "$stopped_any" == "false" ]]; then
-  echo "No running CLIProxyAPI process found."
+  echo "No running ProxyPilot Engine process found."
 fi
-

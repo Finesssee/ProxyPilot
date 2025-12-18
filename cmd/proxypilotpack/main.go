@@ -117,9 +117,9 @@ func resolveRepoRoot(repoDir string) (string, error) {
 }
 
 func buildBinaries(repoRoot, binRoot string) error {
-	proxyExe := filepath.Join(binRoot, "cliproxyapi-latest.exe")
+	proxyExe := filepath.Join(binRoot, "proxypilot-engine.exe")
 	if runtime.GOOS != "windows" {
-		proxyExe = filepath.Join(binRoot, "cliproxyapi-latest")
+		proxyExe = filepath.Join(binRoot, "proxypilot-engine")
 	}
 	trayExe := filepath.Join(binRoot, "ProxyPilot.exe")
 	if runtime.GOOS != "windows" {
@@ -171,7 +171,9 @@ func packageZip(repoRoot, binRoot, distRoot string) error {
 		{src: filepath.Join(binRoot, "ProxyPilot.exe"), dst: "ProxyPilot.exe"},
 		{src: filepath.Join(binRoot, "ProxyPilotUI.exe"), dst: "ProxyPilotUI.exe"},
 		{src: filepath.Join(binRoot, "ProxyPilot.ico"), dst: "ProxyPilot.ico"},
-		{src: filepath.Join(binRoot, "cliproxyapi-latest.exe"), dst: "cliproxyapi-latest.exe"},
+		{src: filepath.Join(binRoot, "proxypilot-engine.exe"), dst: "proxypilot-engine.exe"},
+		// Back-compat: keep a copy under the legacy name for older launchers/scripts.
+		{src: filepath.Join(binRoot, "proxypilot-engine.exe"), dst: "cliproxyapi-latest.exe"},
 	}
 	cfg := filepath.Join(repoRoot, "config.example.yaml")
 	if _, err := os.Stat(cfg); err == nil {
@@ -222,16 +224,17 @@ func packageSetup(repoRoot, binRoot, distRoot string) error {
 	// Payload files
 	mgrExe := filepath.Join(binRoot, "ProxyPilot.exe")
 	uiExe := filepath.Join(binRoot, "ProxyPilotUI.exe")
-	srvExe := filepath.Join(binRoot, "cliproxyapi-latest.exe")
+	srvExe := filepath.Join(binRoot, "proxypilot-engine.exe")
 	if err := copyFile(mgrExe, filepath.Join(staging, "ProxyPilot.exe")); err != nil {
 		return err
 	}
 	if err := copyFile(uiExe, filepath.Join(staging, "ProxyPilotUI.exe")); err != nil {
 		return err
 	}
-	if err := copyFile(srvExe, filepath.Join(staging, "cliproxyapi-latest.exe")); err != nil {
+	if err := copyFile(srvExe, filepath.Join(staging, "proxypilot-engine.exe")); err != nil {
 		return err
 	}
+	_ = copyFile(srvExe, filepath.Join(staging, "cliproxyapi-latest.exe"))
 	cfgSrc := filepath.Join(repoRoot, "config.example.yaml")
 	if _, err := os.Stat(cfgSrc); err == nil {
 		if err := copyFile(cfgSrc, filepath.Join(staging, "config.example.yaml")); err != nil {
@@ -248,7 +251,8 @@ func packageSetup(repoRoot, binRoot, distRoot string) error {
 		"if not exist \"%DEST%\" mkdir \"%DEST%\" >nul 2>&1\r\n" +
 		"copy /Y \"%SRC%ProxyPilot.exe\" \"%DEST%\\ProxyPilot.exe\" >nul\r\n" +
 		"copy /Y \"%SRC%ProxyPilotUI.exe\" \"%DEST%\\ProxyPilotUI.exe\" >nul\r\n" +
-		"copy /Y \"%SRC%cliproxyapi-latest.exe\" \"%DEST%\\cliproxyapi-latest.exe\" >nul\r\n" +
+		"copy /Y \"%SRC%proxypilot-engine.exe\" \"%DEST%\\proxypilot-engine.exe\" >nul\r\n" +
+		"copy /Y \"%SRC%proxypilot-engine.exe\" \"%DEST%\\cliproxyapi-latest.exe\" >nul\r\n" +
 		"if exist \"%SRC%config.example.yaml\" copy /Y \"%SRC%config.example.yaml\" \"%DEST%\\config.example.yaml\" >nul\r\n" +
 		"if not exist \"%DEST%\\config.yaml\" if exist \"%DEST%\\config.example.yaml\" copy /Y \"%DEST%\\config.example.yaml\" \"%DEST%\\config.yaml\" >nul\r\n" +
 		"\r\n" +
@@ -331,13 +335,13 @@ SourceFiles0=%s
 [SourceFiles0]
 %%FILE0%%=ProxyPilot.exe
 %%FILE1%%=ProxyPilotUI.exe
-%%FILE2%%=cliproxyapi-latest.exe
+%%FILE2%%=proxypilot-engine.exe
 %%FILE3%%=config.example.yaml
 %%FILE4%%=install.cmd
 [Strings]
 FILE0=ProxyPilot.exe
 FILE1=ProxyPilotUI.exe
-FILE2=cliproxyapi-latest.exe
+FILE2=proxypilot-engine.exe
 FILE3=config.example.yaml
 FILE4=install.cmd
 `, outEsc, stagingEsc), nil

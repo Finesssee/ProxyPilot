@@ -30,11 +30,11 @@ Ensure-Dir $staging
 
 # Payload files
 $mgrExe = Join-Path $repoRoot "bin\\ProxyPilot.exe"
-$srvExe = Join-Path $repoRoot "bin\\cliproxyapi-latest.exe"
+$srvExe = Join-Path $repoRoot "bin\\proxypilot-engine.exe"
 $cfgSrc = Join-Path $repoRoot "config.example.yaml"
 
 Copy-Item -Force -LiteralPath $mgrExe -Destination (Join-Path $staging "ProxyPilot.exe")
-Copy-Item -Force -LiteralPath $srvExe -Destination (Join-Path $staging "cliproxyapi-latest.exe")
+Copy-Item -Force -LiteralPath $srvExe -Destination (Join-Path $staging "proxypilot-engine.exe")
 if (Test-Path -LiteralPath $cfgSrc) {
   Copy-Item -Force -LiteralPath $cfgSrc -Destination (Join-Path $staging "config.example.yaml")
 }
@@ -82,12 +82,12 @@ SourceFiles=SourceFiles
 SourceFiles0=$escapedStaging
 [SourceFiles0]
 %FILE0%=ProxyPilot.exe
-%FILE1%=cliproxyapi-latest.exe
+%FILE1%=proxypilot-engine.exe
 %FILE2%=config.example.yaml
 %FILE3%=run-manager.cmd
 [Strings]
 FILE0=ProxyPilot.exe
-FILE1=cliproxyapi-latest.exe
+FILE1=proxypilot-engine.exe
 FILE2=config.example.yaml
 FILE3=run-manager.cmd
 "@ | Set-Content -Encoding ASCII -LiteralPath $sedPath

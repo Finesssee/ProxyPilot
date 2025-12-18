@@ -24,7 +24,7 @@ func main() {
 	flag.StringVar(&uiAddr, "listen", "127.0.0.1:7331", "UI listen address")
 	flag.StringVar(&repoRoot, "repo", "", "Repo root (used to locate bin/ and logs/)")
 	flag.StringVar(&configPath, "config", "", "Path to config.yaml (defaults to <repo>/config.yaml)")
-	flag.StringVar(&exePath, "exe", "", "Path to CLIProxyAPI binary (defaults to <repo>/bin/cliproxyapi-latest.exe)")
+	flag.StringVar(&exePath, "exe", "", "Path to ProxyPilot Engine binary (defaults to <repo>/bin/proxypilot-engine.exe)")
 	flag.BoolVar(&noOpen, "no-open", false, "Don't auto-open browser")
 	flag.Parse()
 

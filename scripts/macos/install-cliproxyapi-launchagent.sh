@@ -8,9 +8,14 @@ fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 default_exe="$repo_root/bin/cliproxyapi"
+preferred_exe="$repo_root/bin/proxypilot-engine"
 latest_exe="$repo_root/bin/cliproxyapi-latest"
 exe="$default_exe"
-if [[ -f "$latest_exe" ]]; then exe="$latest_exe"; fi
+if [[ -f "$preferred_exe" ]]; then
+  exe="$preferred_exe"
+elif [[ -f "$latest_exe" ]]; then
+  exe="$latest_exe"
+fi
 
 config_path="$repo_root/config.yaml"
 logs_dir="$repo_root/logs"
@@ -28,7 +33,7 @@ if [[ ! -f "$config_path" ]]; then
   exit 1
 fi
 
-label="com.cliproxyapi"
+label="com.proxypilot.engine"
 plist_dir="$HOME/Library/LaunchAgents"
 plist_path="$plist_dir/${label}.plist"
 mkdir -p "$plist_dir"
