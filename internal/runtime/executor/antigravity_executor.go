@@ -379,6 +379,7 @@ func FetchAntigravityModels(ctx context.Context, auth *cliproxyauth.Auth, cfg *c
 
 		now := time.Now().Unix()
 		modelConfig := registry.GetAntigravityModelConfig()
+		limits := antigravityBuildStaticLimitsIndex()
 		models := make([]*registry.ModelInfo, 0, len(result.Map()))
 		for originalName := range result.Map() {
 			aliasName := modelName2Alias(originalName)
@@ -399,6 +400,22 @@ func FetchAntigravityModels(ctx context.Context, auth *cliproxyauth.Auth, cfg *c
 					OwnedBy:     antigravityAuthType,
 					Type:        antigravityAuthType,
 				}
+				// Copy known limits from our static Gemini model list (best-effort).
+				// This improves /v1/models output (context_length/max_completion_tokens) for antigravity models.
+				if lim, ok := limits[aliasName]; ok {
+					if modelInfo.InputTokenLimit == 0 && lim.InputTokenLimit > 0 {
+						modelInfo.InputTokenLimit = lim.InputTokenLimit
+					}
+					if modelInfo.OutputTokenLimit == 0 && lim.OutputTokenLimit > 0 {
+						modelInfo.OutputTokenLimit = lim.OutputTokenLimit
+					}
+					if modelInfo.ContextLength == 0 && lim.ContextLength > 0 {
+						modelInfo.ContextLength = lim.ContextLength
+					}
+					if modelInfo.MaxCompletionTokens == 0 && lim.MaxCompletionTokens > 0 {
+						modelInfo.MaxCompletionTokens = lim.MaxCompletionTokens
+					}
+				}
 				// Look up Thinking support from static config using alias name
 				if cfg != nil {
 					if cfg.Thinking != nil {
@@ -414,6 +431,53 @@ func FetchAntigravityModels(ctx context.Context, auth *cliproxyauth.Auth, cfg *c
 		return models
 	}
 	return nil
+}
+
+type antigravityStaticLimit struct {
+	InputTokenLimit     int
+	OutputTokenLimit    int
+	ContextLength       int
+	MaxCompletionTokens int
+}
+
+func antigravityBuildStaticLimitsIndex() map[string]antigravityStaticLimit {
+	index := make(map[string]antigravityStaticLimit)
+	add := func(models []*registry.ModelInfo) {
+		for _, m := range models {
+			if m == nil || strings.TrimSpace(m.ID) == "" {
+				continue
+			}
+			id := strings.TrimSpace(m.ID)
+			cur := index[id]
+			if cur.InputTokenLimit == 0 && m.InputTokenLimit > 0 {
+				cur.InputTokenLimit = m.InputTokenLimit
+			}
+			if cur.OutputTokenLimit == 0 && m.OutputTokenLimit > 0 {
+				cur.OutputTokenLimit = m.OutputTokenLimit
+			}
+			if cur.ContextLength == 0 && m.ContextLength > 0 {
+				cur.ContextLength = m.ContextLength
+			}
+			if cur.MaxCompletionTokens == 0 && m.MaxCompletionTokens > 0 {
+				cur.MaxCompletionTokens = m.MaxCompletionTokens
+			}
+			// Fallback: if only Gemini-style limits exist, treat them as context/output.
+			if cur.ContextLength == 0 && cur.InputTokenLimit > 0 {
+				cur.ContextLength = cur.InputTokenLimit
+			}
+			if cur.MaxCompletionTokens == 0 && cur.OutputTokenLimit > 0 {
+				cur.MaxCompletionTokens = cur.OutputTokenLimit
+			}
+			index[id] = cur
+		}
+	}
+
+	add(registry.GetGeminiModels())
+	add(registry.GetGeminiVertexModels())
+	add(registry.GetGeminiCLIModels())
+	add(registry.GetAIStudioModels())
+
+	return index
 }
 
 func (e *AntigravityExecutor) ensureAccessToken(ctx context.Context, auth *cliproxyauth.Auth) (string, *cliproxyauth.Auth, error) {
