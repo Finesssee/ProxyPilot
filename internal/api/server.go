@@ -300,6 +300,7 @@ func (s *Server) setupRoutes() {
 		})
 	})
 	s.engine.GET("/management.html", s.serveManagementControlPanel)
+	s.registerProxyPilotDashboardRoutes()
 	openaiHandlers := openai.NewOpenAIAPIHandler(s.handlers)
 	geminiHandlers := gemini.NewGeminiAPIHandler(s.handlers)
 	geminiCLIHandlers := gemini.NewGeminiCLIAPIHandler(s.handlers)
@@ -565,6 +566,10 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.POST("/iflow-auth-url", s.mgmt.RequestIFlowCookieToken)
 		mgmt.GET("/get-auth-status", s.mgmt.GetAuthStatus)
 		mgmt.POST("/auth/reset-cooldown", s.mgmt.ResetAuthCooldown)
+
+		// ProxyPilot desktop UX helpers (local diagnostics and launcher logs).
+		mgmt.GET("/proxypilot/diagnostics", s.mgmt.GetProxyPilotDiagnostics)
+		mgmt.GET("/proxypilot/logs/tail", s.mgmt.GetProxyPilotLogTail)
 	}
 }
 
