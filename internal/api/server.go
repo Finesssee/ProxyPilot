@@ -196,6 +196,8 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	// Add middleware
 	engine.Use(logging.GinLogrusLogger())
 	engine.Use(logging.GinLogrusRecovery())
+	// Decode request bodies before any handler reads JSON (e.g. Droid/OpenAI SDK may send gzip).
+	engine.Use(middleware.RequestDecompressionMiddleware())
 	for _, mw := range optionState.extraMiddleware {
 		engine.Use(mw)
 	}
