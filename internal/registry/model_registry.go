@@ -730,10 +730,29 @@ func (r *ModelRegistry) convertModelToMap(model *ModelInfo, handlerType string) 
 
 	switch handlerType {
 	case "openai":
+		// For OpenAI-compatible /v1/models, expose a consistent pair of limits for *all* models:
+		// - context_length (max input tokens)
+		// - max_completion_tokens (max output tokens)
+		//
+		// Some providers populate InputTokenLimit/OutputTokenLimit (Gemini-style) while others use
+		// ContextLength/MaxCompletionTokens (OpenAI/Claude/Qwen-style). Prefer the explicit fields,
+		// and fall back to Gemini-style fields when needed.
+		contextLength := model.ContextLength
+		if contextLength == 0 {
+			contextLength = model.InputTokenLimit
+		}
+		maxCompletion := model.MaxCompletionTokens
+		if maxCompletion == 0 {
+			maxCompletion = model.OutputTokenLimit
+		}
+
 		result := map[string]any{
 			"id":       model.ID,
 			"object":   "model",
 			"owned_by": model.OwnedBy,
+			// Always include these keys; 0 means unknown/unset.
+			"context_length":        contextLength,
+			"max_completion_tokens": maxCompletion,
 		}
 		if model.Created > 0 {
 			result["created"] = model.Created
@@ -749,12 +768,6 @@ func (r *ModelRegistry) convertModelToMap(model *ModelInfo, handlerType string) 
 		}
 		if model.Description != "" {
 			result["description"] = model.Description
-		}
-		if model.ContextLength > 0 {
-			result["context_length"] = model.ContextLength
-		}
-		if model.MaxCompletionTokens > 0 {
-			result["max_completion_tokens"] = model.MaxCompletionTokens
 		}
 		if len(model.SupportedParameters) > 0 {
 			result["supported_parameters"] = model.SupportedParameters
