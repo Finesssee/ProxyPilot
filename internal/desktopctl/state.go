@@ -15,6 +15,11 @@ type state struct {
 	StartedAt  time.Time `json:"started_at"`
 	// AutoStartProxy controls whether the tray app should start the proxy automatically on launch.
 	AutoStartProxy bool `json:"auto_start_proxy,omitempty"`
+	// OAuthPrivate controls whether OAuth login should be opened in a private window.
+	OAuthPrivate bool `json:"oauth_private,omitempty"`
+	// ManagementPassword is a locally-scoped management key used to unlock /v0/management
+	// endpoints when ProxyPilot starts the engine. It is stored in the per-user state file.
+	ManagementPassword string `json:"management_password,omitempty"`
 }
 
 func loadState(path string) (*state, error) {
@@ -78,4 +83,59 @@ func SetAutoStartProxy(enabled bool) error {
 	}
 	s.AutoStartProxy = enabled
 	return saveState(path, s)
+}
+
+// GetOAuthPrivate returns whether OAuth flows should be opened in a private window.
+func GetOAuthPrivate() (bool, error) {
+	s, err := loadState(defaultStatePath())
+	if err != nil {
+		return false, err
+	}
+	if s == nil {
+		return false, nil
+	}
+	return s.OAuthPrivate, nil
+}
+
+// SetOAuthPrivate persists whether OAuth flows should be opened in a private window.
+func SetOAuthPrivate(enabled bool) error {
+	path := defaultStatePath()
+	s, err := loadState(path)
+	if err != nil {
+		return err
+	}
+	if s == nil {
+		s = &state{}
+	}
+	s.OAuthPrivate = enabled
+	return saveState(path, s)
+}
+
+func getOrCreateManagementPassword() (string, error) {
+	path := defaultStatePath()
+	s, err := loadState(path)
+	if err != nil {
+		return "", err
+	}
+	if s == nil {
+		s = &state{}
+	}
+	if s.ManagementPassword != "" {
+		return s.ManagementPassword, nil
+	}
+	pw, err := randomPassword(32)
+	if err != nil {
+		return "", err
+	}
+	s.ManagementPassword = pw
+	if err := saveState(path, s); err != nil {
+		return "", err
+	}
+	return pw, nil
+}
+
+// GetManagementPassword returns the per-user management password used by ProxyPilot to unlock
+// the engine Management API for localhost access.
+func GetManagementPassword() (string, error) {
+	return getOrCreateManagementPassword()
 }

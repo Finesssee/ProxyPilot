@@ -15,5 +15,15 @@ func defaultStatePath() string {
 	if base == "" {
 		base = "."
 	}
-	return filepath.Join(base, "CLIProxyAPI", "ui-state.json")
+
+	newPath := filepath.Join(base, "ProxyPilot", "ui-state.json")
+	oldPath := filepath.Join(base, "CLIProxyAPI", "ui-state.json")
+
+	if _, err := os.Stat(newPath); err == nil {
+		return newPath
+	}
+	if _, err := os.Stat(oldPath); err == nil {
+		return oldPath
+	}
+	return newPath
 }

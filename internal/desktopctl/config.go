@@ -2,6 +2,7 @@ package desktopctl
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -37,4 +38,31 @@ func loadPort(configPath string) (int, error) {
 		return 8318, nil
 	}
 	return cfg.Port, nil
+}
+
+func authDir(configPath string) (string, error) {
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		return "", err
+	}
+	dir := strings.TrimSpace(cfg.AuthDir)
+	if dir == "" {
+		return "", fmt.Errorf("auth-dir not configured")
+	}
+	if strings.HasPrefix(dir, "~/") || dir == "~" {
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			if dir == "~" {
+				dir = home
+			} else {
+				dir = filepath.Join(home, strings.TrimPrefix(dir, "~/"))
+			}
+		}
+	}
+	return dir, nil
+}
+
+// AuthDirFor returns the resolved auth directory for the given config file.
+func AuthDirFor(configPath string) (string, error) {
+	return authDir(configPath)
 }

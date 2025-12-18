@@ -42,17 +42,20 @@ func StatusFor(configPath string) (Status, error) {
 			managed = false
 		}
 	}
+	if s != nil {
+		repairStateIfStale(statePath, s, running, managed)
+	}
 
 	out := Status{
-		Running:    running,
-		Managed:    managed,
+		Running:        running,
+		Managed:        managed,
 		AutoStartProxy: s != nil && s.AutoStartProxy,
-		PID:        pidOrZero(s),
-		Port:       port,
-		BaseURL:    baseURL,
-		ConfigPath: resolvedConfig,
-		ExePath:    exeOrEmpty(s),
-		StartedAt:  startedAtOrZero(s),
+		PID:            pidOrZero(s),
+		Port:           port,
+		BaseURL:        baseURL,
+		ConfigPath:     resolvedConfig,
+		ExePath:        exeOrEmpty(s),
+		StartedAt:      startedAtOrZero(s),
 	}
 	if healthErr != nil {
 		out.LastError = healthErr.Error()
@@ -124,6 +127,13 @@ func Start(opts StartOptions) (Status, error) {
 	if runtime.GOOS == "windows" {
 		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	}
+	// Enable management endpoints for the local ProxyPilot UX by setting a per-user secret.
+	// This is used to unlock /v0/management routes while keeping remote management disabled by default.
+	pw, errPw := getOrCreateManagementPassword()
+	if errPw != nil {
+		return Status{}, errPw
+	}
+	cmd.Env = append(os.Environ(), "MANAGEMENT_PASSWORD="+pw)
 
 	if err := cmd.Start(); err != nil {
 		return Status{}, err
@@ -137,6 +147,8 @@ func Start(opts StartOptions) (Status, error) {
 	}
 	if prev != nil {
 		s.AutoStartProxy = prev.AutoStartProxy
+		s.OAuthPrivate = prev.OAuthPrivate
+		s.ManagementPassword = prev.ManagementPassword
 	}
 	_ = saveState(statePath, s)
 
@@ -249,6 +261,21 @@ func pidOrZero(s *state) int {
 		return 0
 	}
 	return s.PID
+}
+
+func repairStateIfStale(statePath string, s *state, running bool, managed bool) {
+	if s == nil || strings.TrimSpace(statePath) == "" {
+		return
+	}
+	// If we recorded a PID but it's no longer alive, clear runtime fields so we don't keep showing
+	// a managed PID that doesn't exist after crashes/reboots.
+	if s.PID > 0 && !managed {
+		if !running {
+			s.PID = 0
+			s.StartedAt = time.Time{}
+			_ = saveState(statePath, s)
+		}
+	}
 }
 
 func exeOrEmpty(s *state) string {
