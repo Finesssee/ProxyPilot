@@ -381,51 +381,63 @@ func FetchAntigravityModels(ctx context.Context, auth *cliproxyauth.Auth, cfg *c
 		modelConfig := registry.GetAntigravityModelConfig()
 		limits := antigravityBuildStaticLimitsIndex()
 		models := make([]*registry.ModelInfo, 0, len(result.Map()))
+		appendModel := func(id string) {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				return
+			}
+			cfg := modelConfig[id]
+			modelName := id
+			if cfg != nil && cfg.Name != "" {
+				modelName = cfg.Name
+			}
+			modelInfo := &registry.ModelInfo{
+				ID:          id,
+				Name:        modelName,
+				Description: id,
+				DisplayName: id,
+				Version:     id,
+				Object:      "model",
+				Created:     now,
+				OwnedBy:     antigravityAuthType,
+				Type:        antigravityAuthType,
+			}
+			// Copy known limits from our static Gemini model list (best-effort).
+			// This improves /v1/models output (context_length/max_completion_tokens) for antigravity models.
+			if lim, ok := limits[id]; ok {
+				if modelInfo.InputTokenLimit == 0 && lim.InputTokenLimit > 0 {
+					modelInfo.InputTokenLimit = lim.InputTokenLimit
+				}
+				if modelInfo.OutputTokenLimit == 0 && lim.OutputTokenLimit > 0 {
+					modelInfo.OutputTokenLimit = lim.OutputTokenLimit
+				}
+				if modelInfo.ContextLength == 0 && lim.ContextLength > 0 {
+					modelInfo.ContextLength = lim.ContextLength
+				}
+				if modelInfo.MaxCompletionTokens == 0 && lim.MaxCompletionTokens > 0 {
+					modelInfo.MaxCompletionTokens = lim.MaxCompletionTokens
+				}
+			}
+			// Look up Thinking support from static config using ID
+			if cfg != nil {
+				if cfg.Thinking != nil {
+					modelInfo.Thinking = cfg.Thinking
+				}
+				if cfg.MaxCompletionTokens > 0 {
+					modelInfo.MaxCompletionTokens = cfg.MaxCompletionTokens
+				}
+			}
+			models = append(models, modelInfo)
+		}
 		for originalName := range result.Map() {
 			aliasName := modelName2Alias(originalName)
 			if aliasName != "" {
-				cfg := modelConfig[aliasName]
-				modelName := aliasName
-				if cfg != nil && cfg.Name != "" {
-					modelName = cfg.Name
+				appendModel(aliasName)
+				// Newer model naming: some clients prefer the stable name (e.g. "gemini-3-flash") over our
+				// historical alias (e.g. "gemini-3-flash-preview"). Register both for compatibility.
+				if strings.EqualFold(strings.TrimSpace(originalName), "gemini-3-flash") && strings.EqualFold(aliasName, "gemini-3-flash-preview") {
+					appendModel("gemini-3-flash")
 				}
-				modelInfo := &registry.ModelInfo{
-					ID:          aliasName,
-					Name:        modelName,
-					Description: aliasName,
-					DisplayName: aliasName,
-					Version:     aliasName,
-					Object:      "model",
-					Created:     now,
-					OwnedBy:     antigravityAuthType,
-					Type:        antigravityAuthType,
-				}
-				// Copy known limits from our static Gemini model list (best-effort).
-				// This improves /v1/models output (context_length/max_completion_tokens) for antigravity models.
-				if lim, ok := limits[aliasName]; ok {
-					if modelInfo.InputTokenLimit == 0 && lim.InputTokenLimit > 0 {
-						modelInfo.InputTokenLimit = lim.InputTokenLimit
-					}
-					if modelInfo.OutputTokenLimit == 0 && lim.OutputTokenLimit > 0 {
-						modelInfo.OutputTokenLimit = lim.OutputTokenLimit
-					}
-					if modelInfo.ContextLength == 0 && lim.ContextLength > 0 {
-						modelInfo.ContextLength = lim.ContextLength
-					}
-					if modelInfo.MaxCompletionTokens == 0 && lim.MaxCompletionTokens > 0 {
-						modelInfo.MaxCompletionTokens = lim.MaxCompletionTokens
-					}
-				}
-				// Look up Thinking support from static config using alias name
-				if cfg != nil {
-					if cfg.Thinking != nil {
-						modelInfo.Thinking = cfg.Thinking
-					}
-					if cfg.MaxCompletionTokens > 0 {
-						modelInfo.MaxCompletionTokens = cfg.MaxCompletionTokens
-					}
-				}
-				models = append(models, modelInfo)
 			}
 		}
 		return models

@@ -148,6 +148,27 @@ func (h *GeminiAPIHandler) GeminiGetHandler(c *gin.Context) {
 			"thinking":       false,
 		},
 		)
+	case "gemini-3-flash":
+		c.JSON(http.StatusOK, gin.H{
+			"name":             "models/gemini-3-flash",
+			"version":          "3",
+			"displayName":      "Gemini 3 Flash",
+			"description":      "Gemini 3 Flash",
+			"inputTokenLimit":  1048576,
+			"outputTokenLimit": 65536,
+			"supportedGenerationMethods": []string{
+				"generateContent",
+				"countTokens",
+				"createCachedContent",
+				"batchGenerateContent",
+			},
+			"temperature":    1,
+			"topP":           0.95,
+			"topK":           64,
+			"maxTemperature": 2,
+			"thinking":       false,
+		},
+		)
 	case "gemini-2.5-pro":
 		c.JSON(http.StatusOK, gin.H{
 			"name":             "models/gemini-2.5-pro",

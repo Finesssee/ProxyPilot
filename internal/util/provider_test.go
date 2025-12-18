@@ -45,3 +45,18 @@ func TestGetProviderName_Gemini3FlashPrefersAntigravityThenGeminiCLI(t *testing.
 		t.Fatalf("expected antigravity then gemini-cli, got %#v", providers)
 	}
 }
+
+func TestGetProviderName_Gemini3FlashStablePrefersAntigravityThenGeminiCLI(t *testing.T) {
+	modelID := "gemini-3-flash"
+	reg := registry.GetGlobalRegistry()
+	reg.RegisterClient("client-antigravity-test-routing-flash-stable", "antigravity", []*registry.ModelInfo{{ID: modelID}})
+	reg.RegisterClient("client-gemini-cli-test-routing-flash-stable", "gemini-cli", []*registry.ModelInfo{{ID: modelID}})
+
+	providers := GetProviderName(modelID)
+	if len(providers) < 2 {
+		t.Fatalf("expected at least two providers, got %#v", providers)
+	}
+	if providers[0] != "antigravity" || providers[1] != "gemini-cli" {
+		t.Fatalf("expected antigravity then gemini-cli, got %#v", providers)
+	}
+}
