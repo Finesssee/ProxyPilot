@@ -19,8 +19,8 @@ This will:
 - Restart: `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\restart-cliproxy.ps1`
 
 Logs:
-- `logs\cliproxyapi.out.log`
-- `logs\cliproxyapi.err.log`
+- `logs\proxypilot-engine.out.log`
+- `logs\proxypilot-engine.err.log`
 
 ## Auto-start at logon (Windows)
 

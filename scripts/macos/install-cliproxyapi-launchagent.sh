@@ -55,9 +55,9 @@ cat >"$plist_path" <<EOF
     <true/>
 
     <key>StandardOutPath</key>
-    <string>${logs_dir}/cliproxyapi.out.log</string>
+    <string>${logs_dir}/proxypilot-engine.out.log</string>
     <key>StandardErrorPath</key>
-    <string>${logs_dir}/cliproxyapi.err.log</string>
+    <string>${logs_dir}/proxypilot-engine.err.log</string>
   </dict>
 </plist>
 EOF
@@ -68,4 +68,3 @@ launchctl bootstrap "gui/${uid}" "$plist_path"
 launchctl kickstart -k "gui/${uid}/${label}" >/dev/null 2>&1 || true
 
 echo "Installed LaunchAgent: $plist_path"
-

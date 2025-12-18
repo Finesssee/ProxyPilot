@@ -103,8 +103,8 @@ func Start(opts StartOptions) (Status, error) {
 		return Status{}, err
 	}
 
-	stdoutLog := filepath.Join(logDir, "cliproxyapi.out.log")
-	stderrLog := filepath.Join(logDir, "cliproxyapi.err.log")
+	stdoutLog := filepath.Join(logDir, "proxypilot-engine.out.log")
+	stderrLog := filepath.Join(logDir, "proxypilot-engine.err.log")
 
 	stdoutFile, err := os.OpenFile(stdoutLog, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {

@@ -46,7 +46,7 @@ This is the Windows-specific portion of the desktop UI plan. Shared (cross-platf
 - Build (optional): build `cmd/server` into `bin/cliproxyapi-latest.exe`.
 - Start:
   - Uses a selectable config path (default: repo `config.yaml` if present).
-  - Writes logs to `logs/cliproxyapi.out.log` and `logs/cliproxyapi.err.log`.
+- Writes logs to `logs/proxypilot-engine.out.log` and `logs/proxypilot-engine.err.log`.
 - Stop:
   - Prefer graceful stop; fallback to kill process if needed.
 - Restart.
@@ -169,4 +169,3 @@ Windows-specific notes:
   - endpoint reachable with `GET /v1/models` returning 200
 - Open logs opens the correct folder.
 - Copy base URL copies `http://127.0.0.1:<port>` (and optionally `/v1`).
-

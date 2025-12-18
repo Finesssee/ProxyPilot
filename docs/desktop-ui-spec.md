@@ -75,7 +75,7 @@ Wails can call `internal/desktopctl` directly; Tauri can call `cliproxyctl`.
 ### Logs / request diagnostics
 
 - Open logs folder.
-- Tail last N lines of `cliproxyapi.out.log` and `cliproxyapi.err.log`.
+- Tail last N lines of `proxypilot-engine.out.log` and `proxypilot-engine.err.log`.
 - “Copy diagnostics” button that includes:
   - app version, proxy version
   - config path, port, pid
@@ -126,4 +126,3 @@ Windows and macOS implementations can live in separate files via Go build tags:
 
 - Should the desktop app bundle the engine binary, or manage an existing install?
 - Do we want a dedicated “desktop control” HTTP endpoint in the proxy (vs local process control only)?
-

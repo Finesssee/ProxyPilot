@@ -33,9 +33,9 @@ func (h *Handler) GetProxyPilotLogTail(c *gin.Context) {
 	var name string
 	switch kind {
 	case "stdout", "out":
-		name = "cliproxyapi.out.log"
+		name = "proxypilot-engine.out.log"
 	case "stderr", "err":
-		name = "cliproxyapi.err.log"
+		name = "proxypilot-engine.err.log"
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file (use stdout|stderr)"})
 		return
@@ -110,8 +110,8 @@ func (h *Handler) GetProxyPilotDiagnostics(c *gin.Context) {
 		b.WriteString("\n")
 	}
 
-	addTail("Launcher Stdout", "cliproxyapi.out.log")
-	addTail("Launcher Stderr", "cliproxyapi.err.log")
+	addTail("Launcher Stdout", "proxypilot-engine.out.log")
+	addTail("Launcher Stderr", "proxypilot-engine.err.log")
 
 	c.JSON(http.StatusOK, gin.H{"text": b.String()})
 }

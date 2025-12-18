@@ -65,6 +65,6 @@ ProxyPilot tray app includes:
 
 Useful paths:
 
-- `logs/cliproxyapi.out.log`
-- `logs/cliproxyapi.err.log`
+- `logs/proxypilot-engine.out.log`
+- `logs/proxypilot-engine.err.log`
 - `logs/v1-responses-*.log` / `logs/v1-chat-completions-*.log` (request logs, if enabled)

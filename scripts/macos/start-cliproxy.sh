@@ -9,8 +9,8 @@ if [[ -f "$latest_exe" ]]; then exe="$latest_exe"; fi
 
 config_path="$repo_root/config.yaml"
 logs_dir="$repo_root/logs"
-stdout_log="$logs_dir/cliproxyapi.out.log"
-stderr_log="$logs_dir/cliproxyapi.err.log"
+stdout_log="$logs_dir/proxypilot-engine.out.log"
+stderr_log="$logs_dir/proxypilot-engine.err.log"
 pid_file="$logs_dir/cliproxyapi.pid"
 
 mkdir -p "$logs_dir"
@@ -61,4 +61,3 @@ echo "$pid" >"$pid_file"
 
 echo "Started (PID $pid). Tail logs:"
 echo "  tail -f \"$stdout_log\""
-

@@ -1,7 +1,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$procNames = @("cliproxyapi", "cliproxyapi-latest")
+$procNames = @("proxypilot-engine", "cliproxyapi", "cliproxyapi-latest")
 $procs = @()
 foreach ($name in $procNames) {
   $procs += @(Get-Process -Name $name -ErrorAction SilentlyContinue)

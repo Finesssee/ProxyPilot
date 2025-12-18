@@ -7,7 +7,8 @@ function Get-RepoRoot {
 
 $repoRoot = Get-RepoRoot
 $outDir = Join-Path $repoRoot "bin"
-$outPath = Join-Path $outDir "cliproxyapi-latest.exe"
+$outPath = Join-Path $outDir "proxypilot-engine.exe"
+$compatPath = Join-Path $outDir "cliproxyapi-latest.exe"
 
 if (-not (Test-Path -LiteralPath $outDir)) {
   New-Item -ItemType Directory -Path $outDir | Out-Null
@@ -15,10 +16,12 @@ if (-not (Test-Path -LiteralPath $outDir)) {
 
 Write-Host "Building CLIProxyAPI..."
 Write-Host "  out: $outPath"
+Write-Host "  compat: $compatPath"
 
 Push-Location $repoRoot
 try {
   go build -o $outPath .\cmd\server
+  Copy-Item -Force -LiteralPath $outPath -Destination $compatPath
 } finally {
   Pop-Location
 }

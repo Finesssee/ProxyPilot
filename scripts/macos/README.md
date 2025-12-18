@@ -17,8 +17,8 @@ This builds `bin/cliproxyapi-latest`.
 - Restart: `./scripts/restart.sh`
 
 Logs:
-- `logs/cliproxyapi.out.log`
-- `logs/cliproxyapi.err.log`
+- `logs/proxypilot-engine.out.log`
+- `logs/proxypilot-engine.err.log`
 
 ## Auto-start at login (launchd)
 
