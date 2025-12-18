@@ -1,6 +1,6 @@
-# Droid CLI + CLIProxyAPI (Windows)
+# Droid CLI + ProxyPilot (Windows)
 
-This repo can run a local OpenAI-compatible proxy (`CLIProxyAPI`) and configure Factory's `droid` CLI to use it via BYOK custom models.
+This repo can run a local OpenAI-compatible proxy (ProxyPilot) and configure Factory's `droid` CLI to use it via BYOK custom models.
 
 ## One-time setup
 
@@ -28,7 +28,7 @@ Prefer using **ProxyPilot** for autostart (it can toggle “Launch on login” i
 
 ### One-time cleanup (if stop says "Access is denied")
 
-That means CLIProxyAPI was started **elevated** (commonly via a scheduled task with `RunLevel=HighestAvailable`), and a normal restart can't kill it.
+That means the engine was started **elevated** (commonly via a scheduled task with `RunLevel=HighestAvailable`), and a normal restart can't kill it.
 
 Run once in an **elevated PowerShell**:
 

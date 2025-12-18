@@ -14,7 +14,7 @@ if (-not (Test-Path -LiteralPath $outDir)) {
   New-Item -ItemType Directory -Path $outDir | Out-Null
 }
 
-Write-Host "Building CLIProxyAPI..."
+Write-Host "Building ProxyPilot Engine..."
 Write-Host "  out: $outPath"
 Write-Host "  compat: $compatPath"
 

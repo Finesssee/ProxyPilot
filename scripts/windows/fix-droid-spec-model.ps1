@@ -53,7 +53,9 @@ if (Test-Path -LiteralPath $globalSettingsPath) {
 }
 
 # Update the latest session settings for this folder (pure JSON)
-$sessionDir = Join-Path $env:USERPROFILE ".factory\\sessions\\-D-code-CLIProxyAPI"
+$sessionDirNew = Join-Path $env:USERPROFILE ".factory\\sessions\\-D-code-ProxyPilot"
+$sessionDirOld = Join-Path $env:USERPROFILE ".factory\\sessions\\-D-code-CLIProxyAPI"
+$sessionDir = if (Test-Path -LiteralPath $sessionDirNew) { $sessionDirNew } else { $sessionDirOld }
 if (Test-Path -LiteralPath $sessionDir) {
   $latest = Get-ChildItem -LiteralPath $sessionDir -Filter "*.settings.json" -File |
     Sort-Object LastWriteTime -Descending |

@@ -8,7 +8,7 @@ foreach ($name in $procNames) {
 }
 
 if (-not $procs) {
-  Write-Host "No running CLIProxyAPI process found."
+  Write-Host "No running ProxyPilot engine process found."
   exit 0
 }
 
@@ -21,10 +21,10 @@ foreach ($proc in $procs) {
   } catch {
     $hadError = $true
     Write-Warning "Failed to stop PID ${procId}: $($_.Exception.Message)"
-    Write-Warning "If CLIProxyAPI was started elevated (e.g. via a 'HighestAvailable' scheduled task), run this script from an elevated PowerShell or stop it via Task Manager (Run as administrator)."
+    Write-Warning "If the engine was started elevated (e.g. via a 'HighestAvailable' scheduled task), run this script from an elevated PowerShell or stop it via Task Manager (Run as administrator)."
   }
 }
 
 if ($hadError) {
-  throw "Failed to stop one or more CLIProxyAPI processes."
+  throw "Failed to stop one or more engine processes."
 }

@@ -1,6 +1,6 @@
-# CLIProxyAPI (macOS)
+# ProxyPilot Engine (macOS)
 
-This folder contains macOS helpers for building, running, and auto-starting CLIProxyAPI.
+This folder contains macOS helpers for building, running, and auto-starting the ProxyPilot engine.
 
 ## One-time setup
 

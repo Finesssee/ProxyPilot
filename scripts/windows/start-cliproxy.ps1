@@ -42,7 +42,7 @@ $port = Get-ConfigPort $configPath
 $existing = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($existing) {
   Write-Warning "Port $port is already in use (PID $($existing.OwningProcess))."
-  Write-Host "If this is CLIProxyAPI, run: powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\restart-cliproxy.ps1"
+  Write-Host "If this is the ProxyPilot engine, run: powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\windows\\restart-cliproxy.ps1"
   return
 }
 
