@@ -372,6 +372,9 @@ func (h *BaseAPIHandler) maybeSetSelectionHeaders(ctx context.Context, trace *co
 }
 
 func (h *BaseAPIHandler) getRequestDetails(modelName string) (providers []string, normalizedModel string, metadata map[string]any, err *interfaces.ErrorMessage) {
+	// Droid CLI sometimes sends a "custom:*" model id; normalize it before routing.
+	modelName = util.NormalizeDroidCustomModel(modelName)
+
 	// Resolve "auto" model to an actual available model first
 	resolvedModelName := util.ResolveAutoModel(modelName)
 
