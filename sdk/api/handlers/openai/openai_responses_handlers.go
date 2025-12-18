@@ -181,6 +181,53 @@ func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJ
 	// New core execution path
 	modelName := gjson.GetBytes(rawJSON, "model").String()
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
+
+	// Codex CLI: keep true streaming for normal turns, but for compaction/checkpoints and huge
+	// requests prefer non-stream upstream + synthesized SSE, with a single self-healing retry.
+	if isCodexCLIUserAgent(c.GetHeader("User-Agent")) {
+		if reason := codexSynthReason(rawJSON); reason != "" {
+			nonStreamReq := forceResponsesNonStreaming(rawJSON)
+			nonStreamReq = tightenToolSchemas(nonStreamReq, true)
+
+			c.Header("Content-Type", "text/event-stream")
+			c.Header("Cache-Control", "no-cache")
+			c.Header("Connection", "keep-alive")
+			c.Header("Access-Control-Allow-Origin", "*")
+			c.Header("X-CLIProxyAPI-Synthesized-Stream", "true")
+			c.Header("X-CLIProxyAPI-Synth-Reason", reason)
+
+			exec := func(m string, req []byte) ([]byte, *interfaces.ErrorMessage) {
+				return h.ExecuteWithAuthManager(cliCtx, h.HandlerType(), m, req, "")
+			}
+			resp, retried, _, errMsg := codexNonStreamWithSingleRetry(modelName, nonStreamReq, exec)
+			if retried {
+				c.Header("X-CLIProxyAPI-Retry", "1")
+			} else {
+				c.Header("X-CLIProxyAPI-Retry", "0")
+			}
+			if errMsg != nil {
+				h.writeSyntheticResponsesErrorSSE(c, flusher, errMsg)
+				cliCancel(errMsg.Error)
+				return
+			}
+
+			resp = sanitizeToolCallArguments(resp, nonStreamReq, true)
+			resp = convertToolCallTagsToResponsesFunctionCalls(resp)
+			resp = ensureResponsesOutputText(resp)
+			if codexIsSilentMaxTokens(resp) {
+				resp = setResponseOutputText(resp, codexSilentMaxTokensFallback)
+			}
+
+			if isLikelySSE(resp) {
+				h.writeSSEBody(c, flusher, resp)
+			} else {
+				h.writeSyntheticResponsesSSE(c, flusher, resp)
+			}
+			cliCancel(nil)
+			return
+		}
+	}
+
 	if strings.Contains(ua, "factory-cli") || isStainless {
 		nonStreamReq := forceResponsesNonStreaming(rawJSON)
 		nonStreamReq = tightenToolSchemas(nonStreamReq, true)

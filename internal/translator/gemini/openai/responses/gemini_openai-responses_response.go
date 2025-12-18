@@ -563,6 +563,19 @@ func ConvertGeminiResponseToOpenAIResponsesNonStream(_ context.Context, _ string
 	}
 	resp, _ = sjson.Set(resp, "created_at", createdAt)
 
+	// Map finishReason to Responses status/incomplete_details where possible.
+	// This enables downstream handlers to detect "silent MAX_TOKENS" cases reliably.
+	if fr := root.Get("candidates.0.finishReason"); fr.Exists() && fr.String() != "" {
+		switch strings.ToUpper(fr.String()) {
+		case "MAX_TOKENS":
+			resp, _ = sjson.Set(resp, "status", "incomplete")
+			resp, _ = sjson.Set(resp, "incomplete_details", map[string]any{"reason": "max_output_tokens"})
+		case "SAFETY":
+			resp, _ = sjson.Set(resp, "status", "incomplete")
+			resp, _ = sjson.Set(resp, "incomplete_details", map[string]any{"reason": "content_filter"})
+		}
+	}
+
 	// Echo request fields when present; fallback model from response modelVersion
 	if len(requestRawJSON) > 0 {
 		req := gjson.ParseBytes(requestRawJSON)
