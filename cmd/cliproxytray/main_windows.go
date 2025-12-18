@@ -4,8 +4,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,7 +60,20 @@ func run(repoRoot, configPath, exePath string) {
 		systray.AddSeparator()
 
 		openProxyUI := systray.AddMenuItem("Open Dashboard", "Open ProxyPilot dashboard (local)")
+		openLegacyUI := systray.AddMenuItem("Open Legacy Management UI", "Open management.html (advanced)")
 		openLogs := systray.AddMenuItem("Open Logs", "Open logs folder")
+		copyDiagnostics := systray.AddMenuItem("Copy Diagnostics", "Copy a support bundle to clipboard")
+		systray.AddSeparator()
+
+		oauthPrivate, _ := desktopctl.GetOAuthPrivate()
+		oauthPrivateItem := systray.AddMenuItemCheckbox("Private OAuth window", "Open OAuth in a private (inprivate) browser window", oauthPrivate)
+		authFolderItem := systray.AddMenuItem("Open Auth Folder", "Open the auth directory")
+		loginAntigravity := systray.AddMenuItem("Login: Antigravity", "Start Antigravity OAuth flow")
+		loginGeminiCLI := systray.AddMenuItem("Login: Gemini CLI", "Start Gemini CLI OAuth flow")
+		loginCodex := systray.AddMenuItem("Login: Codex", "Start OpenAI/Codex OAuth flow")
+		loginClaude := systray.AddMenuItem("Login: Claude", "Start Claude OAuth flow")
+		loginQwen := systray.AddMenuItem("Login: Qwen", "Start Qwen OAuth flow")
+		loginIFlow := systray.AddMenuItem("Login: iFlow", "Start iFlow OAuth flow")
 		systray.AddSeparator()
 
 		checkUpdates := systray.AddMenuItem("Check for Updates", "Check GitHub Releases for a newer ProxyPilot")
@@ -198,11 +213,91 @@ func run(repoRoot, configPath, exePath string) {
 						lastErr = ""
 						refresh()
 					}
+				case <-openLegacyUI.ClickedCh:
+					st, _ := desktopctl.StatusFor(configPath)
+					if !st.Running || strings.TrimSpace(st.BaseURL) == "" {
+						lastErr = "proxy is not running"
+						refresh()
+						continue
+					}
+					_ = desktopctl.OpenBrowser(st.BaseURL + "/management.html")
 				case <-openLogs.ClickedCh:
 					if err := desktopctl.OpenLogsFolder(repoRoot, configPath); err != nil {
 						lastErr = err.Error()
 						refresh()
 					}
+				case <-copyDiagnostics.ClickedCh:
+					if err := copyDiagnosticsToClipboard(configPath); err != nil {
+						lastErr = err.Error()
+					} else {
+						lastErr = "Diagnostics copied"
+					}
+					refresh()
+				case <-oauthPrivateItem.ClickedCh:
+					if oauthPrivateItem.Checked() {
+						_ = desktopctl.SetOAuthPrivate(false)
+						oauthPrivateItem.Uncheck()
+					} else {
+						_ = desktopctl.SetOAuthPrivate(true)
+						oauthPrivateItem.Check()
+					}
+					lastErr = ""
+					refresh()
+				case <-authFolderItem.ClickedCh:
+					dir, err := desktopctl.AuthDirFor(configPath)
+					if err != nil {
+						lastErr = err.Error()
+						refresh()
+						continue
+					}
+					if err := desktopctl.OpenFolder(dir); err != nil {
+						lastErr = err.Error()
+					} else {
+						lastErr = ""
+					}
+					refresh()
+				case <-loginAntigravity.ClickedCh:
+					if err := startOAuthFlow(configPath, "/v0/management/antigravity-auth-url"); err != nil {
+						lastErr = err.Error()
+					} else {
+						lastErr = ""
+					}
+					refresh()
+				case <-loginGeminiCLI.ClickedCh:
+					if err := startOAuthFlow(configPath, "/v0/management/gemini-cli-auth-url"); err != nil {
+						lastErr = err.Error()
+					} else {
+						lastErr = ""
+					}
+					refresh()
+				case <-loginCodex.ClickedCh:
+					if err := startOAuthFlow(configPath, "/v0/management/codex-auth-url"); err != nil {
+						lastErr = err.Error()
+					} else {
+						lastErr = ""
+					}
+					refresh()
+				case <-loginClaude.ClickedCh:
+					if err := startOAuthFlow(configPath, "/v0/management/anthropic-auth-url"); err != nil {
+						lastErr = err.Error()
+					} else {
+						lastErr = ""
+					}
+					refresh()
+				case <-loginQwen.ClickedCh:
+					if err := startOAuthFlow(configPath, "/v0/management/qwen-auth-url"); err != nil {
+						lastErr = err.Error()
+					} else {
+						lastErr = ""
+					}
+					refresh()
+				case <-loginIFlow.ClickedCh:
+					if err := startOAuthFlow(configPath, "/v0/management/iflow-auth-url"); err != nil {
+						lastErr = err.Error()
+					} else {
+						lastErr = ""
+					}
+					refresh()
 				case <-checkUpdates.ClickedCh:
 					go func() {
 						ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -300,7 +395,11 @@ func openProxyUIWithAutostart(repoRoot, configPath, exePath string) error {
 			time.Sleep(150 * time.Millisecond)
 		}
 	}
-	return desktopctl.OpenManagementUI(configPath)
+	st, _ = desktopctl.StatusFor(configPath)
+	if strings.TrimSpace(st.BaseURL) == "" {
+		return fmt.Errorf("proxy base URL not available")
+	}
+	return desktopctl.OpenBrowser(st.BaseURL + "/proxypilot.html")
 }
 
 func shorten(s string, max int) string {
@@ -332,6 +431,131 @@ func launchUpdate(path string) error {
 		// Fallback: let Windows handle the file (zip, etc.)
 		return exec.Command("rundll32", "url.dll,FileProtocolHandler", path).Start()
 	}
+}
+
+type authURLResponse struct {
+	Status string `json:"status"`
+	URL    string `json:"url"`
+	State  string `json:"state"`
+	Error  string `json:"error"`
+}
+
+func startOAuthFlow(configPath string, endpointPath string) error {
+	st, _ := desktopctl.StatusFor(configPath)
+	if !st.Running || strings.TrimSpace(st.BaseURL) == "" {
+		return fmt.Errorf("proxy is not running")
+	}
+	key, err := desktopctl.GetManagementPassword()
+	if err != nil {
+		return err
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest(http.MethodGet, st.BaseURL+endpointPath, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Management-Key", key)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var out authURLResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if strings.TrimSpace(out.Error) != "" {
+			return fmt.Errorf("%s", out.Error)
+		}
+		return fmt.Errorf("auth url request failed: %s", resp.Status)
+	}
+	if strings.TrimSpace(out.URL) == "" {
+		return fmt.Errorf("missing auth url")
+	}
+
+	private, _ := desktopctl.GetOAuthPrivate()
+	return openOAuthURL(out.URL, private)
+}
+
+func copyDiagnosticsToClipboard(configPath string) error {
+	st, _ := desktopctl.StatusFor(configPath)
+	if !st.Running || strings.TrimSpace(st.BaseURL) == "" {
+		return fmt.Errorf("proxy is not running")
+	}
+	key, err := desktopctl.GetManagementPassword()
+	if err != nil {
+		return err
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest(http.MethodGet, st.BaseURL+"/v0/management/proxypilot/diagnostics?lines=200", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Management-Key", key)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var payload struct {
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("diagnostics failed: %s", resp.Status)
+	}
+	if strings.TrimSpace(payload.Text) == "" {
+		return fmt.Errorf("empty diagnostics")
+	}
+	return copyToClipboard(payload.Text)
+}
+
+func copyToClipboard(text string) error {
+	cmd := exec.Command("cmd", "/c", "clip")
+	cmd.Stdin = strings.NewReader(text)
+	return cmd.Run()
+}
+
+func openOAuthURL(url string, private bool) error {
+	if !private {
+		return desktopctl.OpenBrowser(url)
+	}
+	edge, err := findEdge()
+	if err != nil {
+		return desktopctl.OpenBrowser(url)
+	}
+	return exec.Command(edge, "--inprivate", url).Start()
+}
+
+func findEdge() (string, error) {
+	if p, err := exec.LookPath("msedge.exe"); err == nil && strings.TrimSpace(p) != "" {
+		return p, nil
+	}
+	if p, err := exec.LookPath("msedge"); err == nil && strings.TrimSpace(p) != "" {
+		return p, nil
+	}
+	candidates := []string{
+		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe"),
+		filepath.Join(os.Getenv("ProgramFiles"), "Microsoft", "Edge", "Application", "msedge.exe"),
+	}
+	for _, c := range candidates {
+		if strings.TrimSpace(c) == "" {
+			continue
+		}
+		if _, err := os.Stat(c); err == nil {
+			return c, nil
+		}
+	}
+	return "", fmt.Errorf("msedge.exe not found")
 }
 
 func autostartCommand(repoRoot, configPath, exePath string) (string, error) {

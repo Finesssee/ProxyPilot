@@ -13,6 +13,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/jchv/go-webview2"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/desktopctl"
 )
 
@@ -45,17 +46,33 @@ func main() {
 		os.Exit(1)
 	}
 
-	target := st.BaseURL + "/management.html"
+	target := st.BaseURL + "/proxypilot.html"
 
-	edge, err := findEdge()
-	if err != nil {
-		_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", target).Start()
+	// Prefer an in-app window (WebView2) so this behaves like a native dashboard app.
+	w := webview2.NewWithOptions(webview2.WebViewOptions{
+		Debug:     false,
+		AutoFocus: true,
+		WindowOptions: webview2.WindowOptions{
+			Title:  "ProxyPilot",
+			Width:  1200,
+			Height: 850,
+			Center: true,
+		},
+	})
+	if w == nil {
+		// Fallback: Edge app mode or default browser.
+		edge, err := findEdge()
+		if err != nil {
+			_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", target).Start()
+			return
+		}
+		_ = exec.Command(edge, "--app="+target, "--window-size=1200,850", "--lang=en-US").Start()
 		return
 	}
-
-	// Open as a desktop app window (no address bar) using Edge app mode.
-	// Force English UI for the embedded management app to avoid inheriting system/browser locale.
-	_ = exec.Command(edge, "--app="+target, "--window-size=1200,850", "--lang=en-US").Start()
+	defer w.Destroy()
+	w.SetSize(1200, 850, webview2.HintNone)
+	w.Navigate(target)
+	w.Run()
 }
 
 func findEdge() (string, error) {
