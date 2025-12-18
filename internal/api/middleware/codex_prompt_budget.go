@@ -799,6 +799,24 @@ func trimOpenAIChatCompletions(body []byte, maxBytes int, mustKeepTools bool) []
 		}
 	}
 
+	isToolResultMsg := func(m gjson.Result) bool {
+		role := strings.ToLower(strings.TrimSpace(m.Get("role").String()))
+		// OpenAI tool result message uses role:"tool". Legacy uses role:"function".
+		return role == "tool" || role == "function"
+	}
+	assistantHasToolCall := func(m gjson.Result) bool {
+		if !strings.EqualFold(m.Get("role").String(), "assistant") {
+			return false
+		}
+		if tc := m.Get("tool_calls"); tc.Exists() && tc.IsArray() && len(tc.Array()) > 0 {
+			return true
+		}
+		if fc := m.Get("function_call"); fc.Exists() {
+			return true
+		}
+		return false
+	}
+
 	keep := 20
 	perTextLimit := 20_000
 	dropTools := false
@@ -814,13 +832,34 @@ func trimOpenAIChatCompletions(body []byte, maxBytes int, mustKeepTools bool) []
 			newMsgs = append(newMsgs, truncateMessageContent(firstSystem.Raw, perTextLimit))
 		}
 
-		kept := 0
-		for i := len(arr) - 1; i >= 0 && kept < keep; i-- {
+		// Preserve tool call/result adjacency:
+		// If we keep a tool result message, we must also keep the immediately preceding
+		// assistant tool call message, otherwise downstream Claude/OpenAI validators can reject.
+		required := make(map[int]struct{}, 8)
+		tailKept := 0
+		for i := len(arr) - 1; i >= 0 && (tailKept < keep || len(required) > 0); i-- {
 			if strings.EqualFold(arr[i].Get("role").String(), "system") {
 				continue
 			}
+
+			_, req := required[i]
+			if !req && tailKept >= keep {
+				continue
+			}
+
 			newMsgs = append(newMsgs, truncateMessageContent(arr[i].Raw, perTextLimit))
-			kept++
+			if !req {
+				tailKept++
+			} else {
+				delete(required, i)
+			}
+
+			if isToolResultMsg(arr[i]) {
+				prev := i - 1
+				if prev >= 0 && assistantHasToolCall(arr[prev]) {
+					required[prev] = struct{}{}
+				}
+			}
 		}
 
 		// Reverse tail section to restore order (system is at index 0 if present).
@@ -1022,14 +1061,49 @@ func trimOpenAIChatCompletionsWithMemory(body []byte, maxBytes int, mustKeepTool
 			keptIdx[firstSystemIndex] = struct{}{}
 		}
 
-		kept := 0
-		for i := len(arr) - 1; i >= 0 && kept < keep; i-- {
+		isToolResultMsg := func(m gjson.Result) bool {
+			role := strings.ToLower(strings.TrimSpace(m.Get("role").String()))
+			return role == "tool" || role == "function"
+		}
+		assistantHasToolCall := func(m gjson.Result) bool {
+			if !strings.EqualFold(m.Get("role").String(), "assistant") {
+				return false
+			}
+			if tc := m.Get("tool_calls"); tc.Exists() && tc.IsArray() && len(tc.Array()) > 0 {
+				return true
+			}
+			if fc := m.Get("function_call"); fc.Exists() {
+				return true
+			}
+			return false
+		}
+
+		required := make(map[int]struct{}, 8)
+		tailKept := 0
+		for i := len(arr) - 1; i >= 0 && (tailKept < keep || len(required) > 0); i-- {
 			if strings.EqualFold(arr[i].Get("role").String(), "system") {
 				continue
 			}
+
+			_, req := required[i]
+			if !req && tailKept >= keep {
+				continue
+			}
+
 			newMsgs = append(newMsgs, truncateMessageContent(arr[i].Raw, perTextLimit))
 			keptIdx[i] = struct{}{}
-			kept++
+			if !req {
+				tailKept++
+			} else {
+				delete(required, i)
+			}
+
+			if isToolResultMsg(arr[i]) {
+				prev := i - 1
+				if prev >= 0 && assistantHasToolCall(arr[prev]) {
+					required[prev] = struct{}{}
+				}
+			}
 		}
 
 		if firstSystem.Exists() {
