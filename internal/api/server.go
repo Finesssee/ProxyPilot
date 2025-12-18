@@ -624,6 +624,13 @@ func (s *Server) serveManagementControlPanel(c *gin.Context) {
 	html = strings.ReplaceAll(html, `alt:"CPAMC logo"`, `alt:"ProxyPilot logo"`)
 	html = strings.ReplaceAll(html, `alt:"CLI Proxy API Management Center"`, `alt:"ProxyPilot Dashboard"`)
 
+	// The upstream management bundle currently defaults to zh-CN for some users/environments.
+	// Force a sane default (English) unless the user has already explicitly chosen a language.
+	const langBootstrap = `<script>(function(){try{var d='en',df='en-US';function g(k){try{return localStorage.getItem(k)||''}catch(e){return''}}function s(k,v){try{localStorage.setItem(k,v)}catch(e){}}function ensure(k,v){if(!g(k))s(k,v)}function looksZh(v){v=(v||'').toLowerCase();return v==='zh'||v.startsWith('zh-')||v.includes('zh_cn')||v.includes('zh-cn')||v.includes('chinese')}var v=g('i18nextLng');if(looksZh(v))s('i18nextLng',d);else ensure('i18nextLng',d);['lang','LANG','locale','language','ui_language','uiLanguage'].forEach(function(k){var cur=g(k);if(looksZh(cur))s(k,df);});try{for(var i=0;i<localStorage.length;i++){var key=localStorage.key(i);if(!key)continue;var raw=g(key);if(!raw||raw.indexOf('language')===-1)continue;try{var obj=JSON.parse(raw);var changed=false;var q=[obj];var depth=0;while(q.length&&depth<600){var node=q.shift();depth++;if(!node||typeof node!=='object')continue;for(var prop in node){if(!Object.prototype.hasOwnProperty.call(node,prop))continue;var val=node[prop];if(typeof val==='string'&&(prop==='language'||prop==='lang'||prop==='locale'||prop==='lng')&&looksZh(val)){node[prop]=(prop==='language'||prop==='locale')?df:d;changed=true}else if(val&&typeof val==='object'){q.push(val)}}}if(changed)s(key,JSON.stringify(obj))}catch(e){}}}catch(e){}try{Object.defineProperty(navigator,'language',{get:function(){return df}});Object.defineProperty(navigator,'languages',{get:function(){return [df,d]}})}catch(e){}try{document.documentElement.lang=d}catch(e){}}catch(e){}})();</script>`
+	if strings.Contains(html, "<head>") {
+		html = strings.Replace(html, "<head>", "<head>\n"+langBootstrap+"\n", 1)
+	}
+
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.String(http.StatusOK, html)
 }
