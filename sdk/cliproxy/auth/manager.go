@@ -589,7 +589,7 @@ func shouldKeepProviderOrder(model string, providers []string) bool {
 		return false
 	}
 	normalizedModel := strings.ToLower(strings.TrimSpace(model))
-	if !strings.HasPrefix(normalizedModel, "gemini-3-pro") {
+	if !strings.HasPrefix(normalizedModel, "gemini-3-") {
 		return false
 	}
 	hasAntigravity := false

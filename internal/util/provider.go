@@ -55,10 +55,10 @@ func GetProviderName(modelName string) []string {
 	}
 
 	if len(providers) > 0 {
-		// Special-case: for gemini-3-pro models we prefer antigravity as primary and
+		// Special-case: for gemini-3-* models we prefer antigravity as primary and
 		// keep gemini-cli as a fallback (no load balancing between them).
 		normalizedModel := strings.ToLower(strings.TrimSpace(modelName))
-		if strings.HasPrefix(normalizedModel, "gemini-3-pro") {
+		if strings.HasPrefix(normalizedModel, "gemini-3-") {
 			hasAntigravity := false
 			hasGeminiCLI := false
 			for _, p := range providers {
