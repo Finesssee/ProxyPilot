@@ -67,21 +67,10 @@ func run(repoRoot, configPath, exePath string) {
 		autoStartProxyItem := systray.AddMenuItemCheckbox("Auto-start proxy", "Start the proxy server automatically when ProxyPilot launches", autoProxyOn)
 		systray.AddSeparator()
 
-		openProxyUI := systray.AddMenuItem("Open Dashboard", "Open ProxyPilot dashboard (local)")
-		openLegacyUI := systray.AddMenuItem("Open Legacy UI", "Open management.html (advanced)")
+		openProxyUI := systray.AddMenuItem("Open ProxyPilot", "Open ProxyPilot Control Center (in-app)")
+		openLegacyUI := systray.AddMenuItem("Advanced UI", "Open management UI (advanced)")
 		openLogs := systray.AddMenuItem("Open Logs", "Open logs folder")
 		copyDiagnostics := systray.AddMenuItem("Copy Diagnostics", "Copy a support bundle to clipboard")
-		systray.AddSeparator()
-
-		oauthPrivate, _ := desktopctl.GetOAuthPrivate()
-		oauthPrivateItem := systray.AddMenuItemCheckbox("Private OAuth window", "Open OAuth in a private (inprivate) browser window", oauthPrivate)
-		authFolderItem := systray.AddMenuItem("Open Auth Folder", "Open the auth directory")
-		loginAntigravity := systray.AddMenuItem("Login: Antigravity", "Start Antigravity OAuth flow")
-		loginGeminiCLI := systray.AddMenuItem("Login: Gemini CLI", "Start Gemini CLI OAuth flow")
-		loginCodex := systray.AddMenuItem("Login: Codex", "Start OpenAI/Codex OAuth flow")
-		loginClaude := systray.AddMenuItem("Login: Claude", "Start Claude OAuth flow")
-		loginQwen := systray.AddMenuItem("Login: Qwen", "Start Qwen OAuth flow")
-		loginIFlow := systray.AddMenuItem("Login: iFlow", "Start iFlow OAuth flow")
 		systray.AddSeparator()
 
 		checkUpdates := systray.AddMenuItem("Check for Updates", "Check GitHub Releases for a newer ProxyPilot")
@@ -239,71 +228,6 @@ func run(repoRoot, configPath, exePath string) {
 						lastErr = err.Error()
 					} else {
 						lastErr = "Diagnostics copied"
-					}
-					refresh()
-				case <-oauthPrivateItem.ClickedCh:
-					if oauthPrivateItem.Checked() {
-						_ = desktopctl.SetOAuthPrivate(false)
-						oauthPrivateItem.Uncheck()
-					} else {
-						_ = desktopctl.SetOAuthPrivate(true)
-						oauthPrivateItem.Check()
-					}
-					lastErr = ""
-					refresh()
-				case <-authFolderItem.ClickedCh:
-					dir, err := desktopctl.AuthDirFor(configPath)
-					if err != nil {
-						lastErr = err.Error()
-						refresh()
-						continue
-					}
-					if err := desktopctl.OpenFolder(dir); err != nil {
-						lastErr = err.Error()
-					} else {
-						lastErr = ""
-					}
-					refresh()
-				case <-loginAntigravity.ClickedCh:
-					if err := startOAuthFlow(configPath, "/v0/management/antigravity-auth-url"); err != nil {
-						lastErr = err.Error()
-					} else {
-						lastErr = ""
-					}
-					refresh()
-				case <-loginGeminiCLI.ClickedCh:
-					if err := startOAuthFlow(configPath, "/v0/management/gemini-cli-auth-url"); err != nil {
-						lastErr = err.Error()
-					} else {
-						lastErr = ""
-					}
-					refresh()
-				case <-loginCodex.ClickedCh:
-					if err := startOAuthFlow(configPath, "/v0/management/codex-auth-url"); err != nil {
-						lastErr = err.Error()
-					} else {
-						lastErr = ""
-					}
-					refresh()
-				case <-loginClaude.ClickedCh:
-					if err := startOAuthFlow(configPath, "/v0/management/anthropic-auth-url"); err != nil {
-						lastErr = err.Error()
-					} else {
-						lastErr = ""
-					}
-					refresh()
-				case <-loginQwen.ClickedCh:
-					if err := startOAuthFlow(configPath, "/v0/management/qwen-auth-url"); err != nil {
-						lastErr = err.Error()
-					} else {
-						lastErr = ""
-					}
-					refresh()
-				case <-loginIFlow.ClickedCh:
-					if err := startOAuthFlow(configPath, "/v0/management/iflow-auth-url"); err != nil {
-						lastErr = err.Error()
-					} else {
-						lastErr = ""
 					}
 					refresh()
 				case <-checkUpdates.ClickedCh:
