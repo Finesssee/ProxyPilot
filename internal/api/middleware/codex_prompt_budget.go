@@ -128,8 +128,8 @@ func CodexPromptBudgetMiddleware() gin.HandlerFunc {
 
 		ua := strings.ToLower(req.Header.Get("User-Agent"))
 		isStainless := req.Header.Get("X-Stainless-Lang") != "" || req.Header.Get("X-Stainless-Package-Version") != ""
-		mustKeepTools := strings.Contains(ua, "factory-cli") || strings.Contains(ua, "droid") || isStainless
-		isAgenticCLI := strings.Contains(ua, "openai codex") || strings.Contains(ua, "factory-cli") || strings.Contains(ua, "warp") || strings.Contains(ua, "droid") || isStainless
+		mustKeepTools := strings.Contains(ua, "factory-cli") || strings.Contains(ua, "droid") || strings.Contains(ua, "claude-cli") || isStainless
+		isAgenticCLI := strings.Contains(ua, "openai codex") || strings.Contains(ua, "factory-cli") || strings.Contains(ua, "warp") || strings.Contains(ua, "droid") || strings.Contains(ua, "claude-cli") || isStainless
 		if !isAgenticCLI {
 			c.Next()
 			return
@@ -195,15 +195,21 @@ func CodexPromptBudgetMiddleware() gin.HandlerFunc {
 		case strings.HasSuffix(path, "/v1/chat/completions"):
 			res := trimOpenAIChatCompletionsWithMemory(trimmed, maxBytes, mustKeepTools)
 			trimmed = res.Body
-			agenticStoreAndInjectMemory(req, session, res, maxBytes)
+			agenticStoreAndInjectMemory(c, req, session, res, maxBytes)
 			trimmed = res.Body
 		case strings.HasSuffix(path, "/v1/responses"):
 			res := trimOpenAIResponsesWithMemory(trimmed, maxBytes, mustKeepTools)
 			trimmed = res.Body
-			agenticStoreAndInjectMemory(req, session, res, maxBytes)
+			agenticStoreAndInjectMemory(c, req, session, res, maxBytes)
+			trimmed = res.Body
+		case strings.HasSuffix(path, "/v1/messages"):
+			// Claude Messages API uses similar structure to chat completions
+			res := trimClaudeMessagesWithMemory(trimmed, maxBytes, mustKeepTools)
+			trimmed = res.Body
+			agenticStoreAndInjectMemory(c, req, session, res, maxBytes)
 			trimmed = res.Body
 		default:
-			// Not a known OpenAI payload shape; keep as-is.
+			// Not a known payload shape; keep as-is.
 		}
 
 		req.Body = io.NopCloser(bytes.NewReader(trimmed))
@@ -273,6 +279,8 @@ func detectShapeFromPath(path string) string {
 		return "chat"
 	case strings.HasSuffix(path, "/v1/responses"):
 		return "responses"
+	case strings.HasSuffix(path, "/v1/messages"):
+		return "claude"
 	default:
 		return ""
 	}
@@ -286,6 +294,9 @@ func extractLastUserIntent(shape string, body []byte) string {
 	case "chat":
 		arr := gjson.GetBytes(body, "messages").Array()
 		return extractLastUserTextFromChat(arr)
+	case "claude":
+		arr := gjson.GetBytes(body, "messages").Array()
+		return extractLastUserTextFromClaude(arr)
 	default:
 		return ""
 	}
@@ -455,6 +466,52 @@ func prependToLastUserText(shape string, body []byte, prefix string, maxBytes in
 			}
 		}
 		return body
+	case "claude":
+		// Claude Messages API uses messages array with content blocks
+		msgs := gjson.GetBytes(body, "messages")
+		if !msgs.Exists() || !msgs.IsArray() {
+			return body
+		}
+		arr := msgs.Array()
+		for i := len(arr) - 1; i >= 0; i-- {
+			if !strings.EqualFold(arr[i].Get("role").String(), "user") {
+				continue
+			}
+			content := arr[i].Get("content")
+			switch {
+			case content.Type == gjson.String:
+				old := content.String()
+				newText := prefix + old
+				out, err := sjson.SetBytes(body, "messages."+strconv.Itoa(i)+".content", newText)
+				if err == nil {
+					return out
+				}
+				return body
+			case content.IsArray():
+				// Find first text block
+				parts := content.Array()
+				for j := 0; j < len(parts); j++ {
+					if parts[j].Get("type").String() != "text" {
+						continue
+					}
+					txt := parts[j].Get("text")
+					if !txt.Exists() || txt.Type != gjson.String {
+						continue
+					}
+					old := txt.String()
+					newText := prefix + old
+					out, err := sjson.SetBytes(body, "messages."+strconv.Itoa(i)+".content."+strconv.Itoa(j)+".text", newText)
+					if err == nil {
+						return out
+					}
+					return body
+				}
+				return body
+			default:
+				return body
+			}
+		}
+		return body
 	default:
 		return body
 	}
@@ -550,6 +607,52 @@ func appendToLastUserText(shape string, body []byte, suffix string, maxBytes int
 			}
 		}
 		return body
+	case "claude":
+		// Claude Messages API uses messages array with content blocks
+		msgs := gjson.GetBytes(body, "messages")
+		if !msgs.Exists() || !msgs.IsArray() {
+			return body
+		}
+		arr := msgs.Array()
+		for i := len(arr) - 1; i >= 0; i-- {
+			if !strings.EqualFold(arr[i].Get("role").String(), "user") {
+				continue
+			}
+			content := arr[i].Get("content")
+			switch {
+			case content.Type == gjson.String:
+				old := content.String()
+				newText := old + suffix
+				out, err := sjson.SetBytes(body, "messages."+strconv.Itoa(i)+".content", newText)
+				if err == nil {
+					return out
+				}
+				return body
+			case content.IsArray():
+				// Find first text block
+				parts := content.Array()
+				for j := 0; j < len(parts); j++ {
+					if parts[j].Get("type").String() != "text" {
+						continue
+					}
+					txt := parts[j].Get("text")
+					if !txt.Exists() || txt.Type != gjson.String {
+						continue
+					}
+					old := txt.String()
+					newText := old + suffix
+					out, err := sjson.SetBytes(body, "messages."+strconv.Itoa(i)+".content."+strconv.Itoa(j)+".text", newText)
+					if err == nil {
+						return out
+					}
+					return body
+				}
+				return body
+			default:
+				return body
+			}
+		}
+		return body
 	default:
 		return body
 	}
@@ -559,16 +662,26 @@ type trimWithMemoryResult struct {
 	Body    []byte
 	Query   string
 	Dropped []memory.Event
-	Shape   string // "chat" or "responses"
+	Shape   string // "chat", "responses", or "claude"
 }
 
-func agenticStoreAndInjectMemory(req *http.Request, session string, res *trimWithMemoryResult, maxBytes int) {
+func agenticStoreAndInjectMemory(c *gin.Context, req *http.Request, session string, res *trimWithMemoryResult, maxBytes int) {
 	if req == nil || res == nil {
 		return
 	}
 	if session == "" {
 		return
 	}
+
+	// Set session header for diagnostics (only for localhost)
+	if c != nil {
+		ip := c.ClientIP()
+		if ip == "127.0.0.1" || ip == "::1" {
+			c.Header("X-ProxyPilot-Session", session)
+			c.Header("X-ProxyPilot-Request-Shape", res.Shape)
+		}
+	}
+
 	store := agenticMemoryStore()
 	if store == nil {
 		return
@@ -576,6 +689,13 @@ func agenticStoreAndInjectMemory(req *http.Request, session string, res *trimWit
 
 	if len(res.Dropped) > 0 {
 		_ = store.Append(session, res.Dropped)
+		// Indicate memory was stored
+		if c != nil {
+			ip := c.ClientIP()
+			if ip == "127.0.0.1" || ip == "::1" {
+				c.Header("X-ProxyPilot-Memory-Stored", strconv.Itoa(len(res.Dropped)))
+			}
+		}
 	}
 
 	// Update anchored summary and pinned context (best-effort).
@@ -595,6 +715,14 @@ func agenticStoreAndInjectMemory(req *http.Request, session string, res *trimWit
 	snips, err := store.Search(session, res.Query, maxChars, maxSnips)
 	if err != nil || len(snips) == 0 {
 		return
+	}
+
+	// Indicate memory was retrieved and injected
+	if c != nil {
+		ip := c.ClientIP()
+		if ip == "127.0.0.1" || ip == "::1" {
+			c.Header("X-ProxyPilot-Memory-Retrieved", strconv.Itoa(len(snips)))
+		}
 	}
 
 	memBlock := buildMemoryBlock(snips)
@@ -629,6 +757,15 @@ func extractPinnedContext(req *http.Request, shape string, body []byte) string {
 					return s
 				}
 			}
+		}
+	case "claude":
+		// Claude Messages API uses "system" field at root level for system prompt
+		if v := gjson.GetBytes(body, "system"); v.Exists() && v.Type == gjson.String {
+			s := strings.TrimSpace(v.String())
+			if len(s) > 6000 {
+				s = s[:6000] + "\n...[truncated]..."
+			}
+			return s
 		}
 	}
 	// Fallback to UA to help debugging, but avoid storing auth.
@@ -1413,5 +1550,197 @@ func setJSONArrayBytes(body []byte, key string, rawItems []string) []byte {
 func reverseStrings(items []string) {
 	for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
 		items[i], items[j] = items[j], items[i]
+	}
+}
+
+// trimClaudeMessagesWithMemory trims a Claude Messages API payload by shortening the messages array.
+// Claude uses a similar structure to OpenAI chat but with content blocks that can include
+// tool_use, tool_result, text, and other types.
+func trimClaudeMessagesWithMemory(body []byte, maxBytes int, mustKeepTools bool) *trimWithMemoryResult {
+	root := gjson.ParseBytes(body)
+	msgs := root.Get("messages")
+	if !msgs.IsArray() {
+		return &trimWithMemoryResult{Body: body, Shape: "claude"}
+	}
+	arr := msgs.Array()
+	if len(arr) == 0 {
+		return &trimWithMemoryResult{Body: body, Shape: "claude"}
+	}
+
+	query := extractLastUserTextFromClaude(arr)
+	keep := 20
+	perTextLimit := 20_000
+	dropTools := false
+	for keep >= 1 {
+		outBody := body
+		if dropTools && !mustKeepTools {
+			outBody, _ = sjson.DeleteBytes(outBody, "tools")
+			outBody, _ = sjson.SetBytes(outBody, "tool_choice", map[string]any{"type": "none"})
+		}
+
+		newMsgs := make([]string, 0, keep+1)
+		keptIdx := make(map[int]struct{}, keep+2)
+
+		// Claude Messages API helper functions
+		isToolResultMsg := func(m gjson.Result) bool {
+			content := m.Get("content")
+			if !content.IsArray() {
+				return false
+			}
+			for _, part := range content.Array() {
+				if part.Get("type").String() == "tool_result" {
+					return true
+				}
+			}
+			return false
+		}
+		assistantHasToolUse := func(m gjson.Result) bool {
+			if !strings.EqualFold(m.Get("role").String(), "assistant") {
+				return false
+			}
+			content := m.Get("content")
+			if !content.IsArray() {
+				return false
+			}
+			for _, part := range content.Array() {
+				if part.Get("type").String() == "tool_use" {
+					return true
+				}
+			}
+			return false
+		}
+
+		required := make(map[int]struct{}, 8)
+		tailKept := 0
+		for i := len(arr) - 1; i >= 0 && (tailKept < keep || len(required) > 0); i-- {
+			_, req := required[i]
+			if !req && tailKept >= keep {
+				continue
+			}
+
+			newMsgs = append(newMsgs, truncateClaudeMessageContent(arr[i].Raw, perTextLimit))
+			keptIdx[i] = struct{}{}
+			if !req {
+				tailKept++
+			} else {
+				delete(required, i)
+			}
+
+			// If this is a tool result message, ensure we keep the preceding assistant message with tool_use
+			if isToolResultMsg(arr[i]) {
+				prev := i - 1
+				if prev >= 0 && assistantHasToolUse(arr[prev]) {
+					required[prev] = struct{}{}
+				}
+			}
+		}
+
+		reverseStrings(newMsgs)
+
+		out := setJSONArrayBytes(outBody, "messages", newMsgs)
+		if len(out) <= maxBytes {
+			dropped := collectDroppedClaude(arr, keptIdx)
+			return &trimWithMemoryResult{Body: out, Query: query, Dropped: dropped, Shape: "claude"}
+		}
+
+		keep = keep / 2
+		if perTextLimit > 5_000 {
+			perTextLimit = perTextLimit / 2
+		}
+		dropTools = true
+	}
+	return &trimWithMemoryResult{Body: body, Query: query, Shape: "claude"}
+}
+
+func collectDroppedClaude(arr []gjson.Result, kept map[int]struct{}) []memory.Event {
+	out := make([]memory.Event, 0, 32)
+	for i := 0; i < len(arr); i++ {
+		if _, ok := kept[i]; ok {
+			continue
+		}
+		role := arr[i].Get("role").String()
+		txt := extractTextFromClaudeMessage(arr[i])
+		if strings.TrimSpace(txt) == "" {
+			continue
+		}
+		out = append(out, memory.Event{Kind: "dropped_claude", Role: role, Text: txt})
+	}
+	return out
+}
+
+func extractLastUserTextFromClaude(arr []gjson.Result) string {
+	for i := len(arr) - 1; i >= 0; i-- {
+		if !strings.EqualFold(arr[i].Get("role").String(), "user") {
+			continue
+		}
+		txt := extractTextFromClaudeMessage(arr[i])
+		if strings.TrimSpace(txt) != "" {
+			return txt
+		}
+	}
+	return ""
+}
+
+func extractTextFromClaudeMessage(msg gjson.Result) string {
+	content := msg.Get("content")
+	switch {
+	case content.Type == gjson.String:
+		return content.String()
+	case content.IsArray():
+		var b strings.Builder
+		for _, part := range content.Array() {
+			partType := part.Get("type").String()
+			// Claude text blocks use type:"text" with text field
+			if partType == "text" {
+				if t := part.Get("text"); t.Exists() && t.Type == gjson.String {
+					if b.Len() > 0 {
+						b.WriteString("\n")
+					}
+					b.WriteString(t.String())
+				}
+			}
+		}
+		return b.String()
+	default:
+		return ""
+	}
+}
+
+func truncateClaudeMessageContent(msgRaw string, maxTextChars int) string {
+	msg := msgRaw
+	if maxTextChars <= 0 {
+		return msg
+	}
+
+	content := gjson.Get(msg, "content")
+	switch {
+	case content.Type == gjson.String:
+		s := content.String()
+		if len(s) > maxTextChars {
+			s = s[:maxTextChars] + "\n...[truncated]..."
+			msg, _ = sjson.Set(msg, "content", s)
+		}
+		return msg
+	case content.IsArray():
+		items := content.Array()
+		for i := 0; i < len(items); i++ {
+			partType := items[i].Get("type").String()
+			// Only truncate text blocks
+			if partType != "text" {
+				continue
+			}
+			text := items[i].Get("text")
+			if !text.Exists() || text.Type != gjson.String {
+				continue
+			}
+			s := text.String()
+			if len(s) > maxTextChars {
+				s = s[:maxTextChars] + "\n...[truncated]..."
+				msg, _ = sjson.Set(msg, "content."+strconv.Itoa(i)+".text", s)
+			}
+		}
+		return msg
+	default:
+		return msg
 	}
 }
