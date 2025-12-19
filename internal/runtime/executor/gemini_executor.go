@@ -99,7 +99,13 @@ func (e *GeminiExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 	}
 	baseURL := resolveGeminiBaseURL(auth)
 	url := fmt.Sprintf("%s/%s/models/%s:%s", baseURL, glAPIVersion, upstreamModel, action)
-	if opts.Alt != "" && action != "countTokens" {
+	if apiKey != "" {
+		if strings.Contains(url, "?") {
+			url = url + "&key=" + apiKey
+		} else {
+			url = url + "?key=" + apiKey
+		}
+	} else if opts.Alt != "" && action != "countTokens" {
 		url = url + fmt.Sprintf("?$alt=%s", opts.Alt)
 	}
 
@@ -188,10 +194,25 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 
 	baseURL := resolveGeminiBaseURL(auth)
 	url := fmt.Sprintf("%s/%s/models/%s:%s", baseURL, glAPIVersion, upstreamModel, "streamGenerateContent")
+	if apiKey != "" {
+		if strings.Contains(url, "?") {
+			url = url + "&key=" + apiKey
+		} else {
+			url = url + "?key=" + apiKey
+		}
+	}
 	if opts.Alt == "" {
-		url = url + "?alt=sse"
+		if !strings.Contains(url, "?") {
+			url = url + "?alt=sse"
+		} else {
+			url = url + "&alt=sse"
+		}
 	} else {
-		url = url + fmt.Sprintf("?$alt=%s", opts.Alt)
+		if !strings.Contains(url, "?") {
+			url = url + "?$alt=" + opts.Alt
+		} else {
+			url = url + "&$alt=" + opts.Alt
+		}
 	}
 
 	body, _ = sjson.DeleteBytes(body, "session_id")
@@ -300,6 +321,13 @@ func (e *GeminiExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Aut
 
 	baseURL := resolveGeminiBaseURL(auth)
 	url := fmt.Sprintf("%s/%s/models/%s:%s", baseURL, glAPIVersion, req.Model, "countTokens")
+	if apiKey != "" {
+		if strings.Contains(url, "?") {
+			url = url + "&key=" + apiKey
+		} else {
+			url = url + "?key=" + apiKey
+		}
+	}
 
 	requestBody := bytes.NewReader(translatedReq)
 
@@ -381,6 +409,13 @@ func (e *GeminiExecutor) Embed(ctx context.Context, auth *cliproxyauth.Auth, req
 	}
 
 	url := fmt.Sprintf("%s/%s/models/%s:%s", baseURL, glAPIVersion, req.Model, action)
+	if apiKey != "" {
+		if strings.Contains(url, "?") {
+			url = url + "&key=" + apiKey
+		} else {
+			url = url + "?key=" + apiKey
+		}
+	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(translatedReq))
 	if err != nil {
