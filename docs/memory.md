@@ -68,9 +68,9 @@ Environment variables:
 - `CLIPROXY_TODO_ENABLED` (default: enabled)
 - `CLIPROXY_TODO_MAX_CHARS` (default: `4000`)
 
-## Prompt-cache friendly packing
+## Prompt-cache friendly scaffolding (append-only)
 
-To preserve stable prompt prefixes for long sessions, CLIProxyAPI packs session state into the **last user message** (as a prepended block), instead of mutating `instructions` / system messages.
+To preserve stable prompt prefixes for long sessions, CLIProxyAPI injects session state as an **append-only scaffold** by default (it appends a new system message/input entry instead of mutating prior content).
 
 Packed block format:
 
@@ -78,8 +78,41 @@ Packed block format:
   - `<pinned>` from `pinned.md`
   - `<anchor>` from `summary.md`
   - `<todo>` from `todo.md`
+  - `<spec>` when Spec Mode is enabled
 
 ## Text normalization
 
 Some clients (notably PowerShell `ConvertTo-Json`) can store TODO/pinned state with escaped sequences like `\\n` / `\\u2019`.
 CLIProxyAPI normalizes common escape sequences when reading/writing `todo.md`, `pinned.md`, and `summary.md` so the injected state stays readable.
+
+## AGENTS.md pinning
+
+If `harness-root-dir` is set (or provided to the middleware), CLIProxyAPI will read `AGENTS.md` from that directory and merge it into pinned context.
+
+## Spec Mode (optional)
+
+Spec Mode can be enabled to require a spec/plan before any code changes:
+
+- Header: `X-CLIProxyAPI-Spec-Mode: true`
+- Env: `CLIPROXY_SPEC_MODE=1`
+
+When enabled and not yet approved, the scaffold injects a spec prompt that asks the agent to produce a reviewable specification and wait for approval.
+
+## Semantic memory (local embeddings)
+
+ProxyPilot can optionally embed and retrieve semantic memory using a local Ollama embed model.
+This runs fully local and is **always-on** when enabled.
+
+Environment variables:
+
+- `CLIPROXY_SEMANTIC_ENABLED` (default: enabled)
+- `CLIPROXY_SEMANTIC_MODEL` (default: `embeddinggemma`; also supports `nomic-embed-text`)
+- `CLIPROXY_SEMANTIC_BASE_URL` (default: `http://127.0.0.1:11434`)
+- `CLIPROXY_SEMANTIC_MAX_SNIPS` (default: `4`)
+- `CLIPROXY_SEMANTIC_MAX_CHARS` (default: `3000`)
+
+Namespace:
+
+- `X-CLIProxyAPI-Repo` / `X-Repo-Path` / `X-Workspace-Root` / `X-Project-Root`
+- or request `metadata.repo`
+- fallback: session key

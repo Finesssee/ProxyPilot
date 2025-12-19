@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
@@ -11,8 +12,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/embeddings"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/memory"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
@@ -26,6 +29,11 @@ const (
 	// codexMaxBodyBytesDefault is a best-effort budget to keep agentic CLI requests under common model limits.
 	// It is intentionally conservative to avoid upstream "prompt too long" failures.
 	codexMaxBodyBytesDefault = 200 * 1024
+
+	specModePrompt = `SPEC MODE (do not code yet).
+1) Produce a complete, reviewable specification (requirements, acceptance criteria, architecture, and file-level plan).
+2) Wait for explicit approval before editing code.
+3) If clarification is needed, ask now before writing code.`
 )
 
 var (
@@ -34,6 +42,9 @@ var (
 
 	memOnce  sync.Once
 	memStore memory.Store
+
+	embedOnce   sync.Once
+	embedClient *embeddings.OllamaClient
 )
 
 func agenticMaxBodyBytes() int {
@@ -82,6 +93,58 @@ func agenticMemoryStore() memory.Store {
 	return memStore
 }
 
+func agenticSemanticEnabled() bool {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_SEMANTIC_ENABLED")); v != "" {
+		if strings.EqualFold(v, "0") || strings.EqualFold(v, "false") || strings.EqualFold(v, "off") || strings.EqualFold(v, "no") {
+			return false
+		}
+	}
+	return true
+}
+
+func agenticSemanticModel() string {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_SEMANTIC_MODEL")); v != "" {
+		return v
+	}
+	return "embeddinggemma"
+}
+
+func agenticSemanticBaseURL() string {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_SEMANTIC_BASE_URL")); v != "" {
+		return v
+	}
+	return "http://127.0.0.1:11434"
+}
+
+func agenticSemanticMaxSnips() int {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_SEMANTIC_MAX_SNIPS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 4
+}
+
+func agenticSemanticMaxChars() int {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_SEMANTIC_MAX_CHARS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 3000
+}
+
+func agenticSemanticClient() *embeddings.OllamaClient {
+	embedOnce.Do(func() {
+		embedClient = &embeddings.OllamaClient{
+			BaseURL: agenticSemanticBaseURL(),
+			Model:   agenticSemanticModel(),
+			Client:  &http.Client{Timeout: 8 * time.Second},
+		}
+	})
+	return embedClient
+}
+
 func agenticTodoEnabled() bool {
 	if v := strings.TrimSpace(os.Getenv("CLIPROXY_TODO_ENABLED")); v != "" {
 		if strings.EqualFold(v, "0") || strings.EqualFold(v, "false") || strings.EqualFold(v, "off") || strings.EqualFold(v, "no") {
@@ -119,6 +182,12 @@ func agenticTodoMaxChars() int {
 //
 // The middleware only activates for User-Agent containing "OpenAI Codex".
 func CodexPromptBudgetMiddleware() gin.HandlerFunc {
+	return CodexPromptBudgetMiddlewareWithRootDir("")
+}
+
+// CodexPromptBudgetMiddlewareWithRootDir trims oversized requests and injects scaffold state.
+// rootDir is used to locate AGENTS.md. When empty, no AGENTS.md is loaded from disk.
+func CodexPromptBudgetMiddlewareWithRootDir(rootDir string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		req := c.Request
 		if req == nil {
@@ -171,12 +240,11 @@ func CodexPromptBudgetMiddleware() gin.HandlerFunc {
 		originalLen := len(body)
 		maxBytes := agenticMaxBodyBytesForModel(body)
 
-		// Session-scoped state (pinned + anchor + TODO) is packed into the *last user message*
-		// so we don't mutate instructions/system blocks. This is more prompt-cache friendly
-		// and survives trimming (we prepend state so head-truncation keeps it).
-		if agenticTodoEnabled() {
+		// Session-scoped state (pinned + anchor + TODO + spec) is injected as append-only
+		// scaffolding when enabled. This preserves prompt-cache friendliness.
+		if agenticScaffoldEnabled() {
 			session := extractAgenticSessionKey(req, body)
-			body = agenticMaybeUpsertAndInjectPackedState(req, session, body, maxBytes)
+			body = agenticMaybeUpsertAndInjectPackedState(req, session, body, maxBytes, rootDir)
 			originalLen = len(body)
 		}
 
@@ -225,7 +293,7 @@ func CodexPromptBudgetMiddleware() gin.HandlerFunc {
 	}
 }
 
-func agenticMaybeUpsertAndInjectPackedState(req *http.Request, session string, body []byte, maxBytes int) []byte {
+func agenticMaybeUpsertAndInjectPackedState(req *http.Request, session string, body []byte, maxBytes int, rootDir string) []byte {
 	if req == nil || session == "" || len(body) == 0 {
 		return body
 	}
@@ -264,12 +332,48 @@ func agenticMaybeUpsertAndInjectPackedState(req *http.Request, session string, b
 	}
 	shape := detectShapeFromPath(req.URL.Path)
 	pinned := fs.ReadPinned(session, 6000)
+	if agents := readAgentsMarkdown(rootDir); strings.TrimSpace(agents) != "" {
+		pinned = mergePinned(pinned, agents)
+	}
 	anchor := fs.ReadSummary(session, 2500)
-	block := buildPackedState(pinned, anchor, todo)
+	mem := ""
+	if agenticSemanticEnabled() {
+		ns := semanticNamespace(req, body, session)
+		query := semanticQueryText(shape, body)
+		query = strings.TrimSpace(query)
+		if query != "" {
+			client := agenticSemanticClient()
+			if client != nil {
+				vecs, err := client.Embed(context.Background(), []string{query})
+				if err == nil && len(vecs) > 0 && len(vecs[0]) > 0 {
+					if snips, err := fs.SearchSemantic(ns, vecs[0], agenticSemanticMaxChars(), agenticSemanticMaxSnips()); err == nil {
+						mem = semanticBlockFromSnips(snips)
+					}
+					_ = fs.AppendSemantic(ns, []memory.SemanticRecord{
+						{
+							Role:    "user",
+							Text:    query,
+							Vec:     vecs[0],
+							Source:  "query",
+							Session: session,
+							Repo:    ns,
+						},
+					})
+				}
+			}
+		}
+	}
+	spec := ""
+	if agenticSpecModeEnabled(req, body) && !agenticSpecApproved(body) {
+		spec = specModePrompt
+	}
+	block := buildPackedState(pinned, anchor, todo, mem, spec)
 	if strings.TrimSpace(block) == "" {
 		return body
 	}
-	// Inject TODO as pinned instructions/system, not as memory (so it’s always present).
+	if agenticScaffoldAppendOnly() {
+		return appendScaffoldState(shape, body, block, maxBytes)
+	}
 	return prependToLastUserText(shape, body, block, maxBytes)
 }
 
@@ -302,11 +406,13 @@ func extractLastUserIntent(shape string, body []byte) string {
 	}
 }
 
-func buildPackedState(pinned string, anchor string, todo string) string {
+func buildPackedState(pinned string, anchor string, todo string, mem string, spec string) string {
 	pinned = strings.TrimSpace(pinned)
 	anchor = strings.TrimSpace(anchor)
 	todo = strings.TrimSpace(todo)
-	if pinned == "" && anchor == "" && todo == "" {
+	mem = strings.TrimSpace(mem)
+	spec = strings.TrimSpace(spec)
+	if pinned == "" && anchor == "" && todo == "" && mem == "" && spec == "" {
 		return ""
 	}
 	var b strings.Builder
@@ -326,8 +432,214 @@ func buildPackedState(pinned string, anchor string, todo string) string {
 		b.WriteString(todo)
 		b.WriteString("\n</todo>\n")
 	}
+	if mem != "" {
+		b.WriteString("<memory>\n")
+		b.WriteString(mem)
+		b.WriteString("\n</memory>\n")
+	}
+	if spec != "" {
+		b.WriteString("<spec>\n")
+		b.WriteString(spec)
+		b.WriteString("\n</spec>\n")
+	}
 	b.WriteString("</proxypilot_state>\n\n")
 	return b.String()
+}
+
+func agenticScaffoldEnabled() bool {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_SCAFFOLD_ENABLED")); v != "" {
+		if strings.EqualFold(v, "0") || strings.EqualFold(v, "false") || strings.EqualFold(v, "off") || strings.EqualFold(v, "no") {
+			return false
+		}
+	}
+	return true
+}
+
+func agenticScaffoldAppendOnly() bool {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_SCAFFOLD_APPEND_ONLY")); v != "" {
+		if strings.EqualFold(v, "0") || strings.EqualFold(v, "false") || strings.EqualFold(v, "off") || strings.EqualFold(v, "no") {
+			return false
+		}
+	}
+	return true
+}
+
+func agenticSpecModeEnabled(req *http.Request, body []byte) bool {
+	if req == nil {
+		return false
+	}
+	if v := strings.TrimSpace(req.Header.Get("X-CLIProxyAPI-Spec-Mode")); v != "" {
+		return strings.EqualFold(v, "1") || strings.EqualFold(v, "true") || strings.EqualFold(v, "on") || strings.EqualFold(v, "yes")
+	}
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_SPEC_MODE")); v != "" {
+		return strings.EqualFold(v, "1") || strings.EqualFold(v, "true") || strings.EqualFold(v, "on") || strings.EqualFold(v, "yes")
+	}
+	if gjson.GetBytes(body, "spec_mode").Bool() {
+		return true
+	}
+	return false
+}
+
+func agenticSpecApproved(body []byte) bool {
+	raw := strings.ToLower(string(body))
+	return strings.Contains(raw, "spec approved") ||
+		strings.Contains(raw, "<spec_approved>") ||
+		strings.Contains(raw, "spec_approved") ||
+		strings.Contains(raw, "approved spec")
+}
+
+func readAgentsMarkdown(rootDir string) string {
+	if strings.TrimSpace(rootDir) == "" {
+		return ""
+	}
+	path := filepath.Join(rootDir, "AGENTS.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	out := strings.TrimSpace(string(data))
+	if out == "" {
+		return ""
+	}
+	if len(out) > 6000 {
+		out = out[:6000] + "\n...[truncated]..."
+	}
+	return out
+}
+
+func mergePinned(pinned string, agents string) string {
+	pinned = strings.TrimSpace(pinned)
+	agents = strings.TrimSpace(agents)
+	if agents == "" {
+		return pinned
+	}
+	if pinned == "" {
+		return agents
+	}
+	if strings.Contains(pinned, agents) {
+		return pinned
+	}
+	return pinned + "\n\n" + agents
+}
+
+func appendScaffoldState(shape string, body []byte, block string, maxBytes int) []byte {
+	block = strings.TrimSpace(block)
+	if block == "" {
+		return body
+	}
+	limit := maxBytes - len(body) - 512
+	if maxBytes > 0 && limit <= 0 {
+		return body
+	}
+	if maxBytes > 0 && len(block) > limit {
+		block = block[:limit] + "\n...[truncated]..."
+	}
+
+	switch shape {
+	case "responses":
+		input := gjson.GetBytes(body, "input")
+		if input.Exists() && input.IsArray() {
+			entry := map[string]any{
+				"role": "system",
+				"content": []map[string]string{
+					{"type": "input_text", "text": block},
+				},
+			}
+			if out, err := sjson.SetBytes(body, "input.-1", entry); err == nil {
+				return out
+			}
+		}
+		// Fallback to mutating instructions
+		return injectMemoryIntoBody("responses", body, block, maxBytes)
+	case "chat":
+		msgs := gjson.GetBytes(body, "messages")
+		if msgs.Exists() && msgs.IsArray() {
+			entry := map[string]string{
+				"role":    "system",
+				"content": block,
+			}
+			if out, err := sjson.SetBytes(body, "messages.-1", entry); err == nil {
+				return out
+			}
+		}
+		return injectMemoryIntoBody("chat", body, block, maxBytes)
+	case "claude":
+		// Claude Messages API prefers top-level "system"; append there as fallback.
+		if sys := gjson.GetBytes(body, "system"); sys.Exists() && sys.Type == gjson.String {
+			merged := strings.TrimSpace(sys.String()) + "\n\n" + block
+			if out, err := sjson.SetBytes(body, "system", merged); err == nil {
+				return out
+			}
+		}
+		return injectMemoryIntoBody("claude", body, block, maxBytes)
+	default:
+		return body
+	}
+}
+
+func semanticNamespace(req *http.Request, body []byte, session string) string {
+	if req != nil {
+		for _, h := range []string{"X-CLIProxyAPI-Repo", "X-Repo-Path", "X-Workspace-Root", "X-Project-Root"} {
+			if v := strings.TrimSpace(req.Header.Get(h)); v != "" {
+				return v
+			}
+		}
+	}
+	if v := strings.TrimSpace(gjson.GetBytes(body, "metadata.repo").String()); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(gjson.GetBytes(body, "metadata.repo_path").String()); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(gjson.GetBytes(body, "metadata.workspace_root").String()); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(gjson.GetBytes(body, "repo").String()); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(gjson.GetBytes(body, "workspace_root").String()); v != "" {
+		return v
+	}
+	return session
+}
+
+func semanticQueryText(shape string, body []byte) string {
+	return extractLastUserIntent(shape, body)
+}
+
+func semanticBlockFromSnips(snips []string) string {
+	if len(snips) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Relevant prior context (semantic):\n")
+	for i := range snips {
+		b.WriteString("\n---\n")
+		b.WriteString(snips[i])
+		b.WriteString("\n")
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func collectSemanticTexts(dropped []memory.Event, maxItems int) []string {
+	if maxItems <= 0 {
+		maxItems = 12
+	}
+	out := make([]string, 0, maxItems)
+	for i := len(dropped) - 1; i >= 0; i-- {
+		if len(out) >= maxItems {
+			break
+		}
+		txt := strings.TrimSpace(dropped[i].Text)
+		if txt == "" {
+			continue
+		}
+		if len(txt) > 800 {
+			txt = txt[:800] + "\n...[truncated]..."
+		}
+		out = append(out, txt)
+	}
+	return out
 }
 
 func extractCodingGuidelinesFromBody(body []byte) string {
@@ -702,6 +1014,37 @@ func agenticStoreAndInjectMemory(c *gin.Context, req *http.Request, session stri
 	if fs, ok := store.(*memory.FileStore); ok {
 		pinned := extractPinnedContext(req, res.Shape, res.Body)
 		_ = fs.UpsertAnchoredSummary(session, res.Dropped, pinned, res.Query)
+		if agenticSemanticEnabled() && len(res.Dropped) > 0 {
+			ns := semanticNamespace(req, res.Body, session)
+			texts := collectSemanticTexts(res.Dropped, 12)
+			if len(texts) > 0 {
+				client := agenticSemanticClient()
+				if client != nil {
+					vecs, err := client.Embed(context.Background(), texts)
+					if err == nil && len(vecs) == len(texts) {
+						records := make([]memory.SemanticRecord, 0, len(texts))
+						for i := range texts {
+							if len(vecs[i]) == 0 {
+								continue
+							}
+							role := ""
+							if i < len(res.Dropped) {
+								role = res.Dropped[i].Role
+							}
+							records = append(records, memory.SemanticRecord{
+								Role:    role,
+								Text:    texts[i],
+								Vec:     vecs[i],
+								Source:  "dropped",
+								Session: session,
+								Repo:    ns,
+							})
+						}
+						_ = fs.AppendSemantic(ns, records)
+					}
+				}
+			}
+		}
 	}
 
 	// Only inject retrieval when we actually trimmed (otherwise it just spends tokens).

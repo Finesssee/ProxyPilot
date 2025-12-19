@@ -609,6 +609,11 @@ func (s *Server) registerManagementRoutes() {
 		// ProxyPilot desktop UX helpers (local diagnostics and launcher logs).
 		mgmt.GET("/proxypilot/diagnostics", s.mgmt.GetProxyPilotDiagnostics)
 		mgmt.GET("/proxypilot/logs/tail", s.mgmt.GetProxyPilotLogTail)
+
+		// Semantic memory (local embeddings) diagnostics.
+		mgmt.GET("/semantic/health", s.mgmt.GetSemanticHealth)
+		mgmt.GET("/semantic/namespaces", s.mgmt.ListSemanticNamespaces)
+		mgmt.GET("/semantic/items", s.mgmt.GetSemanticItems)
 	}
 }
 
@@ -623,6 +628,15 @@ func (s *Server) managementAvailabilityMiddleware() gin.HandlerFunc {
 }
 
 func (s *Server) serveManagementControlPanel(c *gin.Context) {
+	// Hidden fallback: only allow localhost and explicit opt-in.
+	if !isLocalClient(c.ClientIP()) {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	if !strings.EqualFold(strings.TrimSpace(c.Query("legacy")), "1") && strings.TrimSpace(os.Getenv("PROXYPILOT_SHOW_LEGACY_UI")) == "" {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
 	cfg := s.cfg
 	if cfg == nil || cfg.RemoteManagement.DisableControlPanel {
 		c.AbortWithStatus(http.StatusNotFound)
@@ -670,6 +684,10 @@ func (s *Server) serveManagementControlPanel(c *gin.Context) {
 
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.String(http.StatusOK, html)
+}
+
+func isLocalClient(ip string) bool {
+	return ip == "127.0.0.1" || ip == "::1"
 }
 
 func (s *Server) enableKeepAlive(timeout time.Duration, onTimeout func()) {
