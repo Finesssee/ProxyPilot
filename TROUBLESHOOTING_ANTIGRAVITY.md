@@ -51,3 +51,24 @@ When adding new Antigravity accounts (`.json` files in `~/.cli-proxy-api/`):
 *   **Droid Config:** `~/.factory/config.json` updated with correct Antigravity model names.
 *   **ProxyPilot Config:** `d:\code\ProxyPilot\config.yaml` cleaned of invalid keys.
 *   **Auth Status:** 3 Antigravity accounts active and rotating.
+
+## 5. Issue: Rate Limit Rotation "Stuck" on One Account
+**Date:** 2025-12-20
+**Subject:** HTTP 429 Handling in Antigravity Executor & Manager
+
+### A. Issue Summary
+The user experienced repeated 429 Too Many Requests errors from the *same* account (yuhh0704@gmail.com) despite having multiple healthy backup accounts (nnq2366) available. The rotation logic refused to switch to the backup, effectively blocking the user.
+
+### B. Root Causes
+1.  **Missing Retry-After Parsing:** The AntigravityExecutor was receiving a Retry-After header (e.g., 1 hour) from the upstream API but was ignoring it. It only returned a generic error message.
+    *   **Effect:** The AuthManager used a default backoff of only **1 second**.
+2.  **Model State Not Updated:** When the global Auth object was marked as "Rate Limited", the specific ModelState for the requested model (e.g., claude-opus-4-5-thinking) remained "Active".
+    *   **Effect:** The RoundRobinSelector checked the *model* state, saw it was valid, and re-selected the same "Primary Fallback" account (due to strict fallback logic preferences) immediately after the 1-second backoff expired.
+
+### C. The Fix
+1.  **Updated AntigravityExecutor:** Added logic to parse the Retry-After header (supporting both integer seconds and HTTP date formats) and pass it to the statusErr struct.
+2.  **Updated AuthManager (MarkResult):** Modified the result handling to explicitly update the ModelState with the error and cooldown info, not just the parent Auth object.
+3.  **Updated Selector (isAuthBlockedForModel):** Added a defensive check to respect NextRetryAfter timestamps even if the Unavailable boolean flag wasn't explicitly set, ensuring blocked models are strictly filtered out.
+
+### D. Result
+System now respects long cooldowns (e.g., 3 hours) and correctly skips the blocked "Primary" account to use the "Secondary" backups like nnq2366.
