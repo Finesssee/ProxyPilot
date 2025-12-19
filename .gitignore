@@ -46,3 +46,6 @@ GEMINI.md
 # macOS
 .DS_Store
 ._*
+
+*.log
+*_out.txt
