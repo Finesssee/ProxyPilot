@@ -6,7 +6,7 @@ param(
   [string]$ProxyApiKey = $env:CLIPROXY_API_KEY,
 
   [Parameter(Mandatory = $false)]
-  [string]$ProxyBaseUrl = "http://127.0.0.1:8317/v1",
+  [string]$ProxyBaseUrl = "http://127.0.0.1:8318/v1",
 
   [Parameter(Mandatory = $false)]
   [string]$ProxyModel = "gpt-5.1"
@@ -74,8 +74,8 @@ function Ensure-DroidConfig([string]$BaseUrl, [string]$ApiKey, [string]$Model) {
     "gpt-5.1-codex-max(high)",
     "gpt-5.1-codex-max(xhigh)",
     "gemini-3-pro-preview",
-    "gemini-claude-sonnet-4-5-thinking",
-    "gemini-claude-opus-4-5-thinking"
+    "antigravity-claude-sonnet-4-5-thinking",
+    "antigravity-claude-opus-4-5-thinking"
   )
 
   $modelsToRemove = @(
