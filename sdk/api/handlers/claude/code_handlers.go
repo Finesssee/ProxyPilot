@@ -68,18 +68,18 @@ func mapClaudeCodeModel(model string) string {
 
 	switch normalized {
 	case "opus":
-		return "gemini-claude-opus-4-5-thinking"
+		return "antigravity-claude-opus-4-5-thinking"
 	case "sonnet":
-		return "gemini-claude-sonnet-4-5-thinking"
+		return "antigravity-claude-sonnet-4-5-thinking"
 	case "haiku":
 		return "gemini-3-pro-preview"
 	}
 
 	if strings.HasPrefix(normalized, "claude-opus-") || strings.Contains(normalized, "-opus-") {
-		return "gemini-claude-opus-4-5-thinking"
+		return "antigravity-claude-opus-4-5-thinking"
 	}
 	if strings.HasPrefix(normalized, "claude-sonnet-") || strings.Contains(normalized, "-sonnet-") {
-		return "gemini-claude-sonnet-4-5-thinking"
+		return "antigravity-claude-sonnet-4-5-thinking"
 	}
 	if strings.HasPrefix(normalized, "claude-haiku-") || strings.Contains(normalized, "-haiku-") {
 		return "gemini-3-pro-preview"

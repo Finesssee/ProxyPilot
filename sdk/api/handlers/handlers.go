@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/routingdebug"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
@@ -52,6 +53,44 @@ type BaseAPIHandler struct {
 
 	// OpenAICompatProviders is a list of provider names for OpenAI compatibility.
 	OpenAICompatProviders []string
+}
+
+func (h *BaseAPIHandler) setProxyPilotRoutingHeaders(ctx context.Context, requestedModel, normalizedModel string, providers []string, trace *coreauth.SelectionTrace) {
+	ginVal := ctx.Value("gin")
+	c, ok := ginVal.(*gin.Context)
+	if !ok || c == nil {
+		return
+	}
+
+	// Only expose routing debug info to localhost clients (safe for Droid/Codex/etc).
+	ip := strings.TrimSpace(c.ClientIP())
+	if ip != "*********" && ip != "::1" && !strings.EqualFold(ip, "localhost") {
+		return
+	}
+
+	trimmedRequested := strings.TrimSpace(requestedModel)
+	trimmedNormalized := strings.TrimSpace(normalizedModel)
+	if trimmedRequested != "" {
+		c.Header("X-ProxyPilot-Requested-Model", trimmedRequested)
+	}
+	if trimmedNormalized != "" {
+		c.Header("X-ProxyPilot-Resolved-Model", trimmedNormalized)
+	}
+	if len(providers) > 0 {
+		c.Header("X-ProxyPilot-Provider-Candidates", strings.Join(providers, ","))
+	}
+
+	var provider string
+	if trace != nil {
+		provider, _, _, _ = trace.Snapshot()
+		trimmedProvider := strings.TrimSpace(provider)
+		if trimmedProvider != "" {
+			c.Header("X-ProxyPilot-Resolved-Provider", trimmedProvider)
+		}
+	}
+
+	// Record a recent routing entry for management/debug APIs.
+	routingdebug.RecordFromContext(c, trimmedRequested, trimmedNormalized, providers, trace)
 }
 
 // NewBaseAPIHandlers creates a new API handlers instance.
@@ -209,9 +248,11 @@ func (h *BaseAPIHandler) ExecuteWithAuthManager(ctx context.Context, handlerType
 			}
 		}
 		h.maybeSetSelectionHeaders(ctx, trace)
+		h.setProxyPilotRoutingHeaders(ctx, modelName, normalizedModel, providers, trace)
 		return nil, &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
 	}
 	h.maybeSetSelectionHeaders(ctx, trace)
+	h.setProxyPilotRoutingHeaders(ctx, modelName, normalizedModel, providers, trace)
 	return cloneBytes(resp.Payload), nil
 }
 
@@ -255,9 +296,59 @@ func (h *BaseAPIHandler) ExecuteCountWithAuthManager(ctx context.Context, handle
 			}
 		}
 		h.maybeSetSelectionHeaders(ctx, trace)
+		h.setProxyPilotRoutingHeaders(ctx, modelName, normalizedModel, providers, trace)
 		return nil, &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
 	}
 	h.maybeSetSelectionHeaders(ctx, trace)
+	h.setProxyPilotRoutingHeaders(ctx, modelName, normalizedModel, providers, trace)
+	return cloneBytes(resp.Payload), nil
+}
+
+// ExecuteEmbedWithAuthManager executes an embedding request via the core auth manager.
+// This path is the only supported execution route.
+func (h *BaseAPIHandler) ExecuteEmbedWithAuthManager(ctx context.Context, handlerType, modelName string, rawJSON []byte, alt string) ([]byte, *interfaces.ErrorMessage) {
+	providers, normalizedModel, metadata, errMsg := h.getRequestDetails(modelName)
+	if errMsg != nil {
+		return nil, errMsg
+	}
+	trace := &coreauth.SelectionTrace{}
+	ctx = coreauth.WithSelectionTrace(ctx, trace)
+	req := coreexecutor.Request{
+		Model:   normalizedModel,
+		Payload: cloneBytes(rawJSON),
+	}
+	if cloned := cloneMetadata(metadata); cloned != nil {
+		req.Metadata = cloned
+	}
+	opts := coreexecutor.Options{
+		Stream:          false,
+		Alt:             alt,
+		OriginalRequest: cloneBytes(rawJSON),
+		SourceFormat:    sdktranslator.FromString(handlerType),
+	}
+	if cloned := cloneMetadata(metadata); cloned != nil {
+		opts.Metadata = cloned
+	}
+	resp, err := h.AuthManager.ExecuteEmbed(ctx, providers, req, opts)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if se, ok := err.(interface{ StatusCode() int }); ok && se != nil {
+			if code := se.StatusCode(); code > 0 {
+				status = code
+			}
+		}
+		var addon http.Header
+		if he, ok := err.(interface{ Headers() http.Header }); ok && he != nil {
+			if hdr := he.Headers(); hdr != nil {
+				addon = hdr.Clone()
+			}
+		}
+		h.maybeSetSelectionHeaders(ctx, trace)
+		h.setProxyPilotRoutingHeaders(ctx, modelName, normalizedModel, providers, trace)
+		return nil, &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
+	}
+	h.maybeSetSelectionHeaders(ctx, trace)
+	h.setProxyPilotRoutingHeaders(ctx, modelName, normalizedModel, providers, trace)
 	return cloneBytes(resp.Payload), nil
 }
 
@@ -305,11 +396,13 @@ func (h *BaseAPIHandler) ExecuteStreamWithAuthManager(ctx context.Context, handl
 			}
 		}
 		h.maybeSetSelectionHeaders(ctx, trace)
+		h.setProxyPilotRoutingHeaders(ctx, modelName, normalizedModel, providers, trace)
 		errChan <- &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
 		close(errChan)
 		return nil, errChan
 	}
 	h.maybeSetSelectionHeaders(ctx, trace)
+	h.setProxyPilotRoutingHeaders(ctx, modelName, normalizedModel, providers, trace)
 	dataChan := make(chan []byte)
 	errChan := make(chan *interfaces.ErrorMessage, 1)
 	go func() {

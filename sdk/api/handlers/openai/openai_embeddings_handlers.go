@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers"
+	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 )
 
@@ -50,6 +52,21 @@ func (h *OpenAIAPIHandler) Embeddings(c *gin.Context) {
 		})
 		return
 	}
+
+	alt := h.GetAlt(c)
+	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
+	defer cliCancel()
+
+	resp, errMsg := h.ExecuteEmbedWithAuthManager(cliCtx, h.HandlerType(), model, rawJSON, alt)
+	if errMsg == nil && len(resp) > 0 {
+		c.Header("Content-Type", "application/json")
+		_, _ = c.Writer.Write(resp)
+		return
+	}
+
+	// Fallback to synthetic embeddings if real execution fails or is not supported by the provider.
+	// This keeps IDE features working even when a native embeddings backend is not available.
+	log.Debugf("Embeddings execution failed or not supported, falling back to synthetic: %v", errMsg)
 
 	data := make([]map[string]any, 0, len(inputs))
 	promptTokens := 0

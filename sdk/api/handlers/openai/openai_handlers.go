@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -111,7 +112,16 @@ func (h *OpenAIAPIHandler) ChatCompletions(c *gin.Context) {
 
 	// Check if the client requested a streaming response.
 	streamResult := gjson.GetBytes(rawJSON, "stream")
-	if streamResult.Type == gjson.True {
+	wantsStream := streamResult.Type == gjson.True
+	if wantsStream {
+		// For strict JSON clients, respect Accept: application/json by switching to non-streaming.
+		accept := strings.ToLower(c.GetHeader("Accept"))
+		if strings.Contains(accept, "application/json") && !strings.Contains(accept, "text/event-stream") {
+			wantsStream = false
+		}
+	}
+
+	if wantsStream {
 		h.handleStreamingResponse(c, rawJSON)
 	} else {
 		h.handleNonStreamingResponse(c, rawJSON)
@@ -143,7 +153,16 @@ func (h *OpenAIAPIHandler) Completions(c *gin.Context) {
 
 	// Check if the client requested a streaming response.
 	streamResult := gjson.GetBytes(rawJSON, "stream")
-	if streamResult.Type == gjson.True {
+	wantsStream := streamResult.Type == gjson.True
+	if wantsStream {
+		// For strict JSON clients, respect Accept: application/json by switching to non-streaming.
+		accept := strings.ToLower(c.GetHeader("Accept"))
+		if strings.Contains(accept, "application/json") && !strings.Contains(accept, "text/event-stream") {
+			wantsStream = false
+		}
+	}
+
+	if wantsStream {
 		h.handleCompletionsStreamingResponse(c, rawJSON)
 	} else {
 		h.handleCompletionsNonStreamingResponse(c, rawJSON)

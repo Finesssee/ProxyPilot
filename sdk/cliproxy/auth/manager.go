@@ -30,6 +30,8 @@ type ProviderExecutor interface {
 	Refresh(ctx context.Context, auth *Auth) (*Auth, error)
 	// CountTokens returns the token count for the given request.
 	CountTokens(ctx context.Context, auth *Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error)
+	// Embed returns embeddings for the given request.
+	Embed(ctx context.Context, auth *Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error)
 }
 
 // RefreshEvaluator allows runtime state to override refresh decisions.
@@ -438,6 +440,77 @@ func (m *Manager) executeCountWithProvider(ctx context.Context, provider string,
 			execCtx = context.WithValue(execCtx, "cliproxy.roundtripper", rt)
 		}
 		resp, errExec := executor.CountTokens(execCtx, auth, req, opts)
+		result := Result{AuthID: auth.ID, Provider: provider, Model: req.Model, Success: errExec == nil}
+		if errExec != nil {
+			result.Error = &Error{Message: errExec.Error()}
+			var se cliproxyexecutor.StatusError
+			if errors.As(errExec, &se) && se != nil {
+				result.Error.HTTPStatus = se.StatusCode()
+			}
+			if ra := retryAfterFromError(errExec); ra != nil {
+				result.RetryAfter = ra
+			}
+			m.MarkResult(execCtx, result)
+			lastErr = errExec
+			continue
+		}
+		m.MarkResult(execCtx, result)
+		return resp, nil
+	}
+}
+
+// ExecuteEmbed executes an embedding request via the first available provider and auth.
+func (m *Manager) ExecuteEmbed(ctx context.Context, providers []string, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	providers = m.normalizeProviders(providers)
+	if len(providers) == 0 {
+		return cliproxyexecutor.Response{}, &Error{Message: "no providers specified for embedding"}
+	}
+
+	var lastErr error
+	for _, provider := range providers {
+		resp, err := m.executeEmbedWithProvider(ctx, provider, req, opts)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+	}
+
+	if lastErr != nil {
+		return cliproxyexecutor.Response{}, lastErr
+	}
+	return cliproxyexecutor.Response{}, &Error{Message: "failed to execute embedding request on all providers"}
+}
+
+func (m *Manager) executeEmbedWithProvider(ctx context.Context, provider string, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	if provider == "" {
+		return cliproxyexecutor.Response{}, &Error{Code: "provider_not_found", Message: "provider identifier is empty"}
+	}
+	tried := make(map[string]struct{})
+	var lastErr error
+	for {
+		auth, executor, errPick := m.pickNext(ctx, provider, req.Model, opts, tried)
+		if errPick != nil {
+			if lastErr != nil {
+				return cliproxyexecutor.Response{}, lastErr
+			}
+			return cliproxyexecutor.Response{}, errPick
+		}
+
+		accountType, accountInfo := auth.AccountInfo()
+		if accountType == "api_key" {
+			log.Debugf("Use API key %s for model %s", util.HideAPIKey(accountInfo), req.Model)
+		} else if accountType == "oauth" {
+			log.Debugf("Use OAuth %s for model %s", accountInfo, req.Model)
+		}
+
+		tried[auth.ID] = struct{}{}
+		recordSelection(ctx, provider, auth)
+		execCtx := ctx
+		if rt := m.roundTripperFor(auth); rt != nil {
+			execCtx = context.WithValue(execCtx, roundTripperContextKey{}, rt)
+			execCtx = context.WithValue(execCtx, "cliproxy.roundtripper", rt)
+		}
+		resp, errExec := executor.Embed(execCtx, auth, req, opts)
 		result := Result{AuthID: auth.ID, Provider: provider, Model: req.Model, Success: errExec == nil}
 		if errExec != nil {
 			result.Error = &Error{Message: errExec.Error()}
