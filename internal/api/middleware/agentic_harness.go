@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -28,8 +30,8 @@ Your ONLY goal is to set up the project environment for future Coding Agents.
         Request: "Build a todo app"
         File Content:
         [
-          { "category": "core", "description": "User can add a todo", "passes": false },
-          { "category": "core", "description": "User can delete a todo", "passes": false }
+          { "category": "core", "description": "User can add a todo", "steps": ["Open app", "Enter text", "Press enter", "See new item"], "passes": false },
+          { "category": "core", "description": "User can delete a todo", "steps": ["Open app", "Click delete", "Item removed"], "passes": false }
         ]
 3.  **Create 'claude-progress.txt'**:
     -   Create this file with a header "## Progress Log".
@@ -53,12 +55,15 @@ Your goal is to make **incremental progress** on the project.
 1.  **Read Context**:
     -   Read 'claude-progress.txt' to see what was done last.
     -   Read 'feature_list.json' to see what is missing.
+    -   Read recent git log to understand recent changes.
+    -   If 'init.sh' exists, run it to start the dev server.
+    -   Run a basic end-to-end sanity check before new work.
 2.  **Pick ONE Task**:
     -   Choose the highest-priority failing feature from 'feature_list.json'.
     -   Announce your plan.
 3.  **Implement & Verify**:
     -   Write code for that ONE feature.
-    -   Verify it works (run tests or browser check).
+    -   Verify it works end-to-end (tests or browser check).
 4.  **Update State**:
     -   Update 'feature_list.json': set "passes": true for the completed feature.
     -   Append to 'claude-progress.txt': "- [Coding] Implemented <feature>."
@@ -69,11 +74,18 @@ Your goal is to make **incremental progress** on the project.
 -   Do NOT try to finish the whole project in one turn.
 -   Do NOT leave the code in a broken state.
 -   Always update the harness files ('feature_list.json', 'claude-progress.txt') before stopping.
+-   Do NOT edit 'feature_list.json' except toggling a feature's "passes" field after verified testing.
 `
 )
 
 // AgenticHarnessMiddleware injects system prompts to guide long-running agents.
 func AgenticHarnessMiddleware() gin.HandlerFunc {
+	return AgenticHarnessMiddlewareWithRootDir("")
+}
+
+// AgenticHarnessMiddlewareWithRootDir injects system prompts and checks harness files under rootDir.
+// If rootDir is empty, the current working directory is used.
+func AgenticHarnessMiddlewareWithRootDir(rootDir string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		req := c.Request
 		if req == nil || req.Method != http.MethodPost {
@@ -105,7 +117,7 @@ func AgenticHarnessMiddleware() gin.HandlerFunc {
 		// 3. Detect State
 		// We look for evidence that the harness is already active (features/progress files).
 		// We also check conversation length.
-		state := detectHarnessState(body)
+		state := detectHarnessState(body, rootDir)
 
 		// 4. Inject Prompt
 		var promptToInject string
@@ -123,7 +135,7 @@ func AgenticHarnessMiddleware() gin.HandlerFunc {
 		newBody := injectSystemPrompt(body, promptToInject)
 
 		// 5. Update Request
-		if len(newBody) != len(body) {
+		if !bytes.Equal(newBody, body) {
 			req.Body = io.NopCloser(bytes.NewReader(newBody))
 			req.ContentLength = int64(len(newBody))
 			req.Header.Set("Content-Length", strconv.Itoa(len(newBody)))
@@ -134,7 +146,7 @@ func AgenticHarnessMiddleware() gin.HandlerFunc {
 	}
 }
 
-func detectHarnessState(body []byte) string {
+func detectHarnessState(body []byte, rootDir string) string {
 	// Simple heuristic:
 	// If the conversation contains references to "claude-progress.txt" or "feature_list.json",
 	// it's likely already in the harness flow -> CODING.
@@ -142,6 +154,11 @@ func detectHarnessState(body []byte) string {
 
 	raw := string(body)
 	if strings.Contains(raw, "claude-progress.txt") || strings.Contains(raw, "feature_list.json") {
+		return "CODING"
+	}
+
+	// Prefer filesystem truth when available.
+	if fileExists(rootDir, "claude-progress.txt") || fileExists(rootDir, "feature_list.json") {
 		return "CODING"
 	}
 
@@ -158,6 +175,17 @@ func detectHarnessState(body []byte) string {
 		}
 	}
 
+	// Responses API: check "input" array length if present.
+	input := gjson.GetBytes(body, "input")
+	if input.Exists() && input.IsArray() {
+		if len(input.Array()) < 5 {
+			return "INITIALIZER"
+		}
+	}
+	if input.Exists() && input.Type == gjson.String {
+		return "INITIALIZER"
+	}
+
 	// If it's a long conversation but no harness files mentioned,
 	// maybe the user didn't want the harness, or it's a legacy chat.
 	// We'll default to PASSIVE to avoid annoying the user.
@@ -166,7 +194,7 @@ func detectHarnessState(body []byte) string {
 
 func injectSystemPrompt(body []byte, prompt string) []byte {
 	// We prepend this prompt to the existing system prompt or messages.
-	// This logic handles OAI /v1/chat/completions and Claude /v1/messages structure.
+	// This logic handles OAI /v1/chat/completions, Claude /v1/messages, and OAI /v1/responses.
 
 	// 1. Try "messages" (Chat/Claude)
 	msgs := gjson.GetBytes(body, "messages")
@@ -202,6 +230,25 @@ func injectSystemPrompt(body []byte, prompt string) []byte {
 			newText := old + "\n\n" + prompt
 			out, _ := sjson.SetBytes(body, "system", newText)
 			return out
+		}
+	}
+
+	// 2b. Responses API top-level "instructions" or "input"
+	if inst := gjson.GetBytes(body, "instructions"); inst.Exists() && inst.Type == gjson.String {
+		old := inst.String()
+		newText := old + "\n\n" + prompt
+		out, _ := sjson.SetBytes(body, "instructions", newText)
+		return out
+	}
+	if input := gjson.GetBytes(body, "input"); input.Exists() {
+		if input.Type == gjson.String {
+			old := input.String()
+			newText := prompt + "\n\n" + old
+			out, _ := sjson.SetBytes(body, "input", newText)
+			return out
+		}
+		if input.IsArray() {
+			return prependHarnessToResponsesInput(body, prompt)
 		}
 	}
 
@@ -296,4 +343,60 @@ func prependHarnessToLastUserText(body []byte, prefix string) []byte {
 		}
 	}
 	return body
+}
+
+func prependHarnessToResponsesInput(body []byte, prefix string) []byte {
+	prefix = "\n\n[SYSTEM NOTE: " + strings.TrimSpace(prefix) + "]\n\n"
+
+	input := gjson.GetBytes(body, "input")
+	if !input.Exists() || !input.IsArray() {
+		return body
+	}
+	arr := input.Array()
+
+	for i := len(arr) - 1; i >= 0; i-- {
+		role := arr[i].Get("role").String()
+		if !strings.EqualFold(role, "user") {
+			continue
+		}
+
+		// String content
+		content := arr[i].Get("content")
+		if content.Type == gjson.String {
+			old := content.String()
+			newText := prefix + old
+			out, err := sjson.SetBytes(body, "input."+strconv.Itoa(i)+".content", newText)
+			if err == nil {
+				return out
+			}
+		}
+
+		// Array content (multimodal)
+		if content.IsArray() {
+			parts := content.Array()
+			for j := 0; j < len(parts); j++ {
+				if parts[j].Get("type").String() == "text" || parts[j].Get("text").Exists() {
+					old := parts[j].Get("text").String()
+					newText := prefix + old
+					out, err := sjson.SetBytes(body, "input."+strconv.Itoa(i)+".content."+strconv.Itoa(j)+".text", newText)
+					if err == nil {
+						return out
+					}
+				}
+			}
+		}
+
+		return body
+	}
+
+	return body
+}
+
+func fileExists(rootDir, path string) bool {
+	target := path
+	if rootDir != "" && !filepath.IsAbs(path) {
+		target = filepath.Join(rootDir, path)
+	}
+	info, err := os.Stat(target)
+	return err == nil && !info.IsDir()
 }

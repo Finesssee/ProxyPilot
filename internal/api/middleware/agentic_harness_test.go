@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -13,6 +15,7 @@ import (
 
 func TestAgenticHarnessMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	rootDir := t.TempDir()
 
 	tests := []struct {
 		name           string
@@ -76,7 +79,7 @@ func TestAgenticHarnessMiddleware(t *testing.T) {
 			c.Request = req
 
 			// Chain: Harness -> Verification Handler
-			handler := AgenticHarnessMiddleware()
+			handler := AgenticHarnessMiddlewareWithRootDir(rootDir)
 
 			// Execute middleware
 			handler(c)
@@ -103,6 +106,79 @@ func TestAgenticHarnessMiddleware(t *testing.T) {
 				assert.NotContains(t, newBody, "Initializer Agent")
 				assert.NotContains(t, newBody, "Coding Agent")
 			}
+		})
+	}
+}
+
+func TestAgenticHarnessMiddleware_FilePresenceForcesCoding(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rootDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(rootDir, "feature_list.json"), []byte(`[]`), 0o644); err != nil {
+		t.Fatalf("write feature_list.json: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	body := `{"messages": [{"role": "user", "content": "setup environment"}]}`
+	req, _ := http.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(body))
+	req.Header.Set("User-Agent", "claude-cli")
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	handler := AgenticHarnessMiddlewareWithRootDir(rootDir)
+	handler(c)
+
+	assert.Equal(t, "CODING", c.Writer.Header().Get("X-ProxyPilot-Harness-Mode"))
+	newBodyBytes, _ := io.ReadAll(c.Request.Body)
+	assert.Contains(t, string(newBodyBytes), "Coding Agent")
+}
+
+func TestAgenticHarnessMiddleware_ResponsesAPI(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rootDir := t.TempDir()
+
+	tests := []struct {
+		name           string
+		body           string
+		expectContains string
+	}{
+		{
+			name:           "Inject into instructions",
+			body:           `{"instructions":"Follow the user","input":[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]}`,
+			expectContains: "instructions",
+		},
+		{
+			name:           "Inject into input string",
+			body:           `{"input":"hello world"}`,
+			expectContains: "hello world",
+		},
+		{
+			name:           "Inject into input array",
+			body:           `{"input":[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]}`,
+			expectContains: "SYSTEM NOTE",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+
+			req, _ := http.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(tt.body))
+			req.Header.Set("User-Agent", "codex_cli_rs/0.75.0")
+			req.Header.Set("Content-Type", "application/json")
+			c.Request = req
+
+			handler := AgenticHarnessMiddlewareWithRootDir(rootDir)
+			handler(c)
+
+			assert.Equal(t, "INITIALIZER", c.Writer.Header().Get("X-ProxyPilot-Harness-Mode"))
+			newBodyBytes, _ := io.ReadAll(c.Request.Body)
+			newBody := string(newBodyBytes)
+			assert.Contains(t, newBody, "Initializer Agent")
+			assert.Contains(t, newBody, tt.expectContains)
 		})
 	}
 }

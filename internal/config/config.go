@@ -35,6 +35,10 @@ type Config struct {
 	// AuthDir is the directory where authentication token files are stored.
 	AuthDir string `yaml:"auth-dir" json:"-"`
 
+	// HarnessRootDir is the directory where long-running agent harness files live.
+	// If empty, the server working directory is used.
+	HarnessRootDir string `yaml:"harness-root-dir" json:"-"`
+
 	// Debug enables or disables debug-level logging and other debug features.
 	Debug bool `yaml:"debug" json:"debug"`
 

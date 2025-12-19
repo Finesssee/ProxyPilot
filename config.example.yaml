@@ -28,6 +28,10 @@ remote-management:
 # Authentication directory (supports ~ for home directory)
 auth-dir: "~/.cli-proxy-api"
 
+# Long-running agent harness files root directory (feature_list.json, claude-progress.txt).
+# Defaults to the server working directory when empty.
+# harness-root-dir: ""
+
 # API keys for authentication
 api-keys:
   - "local-dev-key"
