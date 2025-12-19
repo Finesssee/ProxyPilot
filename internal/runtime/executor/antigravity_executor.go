@@ -141,7 +141,19 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, auth *cliproxyauth.Au
 				log.Debugf("antigravity executor: rate limited on base url %s, retrying with fallback base url: %s", baseURL, baseURLs[idx+1])
 				continue
 			}
-			err = statusErr{code: httpResp.StatusCode, msg: string(bodyBytes)}
+			var retryAfter *time.Duration
+			if val := httpResp.Header.Get("Retry-After"); val != "" {
+				if seconds, err := strconv.Atoi(val); err == nil && seconds > 0 {
+					d := time.Duration(seconds) * time.Second
+					retryAfter = &d
+				} else if t, err := time.Parse(time.RFC1123, val); err == nil {
+					d := time.Until(t)
+					if d > 0 {
+						retryAfter = &d
+					}
+				}
+			}
+			err = statusErr{code: httpResp.StatusCode, msg: formatErrorMessage(bodyBytes, auth), retryAfter: retryAfter}
 			return resp, err
 		}
 
@@ -155,7 +167,7 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, auth *cliproxyauth.Au
 
 	switch {
 	case lastStatus != 0:
-		err = statusErr{code: lastStatus, msg: string(lastBody)}
+		err = statusErr{code: lastStatus, msg: formatErrorMessage(lastBody, auth)}
 	case lastErr != nil:
 		err = lastErr
 	default:
@@ -241,7 +253,7 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 				log.Debugf("antigravity executor: rate limited on base url %s, retrying with fallback base url: %s", baseURL, baseURLs[idx+1])
 				continue
 			}
-			err = statusErr{code: httpResp.StatusCode, msg: string(bodyBytes)}
+			err = statusErr{code: httpResp.StatusCode, msg: formatErrorMessage(bodyBytes, auth)}
 			return nil, err
 		}
 
@@ -296,7 +308,7 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 
 	switch {
 	case lastStatus != 0:
-		err = statusErr{code: lastStatus, msg: string(lastBody)}
+		err = statusErr{code: lastStatus, msg: formatErrorMessage(lastBody, auth)}
 	case lastErr != nil:
 		err = lastErr
 	default:
@@ -1213,4 +1225,18 @@ func antigravityMinThinkingBudget(model string) int {
 		return modelInfo.Thinking.Min
 	}
 	return -1
+}
+
+func formatErrorMessage(body []byte, auth *cliproxyauth.Auth) string {
+	msg := strings.TrimSpace(string(body))
+	if val := gjson.GetBytes(body, "error.message"); val.Exists() {
+		msg = val.String()
+	} else if val := gjson.GetBytes(body, "message"); val.Exists() {
+		msg = val.String()
+	}
+
+	if _, acc := auth.AccountInfo(); acc != "" {
+		msg += " (Account: " + acc + ")"
+	}
+	return "API Error: " + msg
 }
