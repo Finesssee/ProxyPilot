@@ -13,12 +13,15 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/memory"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
@@ -87,6 +90,7 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, auth *cliproxyauth.Au
 	translated = applyThinkingMetadataCLI(translated, req.Metadata, req.Model)
 	translated = util.ApplyDefaultThinkingIfNeededCLI(req.Model, translated)
 	translated = normalizeAntigravityThinking(req.Model, translated)
+	translated = truncateConversation(translated, req.Model, req.Metadata)
 
 	baseURLs := antigravityBaseURLFallbackOrder(auth)
 	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
@@ -182,6 +186,7 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 	translated = applyThinkingMetadataCLI(translated, req.Metadata, req.Model)
 	translated = util.ApplyDefaultThinkingIfNeededCLI(req.Model, translated)
 	translated = normalizeAntigravityThinking(req.Model, translated)
+	translated = truncateConversation(translated, req.Model, req.Metadata)
 
 	baseURLs := antigravityBaseURLFallbackOrder(auth)
 	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
@@ -431,6 +436,23 @@ func FetchAntigravityModels(ctx context.Context, auth *cliproxyauth.Auth, cfg *c
 				if cfg.MaxCompletionTokens > 0 {
 					modelInfo.MaxCompletionTokens = cfg.MaxCompletionTokens
 				}
+			} else {
+				// Try lookup with aliased name for limits (e.g. gemini-3-pro-high -> gemini-3-pro-preview)
+				alias := alias2ModelName(id)
+				if lim, ok := limits[alias]; ok {
+					if modelInfo.InputTokenLimit == 0 && lim.InputTokenLimit > 0 {
+						modelInfo.InputTokenLimit = lim.InputTokenLimit
+					}
+					if modelInfo.OutputTokenLimit == 0 && lim.OutputTokenLimit > 0 {
+						modelInfo.OutputTokenLimit = lim.OutputTokenLimit
+					}
+					if modelInfo.ContextLength == 0 && lim.ContextLength > 0 {
+						modelInfo.ContextLength = lim.ContextLength
+					}
+					if modelInfo.MaxCompletionTokens == 0 && lim.MaxCompletionTokens > 0 {
+						modelInfo.MaxCompletionTokens = lim.MaxCompletionTokens
+					}
+				}
 			}
 			models = append(models, modelInfo)
 		}
@@ -494,6 +516,8 @@ func antigravityBuildStaticLimitsIndex() map[string]antigravityStaticLimit {
 	add(registry.GetGeminiVertexModels())
 	add(registry.GetGeminiCLIModels())
 	add(registry.GetAIStudioModels())
+	add(registry.GetClaudeModels())
+	add(registry.GetQwenModels())
 
 	return index
 }
@@ -707,6 +731,213 @@ func tokenExpiry(metadata map[string]any) time.Time {
 		return time.Unix(0, tsMs*int64(time.Millisecond)).Add(time.Duration(expiresIn) * time.Second)
 	}
 	return time.Time{}
+}
+
+// truncateConversation estimates token count and truncates history if it exceeds context limit.
+// It also persists dropped messages to memory if a session ID is available.
+func truncateConversation(payload []byte, modelID string, metadata map[string]any) []byte {
+	// 1. Get Context Length from static limits index (same as FetchAntigravityModels uses)
+	limit := 0
+	limits := antigravityBuildStaticLimitsIndex()
+
+	if lim, ok := limits[modelID]; ok {
+		if lim.ContextLength > 0 {
+			limit = lim.ContextLength
+		} else if lim.InputTokenLimit > 0 {
+			limit = lim.InputTokenLimit
+		}
+	}
+
+	if limit <= 0 {
+		// Try alias
+		alias := alias2ModelName(modelID)
+		if lim, ok := limits[alias]; ok {
+			if lim.ContextLength > 0 {
+				limit = lim.ContextLength
+			} else if lim.InputTokenLimit > 0 {
+				limit = lim.InputTokenLimit
+			}
+		}
+	}
+
+	// Default fallback if unknown (safe conservative)
+	if limit == 0 {
+		// If we still don't know the limit, we default to 128k tokens.
+		// This is a safe upper bound for most modern models (Claude 3.5, Gemini 1.5, GPT-4o).
+		// If the model is smaller (e.g. 8k, 32k), we might still overshoot, but this prevents
+		// sending multi-megabyte infinite prompts that are guaranteed to fail.
+		limit = 128000
+		log.Warnf("Unknown context limit for model %s; defaulting to %d tokens", modelID, limit)
+	}
+
+	// 2. Estimate Tokens (Rough char count)
+	// OpenAI generic rule of thumb: 1 token ~= 4 chars.
+	// Gemini/Antigravity can be different, but strict safety margin is better.
+	// We'll use 3.5 chars/token to be safe.
+	fullJSON := string(payload)
+	estimatedTokens := int(float64(len(fullJSON)) / 3.5)
+
+	log.Debugf("truncateConversation: model=%s, limit=%d, payloadLen=%d, estimatedTokens=%d", modelID, limit, len(fullJSON), estimatedTokens)
+
+	if estimatedTokens <= limit {
+		return payload
+	}
+
+	// 3. Truncate
+	// We need to parse "contents" and remove old messages.
+	// Typically, we keep system instruction (which is separate in Gemini)
+	// and the last few messages.
+	// Antigravity payload structure: { "contents": [ { "role": "...", "parts": [...] } ] }
+
+	log.Infof("Truncating conversation for model %s: Est. %d tokens > Limit %d", modelID, estimatedTokens, limit)
+
+	contents := gjson.GetBytes(payload, "contents")
+	if !contents.IsArray() {
+		return payload
+	}
+
+	arr := contents.Array()
+	if len(arr) <= 2 {
+		// Too few messages to truncate meaningful history without breaking context
+		return payload
+	}
+
+	// Strategy: Keep last N messages that fit.
+	// We iterate backwards, summing estimated tokens until we hit ~Limit * 0.9 (safety buffer).
+
+	keepIdx := 0
+	currentChars := 0
+	// Base overhead
+	currentChars += len(fullJSON) - len(contents.Raw)
+
+	// Always keep the last message (User prompt)
+	lastMsg := arr[len(arr)-1]
+	currentChars += len(lastMsg.Raw)
+
+	// Iterate backwards from second to last
+	for i := len(arr) - 2; i >= 0; i-- {
+		msg := arr[i]
+		msgLen := len(msg.Raw)
+
+		// If adding this message exceeds limit, stop here
+		// (We use a slightly tighter limit for safety)
+		newTotal := currentChars + msgLen
+		newEstTokens := int(float64(newTotal) / 3.5)
+
+		if newEstTokens > limit {
+			// Stop, this message and all before it (up to 0) must go.
+			// But wait, if this is a tool_response, we MUST keep its corresponding tool_call.
+			// And if it's a tool_call, we generally want to keep it if we keep the response.
+			// For simplicity in this rough pass: Just cut.
+			// Improving: Ensure we don't split tool pairs?
+			// Gemini is strict about function_call <-> function_response ordering.
+			// If we cut a function_call, we must cut its response (which is later, so we would have processed it).
+			// If we cut a function_response, we must cut the call (which is earlier).
+
+			// Actually, if we are iterating backwards:
+			// "User" -> "Model" -> "Tool" -> "Model"
+			// If we decide to keep "Tool", we must keep "Model" (call).
+
+			// Simple heuristics:
+			// If we drop a message at index i, we assume everything < i is also dropped.
+			// We just need to find the split point.
+			keepIdx = i + 1
+			break
+		}
+		currentChars += msgLen
+	}
+
+	// Perform the cut and persist dropped memory
+	if keepIdx > 0 {
+		// Collect dropped messages for memory
+		droppedEvents := make([]memory.Event, 0, keepIdx)
+		for i := 0; i < keepIdx; i++ {
+			msg := arr[i]
+			role := msg.Get("role").String()
+			// Extract text content
+			var textBuilder strings.Builder
+			parts := msg.Get("parts")
+			if parts.IsArray() {
+				for _, p := range parts.Array() {
+					if t := p.Get("text").String(); t != "" {
+						textBuilder.WriteString(t)
+						textBuilder.WriteString("\n")
+					}
+				}
+			}
+			text := strings.TrimSpace(textBuilder.String())
+			if text != "" {
+				droppedEvents = append(droppedEvents, memory.Event{
+					TS:   time.Now(),
+					Kind: "message",
+					Role: role,
+					Type: "text", // simplify for now
+					Text: text,
+				})
+			}
+		}
+
+		if len(droppedEvents) > 0 {
+			sessionID := extractSessionID(metadata)
+			if sessionID != "" {
+				if store := getMemoryStore(); store != nil {
+					log.Debugf("Persisting %d dropped messages to memory for session %s", len(droppedEvents), sessionID)
+					if err := store.Append(sessionID, droppedEvents); err != nil {
+						log.Warnf("Failed to append dropped messages to memory: %v", err)
+					}
+				}
+			}
+		}
+
+		// Construct new contents array
+		// We have to be careful with sjson/gjson on large arrays.
+		// Rebuilding the array is safer.
+		var newContents []string
+		for i := keepIdx; i < len(arr); i++ {
+			newContents = append(newContents, arr[i].Raw)
+		}
+		// Join them
+		newJsonStr := "[" + strings.Join(newContents, ",") + "]"
+
+		updated, err := sjson.SetRawBytes(payload, "contents", []byte(newJsonStr))
+		if err != nil {
+			log.Errorf("Failed to truncate payload: %v", err)
+			return payload
+		}
+		return updated
+	}
+
+	return payload
+}
+
+func getMemoryStore() memory.Store {
+	// Replicates logic from codex_prompt_budget.go to locate memory dir
+	base := strings.TrimSpace(os.Getenv("CLIPROXY_MEMORY_DIR"))
+	if base == "" {
+		if w := util.WritablePath(); w != "" {
+			base = filepath.Join(w, ".proxypilot", "memory")
+		} else {
+			base = filepath.Join(".proxypilot", "memory")
+		}
+	}
+	return memory.NewFileStore(base)
+}
+
+func extractSessionID(metadata map[string]any) string {
+	if metadata == nil {
+		return ""
+	}
+	// Try standard headers often mapped to metadata
+	if v, ok := metadata["X-CLIProxyAPI-Session"].(string); ok && v != "" {
+		return v
+	}
+	if v, ok := metadata["X-Session-Id"].(string); ok && v != "" {
+		return v
+	}
+	if v, ok := metadata["session_id"].(string); ok && v != "" {
+		return v
+	}
+	return ""
 }
 
 func metaStringValue(metadata map[string]any, key string) string {

@@ -18,6 +18,7 @@ import (
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
+	"github.com/tidwall/gjson"
 	"golang.org/x/net/context"
 )
 
@@ -223,7 +224,11 @@ func (h *BaseAPIHandler) ExecuteWithAuthManager(ctx context.Context, handlerType
 	}
 	if cloned := cloneMetadata(metadata); cloned != nil {
 		req.Metadata = cloned
+	} else {
+		req.Metadata = make(map[string]any)
 	}
+	h.enrichMetadataFromContext(ctx, req.Metadata, rawJSON)
+
 	opts := coreexecutor.Options{
 		Stream:          false,
 		Alt:             alt,
@@ -271,7 +276,11 @@ func (h *BaseAPIHandler) ExecuteCountWithAuthManager(ctx context.Context, handle
 	}
 	if cloned := cloneMetadata(metadata); cloned != nil {
 		req.Metadata = cloned
+	} else {
+		req.Metadata = make(map[string]any)
 	}
+	h.enrichMetadataFromContext(ctx, req.Metadata, rawJSON)
+
 	opts := coreexecutor.Options{
 		Stream:          false,
 		Alt:             alt,
@@ -319,7 +328,11 @@ func (h *BaseAPIHandler) ExecuteEmbedWithAuthManager(ctx context.Context, handle
 	}
 	if cloned := cloneMetadata(metadata); cloned != nil {
 		req.Metadata = cloned
+	} else {
+		req.Metadata = make(map[string]any)
 	}
+	h.enrichMetadataFromContext(ctx, req.Metadata, rawJSON)
+
 	opts := coreexecutor.Options{
 		Stream:          false,
 		Alt:             alt,
@@ -370,7 +383,11 @@ func (h *BaseAPIHandler) ExecuteStreamWithAuthManager(ctx context.Context, handl
 	}
 	if cloned := cloneMetadata(metadata); cloned != nil {
 		req.Metadata = cloned
+	} else {
+		req.Metadata = make(map[string]any)
 	}
+	h.enrichMetadataFromContext(ctx, req.Metadata, rawJSON)
+
 	opts := coreexecutor.Options{
 		Stream:          true,
 		Alt:             alt,
@@ -559,6 +576,42 @@ func cloneMetadata(src map[string]any) map[string]any {
 		dst[k] = v
 	}
 	return dst
+}
+
+func (h *BaseAPIHandler) enrichMetadataFromContext(ctx context.Context, metadata map[string]any, body []byte) {
+	if metadata == nil {
+		return
+	}
+	// Extract from Gin context headers
+	ginVal := ctx.Value("gin")
+	if c, ok := ginVal.(*gin.Context); ok && c != nil {
+		if v := strings.TrimSpace(c.GetHeader("X-CLIProxyAPI-Session")); v != "" {
+			metadata["X-CLIProxyAPI-Session"] = v
+		}
+		if v := strings.TrimSpace(c.GetHeader("X-Session-Id")); v != "" {
+			metadata["X-Session-Id"] = v
+		}
+		if v := strings.TrimSpace(c.GetHeader("session_id")); v != "" {
+			metadata["session_id"] = v
+		}
+	}
+
+	// Fallback: check body if not found in headers
+	if _, ok := metadata["X-CLIProxyAPI-Session"]; !ok {
+		if _, ok2 := metadata["X-Session-Id"]; !ok2 {
+			if _, ok3 := metadata["session_id"]; !ok3 {
+				// Try extracting from body
+				// Using gjson directly on the raw bytes to avoid unmarshalling overhead
+				if v := gjson.GetBytes(body, "prompt_cache_key"); v.Exists() && v.String() != "" {
+					metadata["session_id"] = v.String()
+				} else if v := gjson.GetBytes(body, "metadata.session_id"); v.Exists() && v.String() != "" {
+					metadata["session_id"] = v.String()
+				} else if v := gjson.GetBytes(body, "session_id"); v.Exists() && v.String() != "" {
+					metadata["session_id"] = v.String()
+				}
+			}
+		}
+	}
 }
 
 // WriteErrorResponse writes an error message to the response writer using the HTTP status embedded in the message.
