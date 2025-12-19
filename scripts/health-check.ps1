@@ -1,6 +1,6 @@
 param(
   [string]$BaseUrl = "http://127.0.0.1:9080",
-  [string]$ManagementKey = "",
+  [string]$ManagementKey = $env:MANAGEMENT_PASSWORD,
   [switch]$CheckSemantic = $true
 )
 
@@ -19,10 +19,12 @@ function Invoke-HealthRequest {
 $results = @()
 $results += Invoke-HealthRequest "$BaseUrl/healthz"
 
-if ($CheckSemantic) {
+if ($CheckSemantic -and $ManagementKey) {
   $headers = @{}
-  if ($ManagementKey) { $headers["X-Management-Key"] = $ManagementKey }
-  $results += Invoke-HealthRequest "$BaseUrl/management/semantic/health" $headers
+  $headers["X-Management-Key"] = $ManagementKey
+  $results += Invoke-HealthRequest "$BaseUrl/v0/management/semantic/health" $headers
+} elseif ($CheckSemantic) {
+  $results += @{ ok = $true; status = "SKIP (no management key)"; url = "$BaseUrl/v0/management/semantic/health" }
 }
 
 Write-Host "ProxyPilot health check"
