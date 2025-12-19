@@ -157,7 +157,7 @@ func (h *BaseAPIHandler) GetContextWithCancel(handler interfaces.APIHandler, c *
 	newCtx = context.WithValue(newCtx, "gin", c)
 	newCtx = context.WithValue(newCtx, "handler", handler)
 	return newCtx, func(params ...interface{}) {
-		if h.Cfg.RequestLog && len(params) == 1 {
+		if h != nil && h.Cfg != nil && h.Cfg.RequestLog && len(params) == 1 {
 			var payload []byte
 			switch data := params[0].(type) {
 			case []byte:

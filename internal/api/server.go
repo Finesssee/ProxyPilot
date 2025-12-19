@@ -629,7 +629,7 @@ func (s *Server) managementAvailabilityMiddleware() gin.HandlerFunc {
 
 func (s *Server) serveManagementControlPanel(c *gin.Context) {
 	// Hidden fallback: only allow localhost and explicit opt-in.
-	if !isLocalClient(c.ClientIP()) {
+	if !isLocalClient(c) {
 		c.AbortWithStatus(http.StatusNotFound)
 		return
 	}
@@ -684,10 +684,6 @@ func (s *Server) serveManagementControlPanel(c *gin.Context) {
 
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.String(http.StatusOK, html)
-}
-
-func isLocalClient(ip string) bool {
-	return ip == "127.0.0.1" || ip == "::1"
 }
 
 func (s *Server) enableKeepAlive(timeout time.Duration, onTimeout func()) {

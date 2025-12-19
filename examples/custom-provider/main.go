@@ -141,6 +141,10 @@ func (MyExecutor) CountTokens(context.Context, *coreauth.Auth, clipexec.Request,
 	return clipexec.Response{}, errors.New("count tokens not implemented")
 }
 
+func (MyExecutor) Embed(context.Context, *coreauth.Auth, clipexec.Request, clipexec.Options) (clipexec.Response, error) {
+	return clipexec.Response{}, errors.New("embeddings not implemented")
+}
+
 func (MyExecutor) ExecuteStream(ctx context.Context, a *coreauth.Auth, req clipexec.Request, opts clipexec.Options) (<-chan clipexec.StreamChunk, error) {
 	ch := make(chan clipexec.StreamChunk, 1)
 	go func() {
