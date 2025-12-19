@@ -21,8 +21,8 @@ Example:
     "ANTHROPIC_AUTH_TOKEN": "local-dev-key",
 
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gemini-3-pro-preview",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "gemini-claude-sonnet-4-5-thinking",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "gemini-claude-opus-4-5-thinking"
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "antigravity-claude-sonnet-4-5-thinking",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "antigravity-claude-opus-4-5-thinking"
   },
   "model": "opus"
 }
@@ -36,8 +36,8 @@ Important:
 
 CLIProxyAPI rewrites common Claude Code model aliases to locally-available models before routing:
 
-- `opus` / `claude-opus-*` → `gemini-claude-opus-4-5-thinking`
-- `sonnet` / `claude-sonnet-*` → `gemini-claude-sonnet-4-5-thinking`
+- `opus` / `claude-opus-*` → `antigravity-claude-opus-4-5-thinking`
+- `sonnet` / `claude-sonnet-*` → `antigravity-claude-sonnet-4-5-thinking`
 - `haiku` / `claude-haiku-*` → `gemini-3-pro-preview`
 
 Implementation: `sdk/api/handlers/claude/code_handlers.go` (`mapClaudeCodeModel`).
