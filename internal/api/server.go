@@ -324,7 +324,7 @@ func (s *Server) setupRoutes() {
 
 	// OpenAI compatible API routes
 	v1 := s.engine.Group("/v1")
-	v1.Use(AuthMiddleware(s.accessManager), middleware.CodexPromptBudgetMiddleware())
+	v1.Use(AuthMiddleware(s.accessManager), middleware.AgenticHarnessMiddleware(), middleware.CodexPromptBudgetMiddleware())
 	{
 		v1.GET("/models", s.unifiedModelsHandler(openaiHandlers, claudeCodeHandlers))
 		v1.POST("/chat/completions", openaiHandlers.ChatCompletions)
