@@ -242,8 +242,19 @@ func (e *GeminiVertexExecutor) executeWithAPIKey(ctx context.Context, auth *clip
 		baseURL = "https://generativelanguage.googleapis.com"
 	}
 	url := fmt.Sprintf("%s/%s/publishers/google/models/%s:%s", baseURL, vertexAPIVersion, upstreamModel, action)
+	if apiKey != "" {
+		if strings.Contains(url, "?") {
+			url = url + "&key=" + apiKey
+		} else {
+			url = url + "?key=" + apiKey
+		}
+	}
 	if opts.Alt != "" && action != "countTokens" {
-		url = url + fmt.Sprintf("?$alt=%s", opts.Alt)
+		if !strings.Contains(url, "?") {
+			url = url + "?$alt=" + opts.Alt
+		} else {
+			url = url + "&$alt=" + opts.Alt
+		}
 	}
 	body, _ = sjson.DeleteBytes(body, "session_id")
 
@@ -453,10 +464,25 @@ func (e *GeminiVertexExecutor) executeStreamWithAPIKey(ctx context.Context, auth
 		baseURL = "https://generativelanguage.googleapis.com"
 	}
 	url := fmt.Sprintf("%s/%s/publishers/google/models/%s:%s", baseURL, vertexAPIVersion, upstreamModel, "streamGenerateContent")
+	if apiKey != "" {
+		if strings.Contains(url, "?") {
+			url = url + "&key=" + apiKey
+		} else {
+			url = url + "?key=" + apiKey
+		}
+	}
 	if opts.Alt == "" {
-		url = url + "?alt=sse"
+		if !strings.Contains(url, "?") {
+			url = url + "?alt=sse"
+		} else {
+			url = url + "&alt=sse"
+		}
 	} else {
-		url = url + fmt.Sprintf("?$alt=%s", opts.Alt)
+		if !strings.Contains(url, "?") {
+			url = url + "?$alt=" + opts.Alt
+		} else {
+			url = url + "&$alt=" + opts.Alt
+		}
 	}
 	body, _ = sjson.DeleteBytes(body, "session_id")
 
@@ -657,6 +683,13 @@ func (e *GeminiVertexExecutor) countTokensWithAPIKey(ctx context.Context, auth *
 		baseURL = "https://generativelanguage.googleapis.com"
 	}
 	url := fmt.Sprintf("%s/%s/publishers/google/models/%s:%s", baseURL, vertexAPIVersion, req.Model, "countTokens")
+	if apiKey != "" {
+		if strings.Contains(url, "?") {
+			url = url + "&key=" + apiKey
+		} else {
+			url = url + "?key=" + apiKey
+		}
+	}
 
 	httpReq, errNewReq := http.NewRequestWithContext(respCtx, http.MethodPost, url, bytes.NewReader(translatedReq))
 	if errNewReq != nil {
