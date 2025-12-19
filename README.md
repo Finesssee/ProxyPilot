@@ -99,3 +99,11 @@ Native macOS GUI for managing CLIProxyAPI: configure providers, model mappings, 
 ## License
 
 This project is licensed under the MIT License - see `LICENSE`.
+
+## Disclaimer
+
+This project is intended for educational and interoperability research purposes only. It interacts with various internal or undocumented APIs (such as Google's `v1internal`) to provide compatibility layers.
+
+- **Use at your own risk.** The authors are not responsible for any consequences arising from the use of this software, including but not limited to account suspensions or service interruptions.
+- This project is **not** affiliated with, endorsed by, or associated with Google, OpenAI, Anthropic, or any other service provider mentioned.
+- Users are expected to comply with the Terms of Service of the respective platforms they connect to.
