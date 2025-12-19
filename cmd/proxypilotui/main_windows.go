@@ -7,7 +7,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +19,7 @@ import (
 	"unsafe"
 
 	"github.com/jchv/go-webview2"
+	"github.com/router-for-me/CLIProxyAPI/v6/cmd/proxypilotui/assets"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/desktopctl"
 )
 
@@ -25,46 +28,75 @@ func main() {
 	var configPath string
 	var exePath string
 	var url string
+	var standalone bool
 	flag.StringVar(&repoRoot, "repo", "", "Repo root (used to locate bin/ and logs/)")
 	flag.StringVar(&configPath, "config", "", "Path to config.yaml (defaults to <repo>/config.yaml)")
 	flag.StringVar(&exePath, "exe", "", "Path to proxy engine binary (defaults to <repo>/bin/proxypilot-engine.exe)")
 	flag.StringVar(&url, "url", "", "Open a specific URL in-app (advanced)")
+	flag.BoolVar(&standalone, "standalone", false, "Run standalone UI without connecting to proxy server")
 	flag.Parse()
 
 	repoRoot, configPath, exePath = applyDefaults(repoRoot, configPath, exePath)
 
-	st, _ := desktopctl.StatusFor(configPath)
-	if !st.Running {
-		_, _ = desktopctl.Start(desktopctl.StartOptions{RepoRoot: repoRoot, ConfigPath: configPath, ExePath: exePath})
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
-			st, _ = desktopctl.StatusFor(configPath)
-			if st.Running {
-				break
-			}
-			time.Sleep(200 * time.Millisecond)
+	var assetServerURL string
+	if standalone {
+		// Start embedded asset server
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			_ = messageBox("ProxyPilot", "Failed to start asset server: "+err.Error())
+			os.Exit(1)
 		}
-	}
+		assetServerURL = "http://" + ln.Addr().String()
+		go func() {
+			fsys, _ := fs.Sub(assets.FS, ".")
+			http.Serve(ln, http.FileServer(http.FS(fsys)))
+		}()
+	} else {
+		st, _ := desktopctl.StatusFor(configPath)
+		if !st.Running {
+			_, _ = desktopctl.Start(desktopctl.StartOptions{RepoRoot: repoRoot, ConfigPath: configPath, ExePath: exePath})
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				st, _ = desktopctl.StatusFor(configPath)
+				if st.Running {
+					break
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+		}
 
-	if !st.Running || strings.TrimSpace(st.BaseURL) == "" {
-		_ = messageBox("ProxyPilot", "Proxy is not running.\n\nClick Start in the ProxyPilot tray menu, then try again.")
-		os.Exit(1)
+		if !st.Running || strings.TrimSpace(st.BaseURL) == "" {
+			_ = messageBox("ProxyPilot", "Proxy is not running.\n\nClick Start in the ProxyPilot tray menu, then try again.")
+			os.Exit(1)
+		}
 	}
 
 	if strings.TrimSpace(url) == "" {
 		url = "control"
 	}
 
-	target := st.BaseURL + "/proxypilot.html"
-	if strings.EqualFold(strings.TrimSpace(url), "control") {
-		target = ""
-	} else if strings.HasPrefix(strings.TrimSpace(url), "http://") || strings.HasPrefix(strings.TrimSpace(url), "https://") {
-		target = strings.TrimSpace(url)
+	var target string
+	if standalone {
+		if strings.EqualFold(strings.TrimSpace(url), "control") {
+			target = assetServerURL + "/index.html"
+		} else if strings.HasPrefix(strings.TrimSpace(url), "http://") || strings.HasPrefix(strings.TrimSpace(url), "https://") {
+			target = strings.TrimSpace(url)
+		} else {
+			target = assetServerURL + "/index.html"
+		}
+	} else {
+		st, _ := desktopctl.StatusFor(configPath)
+		target = st.BaseURL + "/proxypilot.html"
+		if strings.EqualFold(strings.TrimSpace(url), "control") {
+			target = ""
+		} else if strings.HasPrefix(strings.TrimSpace(url), "http://") || strings.HasPrefix(strings.TrimSpace(url), "https://") {
+			target = strings.TrimSpace(url)
+		}
 	}
 
 	// Prefer an in-app window (WebView2) so this behaves like a native dashboard app.
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
-		Debug:     false,
+		Debug:     true,
 		AutoFocus: true,
 		WindowOptions: webview2.WindowOptions{
 			Title:  "ProxyPilot",
@@ -76,7 +108,12 @@ func main() {
 	if w == nil {
 		// Fallback: Edge app mode or default browser.
 		if target == "" {
-			target = st.BaseURL + "/proxypilot.html"
+			if standalone {
+				target = assetServerURL + "/index.html"
+			} else {
+				st, _ := desktopctl.StatusFor(configPath)
+				target = st.BaseURL + "/proxypilot.html"
+			}
 		}
 		edge, err := findEdge()
 		if err != nil {

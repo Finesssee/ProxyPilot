@@ -56,26 +56,35 @@ func run(repoRoot, configPath, exePath string) {
 		statusItem.Disable()
 		systray.AddSeparator()
 
-		startItem := systray.AddMenuItem("Start Engine", "Start the ProxyPilot engine")
-		stopItem := systray.AddMenuItem("Stop Engine", "Stop the ProxyPilot engine")
-		restartItem := systray.AddMenuItem("Restart Engine", "Restart the ProxyPilot engine")
+		openProxyUI := systray.AddMenuItem("Open Dashboard", "Open ProxyPilot Control Center")
+
 		systray.AddSeparator()
 
+		// Engine submenu
+		engineMenu := systray.AddMenuItem("Engine", "Engine controls")
+		startItem := engineMenu.AddSubMenuItem("Start", "Start the ProxyPilot engine")
+		stopItem := engineMenu.AddSubMenuItem("Stop", "Stop the ProxyPilot engine")
+		restartItem := engineMenu.AddSubMenuItem("Restart", "Restart the ProxyPilot engine")
+
+		// Settings submenu
+		settingsMenu := systray.AddMenuItem("Settings", "ProxyPilot settings")
 		autoOn, _, _ := desktopctl.IsWindowsRunAutostartEnabled(autostartAppName)
-		autoStartItem := systray.AddMenuItemCheckbox("Launch on login", "Start this tray app when you log in", autoOn)
+		autoStartItem := settingsMenu.AddSubMenuItemCheckbox("Launch on login", "Start this tray app when you log in", autoOn)
 		autoProxyOn, _ := desktopctl.GetAutoStartProxy()
-		autoStartProxyItem := systray.AddMenuItemCheckbox("Auto-start proxy", "Start the proxy server automatically when ProxyPilot launches", autoProxyOn)
-		systray.AddSeparator()
+		autoStartProxyItem := settingsMenu.AddSubMenuItemCheckbox("Auto-start proxy", "Start the proxy server automatically", autoProxyOn)
 
-		openProxyUI := systray.AddMenuItem("Open ProxyPilot", "Open ProxyPilot Control Center (in-app)")
-		openLegacyUI := systray.AddMenuItem("Advanced UI", "Open management UI (advanced)")
-		openLogs := systray.AddMenuItem("Open Logs", "Open logs folder")
-		copyDiagnostics := systray.AddMenuItem("Copy Diagnostics", "Copy a support bundle to clipboard")
-		systray.AddSeparator()
+		// Tools submenu
+		toolsMenu := systray.AddMenuItem("Tools", "ProxyPilot tools")
+		openLogs := toolsMenu.AddSubMenuItem("Open Logs", "Open logs folder")
+		copyDiagnostics := toolsMenu.AddSubMenuItem("Copy Diagnostics", "Copy a support bundle to clipboard")
+		openLegacyUI := toolsMenu.AddSubMenuItem("Advanced UI", "Open management UI (advanced)")
 
-		checkUpdates := systray.AddMenuItem("Check for Updates", "Check GitHub Releases for a newer ProxyPilot")
-		updateNow := systray.AddMenuItem("Update ProxyPilot...", "Download and run the latest installer")
+		// Updates submenu
+		updatesMenu := systray.AddMenuItem("Updates", "Check for updates")
+		checkUpdates := updatesMenu.AddSubMenuItem("Check for Updates", "Check GitHub Releases for a newer ProxyPilot")
+		updateNow := updatesMenu.AddSubMenuItem("Update ProxyPilot...", "Download and run the latest installer")
 		updateNow.Disable()
+
 		systray.AddSeparator()
 
 		quitItem := systray.AddMenuItem("Quit", "Quit")

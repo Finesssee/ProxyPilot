@@ -402,6 +402,17 @@ func main() {
 			configFileExists = true
 		}
 	}
+
+	// Perform basic semantic validation of the loaded configuration.
+	if warnings, errValidate := config.ValidateConfig(cfg); errValidate != nil {
+		log.Errorf("invalid configuration: %v", errValidate)
+		return
+	} else if len(warnings) > 0 {
+		for _, w := range warnings {
+			log.Warnf("config warning: %s", w)
+		}
+	}
+
 	usage.SetStatisticsEnabled(cfg.UsageStatisticsEnabled)
 	coreauth.SetQuotaCooldownDisabled(cfg.DisableCooling)
 	coreauth.SetAntigravityPrimaryEmail(cfg.AntigravityPrimaryEmail)
