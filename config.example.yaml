@@ -1,33 +1,26 @@
 # Server host/interface to bind to. Default is empty ("") to bind all interfaces (IPv4 + IPv6).
 # Use "127.0.0.1" or "localhost" to restrict access to local machine only.
 host: ""
-
 # Server port
 port: 8317
-
 # TLS settings for HTTPS. When enabled, the server listens with the provided certificate and key.
 tls:
   enable: false
   cert: ""
   key: ""
-
 # Management API settings
 remote-management:
-  # Whether to allow remote (non-localhost) management access.
-  # When false, only localhost can access management endpoints (a key is still required).
+# Whether to allow remote (non-localhost) management access.
+# When false, only localhost can access management endpoints (a key is still required).
   allow-remote: false
-
-  # Management key. If a plaintext value is provided here, it will be hashed on startup.
-  # All management requests (even from localhost) require this key.
-  # Leave empty to disable the Management API entirely (404 for all /v0/management routes).
-  secret-key: "local-dev-key"
-
-  # Disable the bundled management control panel asset download and HTTP route when true.
+# Management key. If a plaintext value is provided here, it will be hashed on startup.
+# All management requests (even from localhost) require this key.
+# Leave empty to disable the Management API entirely (404 for all /v0/management routes).
+  secret-key: "$2a$10$iphjVa6f4T/FARz4e/edtOHvdoxTbE4tv/9mS0ebvDg/C8fEbPtgq"
+# Disable the bundled management control panel asset download and HTTP route when true.
   disable-control-panel: false
-
 # Authentication directory (supports ~ for home directory)
 auth-dir: "~/.cli-proxy-api"
-
 # Long-running agent harness files root directory (feature_list.json, claude-progress.txt).
 # Defaults to the server working directory when empty.
 # harness-root-dir: ""
@@ -35,30 +28,22 @@ auth-dir: "~/.cli-proxy-api"
 # API keys for authentication
 api-keys:
   - "local-dev-key"
-
 # Enable debug logging
 debug: false
-
 # When true, write application logs to rotating files instead of stdout
 logging-to-file: false
-
 # When false, disable in-memory usage statistics aggregation
 usage-statistics-enabled: false
-
 # Proxy URL. Supports socks5/http/https protocols. Example: socks5://user:pass@192.168.1.1:1080/
 proxy-url: ""
-
 # Number of times to retry a request. Retries will occur if the HTTP response code is 403, 408, 500, 502, 503, or 504.
 request-retry: 3
-
 # Maximum wait time in seconds for a cooled-down credential before triggering a retry.
 max-retry-interval: 30
-
 # Quota exceeded behavior
 quota-exceeded:
   switch-project: true # Whether to automatically switch to another project when a quota is exceeded
   switch-preview-model: true # Whether to automatically switch to a preview model when a quota is exceeded
-
 # When true, enable authentication for the WebSocket API (/v1/ws).
 ws-auth: false
 
