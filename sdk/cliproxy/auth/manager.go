@@ -891,6 +891,11 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 				auth.UpdatedAt = now
 				updateAggregatedAvailability(auth, now)
 			} else {
+				if result.Model != "" {
+					state := ensureModelState(auth, result.Model)
+					applyModelStateFailure(state, result.Error, result.RetryAfter, now)
+					updateAggregatedAvailability(auth, now)
+				}
 				applyAuthFailureState(auth, result.Error, result.RetryAfter, now)
 			}
 		}
@@ -912,6 +917,56 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 	}
 
 	m.hook.OnResult(ctx, result)
+}
+
+func applyModelStateFailure(state *ModelState, resultErr *Error, retryAfter *time.Duration, now time.Time) {
+	if state == nil {
+		return
+	}
+	state.Unavailable = true
+	state.Status = StatusError
+	state.UpdatedAt = now
+	if resultErr != nil {
+		state.LastError = cloneError(resultErr)
+		if resultErr.Message != "" {
+			state.StatusMessage = resultErr.Message
+		}
+	}
+	statusCode := statusCodeFromResult(resultErr)
+	switch statusCode {
+	case 401:
+		state.StatusMessage = "unauthorized"
+		state.NextRetryAfter = now.Add(30 * time.Minute)
+	case 402, 403:
+		state.StatusMessage = "payment_required"
+		state.NextRetryAfter = now.Add(30 * time.Minute)
+	case 404:
+		state.StatusMessage = "not_found"
+		state.NextRetryAfter = now.Add(12 * time.Hour)
+	case 429:
+		state.StatusMessage = "quota exhausted"
+		state.Quota.Exceeded = true
+		state.Quota.Reason = "quota"
+		var next time.Time
+		if retryAfter != nil {
+			next = now.Add(*retryAfter)
+		} else {
+			cooldown, nextLevel := nextQuotaCooldown(state.Quota.BackoffLevel)
+			if cooldown > 0 {
+				next = now.Add(cooldown)
+			}
+			state.Quota.BackoffLevel = nextLevel
+		}
+		state.Quota.NextRecoverAt = next
+		state.NextRetryAfter = next
+	case 408, 500, 502, 503, 504:
+		state.StatusMessage = "transient upstream error"
+		state.NextRetryAfter = now.Add(1 * time.Minute)
+	default:
+		if state.StatusMessage == "" {
+			state.StatusMessage = "request failed"
+		}
+	}
 }
 
 func ensureModelState(auth *Auth, model string) *ModelState {

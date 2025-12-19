@@ -402,7 +402,7 @@ func isAuthBlockedForModel(auth *Auth, model string, now time.Time) (bool, block
 				if state.Status == StatusDisabled {
 					return true, blockReasonDisabled, time.Time{}
 				}
-				if state.Unavailable {
+				if state.Unavailable || (!state.NextRetryAfter.IsZero() && state.NextRetryAfter.After(now)) {
 					if state.NextRetryAfter.IsZero() {
 						return false, blockReasonNone, time.Time{}
 					}
