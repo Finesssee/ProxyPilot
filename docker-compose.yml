@@ -1,5 +1,8 @@
 services:
   proxypilot:
+    # This compose file is optimized for local development. For shared or cloud
+    # use, copy config.example.yaml to config.yaml, harden remote-management,
+    # and consider terminating TLS in front of this container.
     image: ${CLI_PROXY_IMAGE:-eceasy/cli-proxy-api:latest}
     pull_policy: always
     build:
