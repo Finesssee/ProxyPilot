@@ -362,6 +362,82 @@ func (e *GeminiExecutor) Refresh(_ context.Context, auth *cliproxyauth.Auth) (*c
 	return auth, nil
 }
 
+// Embed performs an embedding request to the Gemini API.
+func (e *GeminiExecutor) Embed(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	apiKey, bearer := geminiCreds(auth)
+
+	from := opts.SourceFormat
+	to := sdktranslator.FromString("gemini")
+	// For embeddings, we often want to translate the request to a format Gemini understands.
+	// However, most clients send OpenAI-compatible embedding requests.
+	translatedReq := sdktranslator.TranslateRequest(from, to, req.Model, bytes.Clone(req.Payload), false)
+
+	baseURL := resolveGeminiBaseURL(auth)
+	// OpenAI /v1/embeddings can have multiple inputs. Gemini has embedContent and batchEmbedContents.
+	// Our translator usually handles this mapping.
+	action := "embedContent"
+	if gjson.GetBytes(translatedReq, "requests").Exists() {
+		action = "batchEmbedContents"
+	}
+
+	url := fmt.Sprintf("%s/%s/models/%s:%s", baseURL, glAPIVersion, req.Model, action)
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(translatedReq))
+	if err != nil {
+		return cliproxyexecutor.Response{}, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if apiKey != "" {
+		httpReq.Header.Set("x-goog-api-key", apiKey)
+	} else if bearer != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	applyGeminiHeaders(httpReq, auth)
+
+	var authID, authLabel, authType, authValue string
+	if auth != nil {
+		authID = auth.ID
+		authLabel = auth.Label
+		authType, authValue = auth.AccountInfo()
+	}
+	recordAPIRequest(ctx, e.cfg, upstreamRequestLog{
+		URL:       url,
+		Method:    http.MethodPost,
+		Headers:   httpReq.Header.Clone(),
+		Body:      translatedReq,
+		Provider:  e.Identifier(),
+		AuthID:    authID,
+		AuthLabel: authLabel,
+		AuthType:  authType,
+		AuthValue: authValue,
+	})
+
+	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpResp, err := httpClient.Do(httpReq)
+	if err != nil {
+		recordAPIResponseError(ctx, e.cfg, err)
+		return cliproxyexecutor.Response{}, err
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+	recordAPIResponseMetadata(ctx, e.cfg, httpResp.StatusCode, httpResp.Header.Clone())
+
+	data, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		recordAPIResponseError(ctx, e.cfg, err)
+		return cliproxyexecutor.Response{}, err
+	}
+	appendAPIResponseChunk(ctx, e.cfg, data)
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		log.Debugf("request error, error status: %d, error body: %s", httpResp.StatusCode, summarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
+		return cliproxyexecutor.Response{}, statusErr{code: httpResp.StatusCode, msg: string(data)}
+	}
+
+	var param any
+	out := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, bytes.Clone(opts.OriginalRequest), translatedReq, data, &param)
+	return cliproxyexecutor.Response{Payload: []byte(out)}, nil
+}
+
 func geminiCreds(a *cliproxyauth.Auth) (apiKey, bearer string) {
 	if a == nil {
 		return "", ""

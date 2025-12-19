@@ -131,14 +131,17 @@ func DoLogin(cfg *config.Config, projectID string, options *LoginOptions) {
 
 	if !storage.Auto && !storage.Checked {
 		for _, pid := range activatedProjects {
+			// Sleep briefly to avoid hitting 'Mutate requests' rate limits when processing many projects
+			time.Sleep(1 * time.Second)
+
 			isChecked, errCheck := checkCloudAPIIsEnabled(ctx, httpClient, pid)
 			if errCheck != nil {
-				log.Errorf("Failed to check if Cloud AI API is enabled for %s: %v", pid, errCheck)
-				return
+				log.Warnf("Failed to check/enable Cloud AI API for %s (skipping): %v", pid, errCheck)
+				continue
 			}
 			if !isChecked {
-				log.Errorf("Failed to check if Cloud AI API is enabled for project %s. If you encounter an error message, please create an issue.", pid)
-				return
+				log.Warnf("Cloud AI API is not enabled for project %s (skipping).", pid)
+				continue
 			}
 		}
 		storage.Checked = true

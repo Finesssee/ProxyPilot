@@ -18,7 +18,6 @@ import (
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
-	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
@@ -252,59 +251,14 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 	return stream, nil
 }
 
-// CountTokens counts tokens for the given request using the AI Studio API.
+// CountTokens counts tokens for the given request using the AIStudio/WebSocket relay.
 func (e *AIStudioExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	_, body, err := e.translateRequest(req, opts, false)
-	if err != nil {
-		return cliproxyexecutor.Response{}, err
-	}
+	return cliproxyexecutor.Response{}, statusErr{code: http.StatusNotImplemented, msg: "count tokens not supported"}
+}
 
-	body.payload, _ = sjson.DeleteBytes(body.payload, "generationConfig")
-	body.payload, _ = sjson.DeleteBytes(body.payload, "tools")
-	body.payload, _ = sjson.DeleteBytes(body.payload, "safetySettings")
-
-	endpoint := e.buildEndpoint(req.Model, "countTokens", "")
-	wsReq := &wsrelay.HTTPRequest{
-		Method:  http.MethodPost,
-		URL:     endpoint,
-		Headers: http.Header{"Content-Type": []string{"application/json"}},
-		Body:    body.payload,
-	}
-	var authID, authLabel, authType, authValue string
-	if auth != nil {
-		authID = auth.ID
-		authLabel = auth.Label
-		authType, authValue = auth.AccountInfo()
-	}
-	recordAPIRequest(ctx, e.cfg, upstreamRequestLog{
-		URL:       endpoint,
-		Method:    http.MethodPost,
-		Headers:   wsReq.Headers.Clone(),
-		Body:      bytes.Clone(body.payload),
-		Provider:  e.Identifier(),
-		AuthID:    authID,
-		AuthLabel: authLabel,
-		AuthType:  authType,
-		AuthValue: authValue,
-	})
-	resp, err := e.relay.NonStream(ctx, authID, wsReq)
-	if err != nil {
-		recordAPIResponseError(ctx, e.cfg, err)
-		return cliproxyexecutor.Response{}, err
-	}
-	recordAPIResponseMetadata(ctx, e.cfg, resp.Status, resp.Headers.Clone())
-	if len(resp.Body) > 0 {
-		appendAPIResponseChunk(ctx, e.cfg, bytes.Clone(resp.Body))
-	}
-	if resp.Status < 200 || resp.Status >= 300 {
-		return cliproxyexecutor.Response{}, statusErr{code: resp.Status, msg: string(resp.Body)}
-	}
-	totalTokens := gjson.GetBytes(resp.Body, "totalTokens").Int()
-	if totalTokens <= 0 {
-		return cliproxyexecutor.Response{}, fmt.Errorf("wsrelay: totalTokens missing in response")
-	}
-	translated := sdktranslator.TranslateTokenCount(ctx, body.toFormat, opts.SourceFormat, totalTokens, bytes.Clone(resp.Body))
-	return cliproxyexecutor.Response{Payload: []byte(translated)}, nil
+// Embed performs an embedding request (not supported for AIStudio).
+func (e *AIStudioExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	return cliproxyexecutor.Response{}, statusErr{code: http.StatusNotImplemented, msg: "embeddings not supported"}
 }
 
 // Refresh refreshes the authentication credentials (no-op for AI Studio).

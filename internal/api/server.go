@@ -148,6 +148,9 @@ type Server struct {
 	// management handler
 	mgmt *managementHandlers.Handler
 
+	// startTime records when the server instance was created to power health reporting.
+	startTime time.Time
+
 	// managementRoutesRegistered tracks whether the management routes have been attached to the engine.
 	managementRoutesRegistered atomic.Bool
 	// managementRoutesEnabled controls whether management endpoints serve real handlers.
@@ -242,6 +245,7 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 		currentPath:         wd,
 		envManagementSecret: envManagementSecret,
 		wsRoutes:            make(map[string]struct{}),
+		startTime:           time.Now().UTC(),
 	}
 	s.wsAuthEnabled.Store(cfg.WebsocketAuth)
 	// Save initial YAML snapshot
@@ -297,8 +301,17 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 // It defines the endpoints and associates them with their respective handlers.
 func (s *Server) setupRoutes() {
 	s.engine.GET("/healthz", func(c *gin.Context) {
+		uptimeSeconds := int64(0)
+		if !s.startTime.IsZero() {
+			uptimeSeconds = int64(time.Since(s.startTime).Seconds())
+		}
 		c.JSON(http.StatusOK, gin.H{
-			"status": "ok",
+			"status":             "ok",
+			"uptime_seconds":     uptimeSeconds,
+			"host":               s.cfg.Host,
+			"port":               s.cfg.Port,
+			"management_enabled": s.managementRoutesEnabled.Load(),
+			"websocket_auth":     s.wsAuthEnabled.Load(),
 		})
 	})
 	s.engine.GET("/management.html", s.serveManagementControlPanel)
@@ -355,6 +368,7 @@ func (s *Server) setupRoutes() {
 			},
 		})
 	})
+	s.engine.StaticFile("/openapi.yaml", "docs/openapi.yaml")
 	s.engine.POST("/v1internal:method", geminiCLIHandlers.CLIHandler)
 
 	// OAuth callback endpoints (reuse main server port)
@@ -421,6 +435,18 @@ func (s *Server) setupRoutes() {
 		c.String(http.StatusOK, oauthCallbackSuccessHTML)
 	})
 
+	s.engine.GET("/kiro/callback", func(c *gin.Context) {
+		code := c.Query("code")
+		state := c.Query("state")
+		errStr := c.Query("error")
+		if state != "" {
+			file := fmt.Sprintf("%s/.oauth-kiro-%s.oauth", s.cfg.AuthDir, state)
+			_ = os.WriteFile(file, []byte(fmt.Sprintf(`{"code":"%s","state":"%s","error":"%s"}`, code, state, errStr)), 0o600)
+		}
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		c.String(http.StatusOK, oauthCallbackSuccessHTML)
+	})
+
 	// Management routes are registered lazily by registerManagementRoutes when a secret is configured.
 }
 
@@ -479,6 +505,10 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/config.yaml", s.mgmt.GetConfigYAML)
 		mgmt.PUT("/config.yaml", s.mgmt.PutConfigYAML)
 		mgmt.GET("/latest-version", s.mgmt.GetLatestVersion)
+
+		mgmt.GET("/routing/preview", s.mgmt.GetRoutingPreview)
+		mgmt.POST("/routing/preview", s.mgmt.PostRoutingPreview)
+		mgmt.GET("/routing/recent", s.mgmt.GetRoutingRecent)
 
 		mgmt.GET("/debug", s.mgmt.GetDebug)
 		mgmt.PUT("/debug", s.mgmt.PutDebug)
@@ -558,12 +588,15 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.POST("/auth-files", s.mgmt.UploadAuthFile)
 		mgmt.DELETE("/auth-files", s.mgmt.DeleteAuthFile)
 		mgmt.POST("/vertex/import", s.mgmt.ImportVertexCredential)
+		mgmt.POST("/iflow/import", s.mgmt.ImportIFlowCredential)
 
 		mgmt.GET("/anthropic-auth-url", s.mgmt.RequestAnthropicToken)
 		mgmt.GET("/codex-auth-url", s.mgmt.RequestCodexToken)
 		mgmt.GET("/gemini-cli-auth-url", s.mgmt.RequestGeminiCLIToken)
 		mgmt.GET("/antigravity-auth-url", s.mgmt.RequestAntigravityToken)
 		mgmt.GET("/qwen-auth-url", s.mgmt.RequestQwenToken)
+		mgmt.GET("/kiro-auth-url", s.mgmt.RequestKiroToken)
+		mgmt.GET("/copilot-auth-url", s.mgmt.RequestCopilotToken)
 		mgmt.GET("/iflow-auth-url", s.mgmt.RequestIFlowToken)
 		mgmt.POST("/iflow-auth-url", s.mgmt.RequestIFlowCookieToken)
 		mgmt.GET("/get-auth-status", s.mgmt.GetAuthStatus)

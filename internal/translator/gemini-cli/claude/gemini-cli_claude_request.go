@@ -63,6 +63,7 @@ func ConvertClaudeRequestToCLI(modelName string, inputRawJSON []byte, _ bool) []
 
 	// contents
 	contents := make([]client.Content, 0)
+
 	messagesResult := gjson.GetBytes(rawJSON, "messages")
 	if messagesResult.IsArray() {
 		messageResults := messagesResult.Array()
@@ -86,14 +87,25 @@ func ConvertClaudeRequestToCLI(modelName string, inputRawJSON []byte, _ bool) []
 					if contentTypeResult.Type == gjson.String && contentTypeResult.String() == "text" {
 						prompt := contentResult.Get("text").String()
 						clientContent.Parts = append(clientContent.Parts, client.Part{Text: prompt})
+					} else if contentTypeResult.Type == gjson.String && contentTypeResult.String() == "thinking" {
+						// Handle thinking block: extract signature and content
+						prompt := contentResult.Get("thinking").String()
+						// We don't strictly need to extract signature here anymore as we use the cache,
+						// but keeping it doesn't hurt. The cache lookup is authoritative.
+						clientContent.Parts = append(clientContent.Parts, client.Part{Text: prompt, Thought: true})
 					} else if contentTypeResult.Type == gjson.String && contentTypeResult.String() == "tool_use" {
 						functionName := contentResult.Get("name").String()
 						functionArgs := contentResult.Get("input").String()
+						functionID := contentResult.Get("id").String()
+
+						// Try to get signature from cache
+						signature := common.GlobalSignatureCache.Get(functionID)
+
 						var args map[string]any
 						if err := json.Unmarshal([]byte(functionArgs), &args); err == nil {
 							clientContent.Parts = append(clientContent.Parts, client.Part{
 								FunctionCall:     &client.FunctionCall{Name: functionName, Args: args},
-								ThoughtSignature: geminiCLIClaudeThoughtSignature,
+								ThoughtSignature: signature,
 							})
 						}
 					} else if contentTypeResult.Type == gjson.String && contentTypeResult.String() == "tool_result" {

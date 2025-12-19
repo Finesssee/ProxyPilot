@@ -12,6 +12,7 @@ import (
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/api"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/letta"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy"
 	log "github.com/sirupsen/logrus"
 )
@@ -32,6 +33,9 @@ func StartService(cfg *config.Config, configPath string, localPassword string) {
 
 	ctxSignal, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	// Start the Letta sidecar server
+	letta.StartServer(ctxSignal)
 
 	runCtx := ctxSignal
 	if localPassword != "" {

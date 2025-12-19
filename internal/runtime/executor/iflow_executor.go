@@ -264,6 +264,12 @@ func (e *IFlowExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth
 	return cliproxyexecutor.Response{Payload: []byte(translated)}, nil
 }
 
+
+// Embed performs an embedding request (not supported for iFlow).
+func (e *IFlowExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	return cliproxyexecutor.Response{}, statusErr{code: http.StatusNotImplemented, msg: "embeddings not supported"}
+}
+
 // Refresh refreshes OAuth tokens or cookie-based API keys and updates the stored API key.
 func (e *IFlowExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
 	log.Debugf("iflow executor: refresh called")

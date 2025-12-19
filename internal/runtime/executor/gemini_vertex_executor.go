@@ -91,22 +91,13 @@ func (e *GeminiVertexExecutor) ExecuteStream(ctx context.Context, auth *cliproxy
 	return e.executeStreamWithAPIKey(ctx, auth, req, opts, apiKey, baseURL)
 }
 
-// CountTokens counts tokens for the given request using the Vertex AI API.
-func (e *GeminiVertexExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	// Try API key authentication first
-	apiKey, baseURL := vertexAPICreds(auth)
+func (e *GeminiVertexExecutor) CountTokens(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	return cliproxyexecutor.Response{}, statusErr{code: http.StatusNotImplemented, msg: "count tokens not supported"}
+}
 
-	// If no API key found, fall back to service account authentication
-	if apiKey == "" {
-		projectID, location, saJSON, errCreds := vertexCreds(auth)
-		if errCreds != nil {
-			return cliproxyexecutor.Response{}, errCreds
-		}
-		return e.countTokensWithServiceAccount(ctx, auth, req, opts, projectID, location, saJSON)
-	}
-
-	// Use API key authentication
-	return e.countTokensWithAPIKey(ctx, auth, req, opts, apiKey, baseURL)
+// Embed performs an embedding request (not supported for Gemini Vertex).
+func (e *GeminiVertexExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	return cliproxyexecutor.Response{}, statusErr{code: http.StatusNotImplemented, msg: "embeddings not supported"}
 }
 
 // Refresh refreshes the authentication credentials (no-op for Vertex).

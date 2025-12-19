@@ -34,6 +34,7 @@ func GetProviderName(modelName string) []string {
 	if modelName == "" {
 		return nil
 	}
+	log.Infof("DEBUG: GetProviderName called for %q", modelName)
 
 	providers := make([]string, 0, 4)
 	seen := make(map[string]struct{})
@@ -55,12 +56,18 @@ func GetProviderName(modelName string) []string {
 	}
 
 	if len(providers) > 0 {
-		// Special-case: for gemini-3-* models we prefer antigravity as primary and
+		// Special-case: for gemini-3-* and antigravity-* models we prefer antigravity as primary and
 		// keep gemini-cli as a fallback (no load balancing between them).
 		normalizedModel := strings.ToLower(strings.TrimSpace(modelName))
-		if strings.HasPrefix(normalizedModel, "gemini-3-") {
+		if strings.HasPrefix(normalizedModel, "gemini-3-") || strings.HasPrefix(normalizedModel, "antigravity-") {
 			hasAntigravity := false
 			hasGeminiCLI := false
+
+			// Explicitly enable Antigravity for models with the antigravity- prefix
+			if strings.HasPrefix(normalizedModel, "antigravity-") {
+				hasAntigravity = true
+			}
+
 			for _, p := range providers {
 				switch p {
 				case "antigravity":
@@ -95,6 +102,8 @@ func GetProviderName(modelName string) []string {
 	switch {
 	case strings.HasPrefix(normalized, "gemini-"):
 		appendProvider("gemini")
+	case strings.HasPrefix(normalized, "antigravity-"):
+		appendProvider("antigravity")
 	case strings.HasPrefix(normalized, "claude-"):
 		appendProvider("claude")
 	case strings.HasPrefix(normalized, "gpt-"),

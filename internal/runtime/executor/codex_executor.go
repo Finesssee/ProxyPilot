@@ -274,6 +274,11 @@ func (e *CodexExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth
 	return cliproxyexecutor.Response{Payload: []byte(translated)}, nil
 }
 
+// Embed performs an embedding request (not supported for Codex).
+func (e *CodexExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	return cliproxyexecutor.Response{}, statusErr{code: http.StatusNotImplemented, msg: "embeddings not supported"}
+}
+
 func tokenizerForCodexModel(model string) (tokenizer.Codec, error) {
 	sanitized := strings.ToLower(strings.TrimSpace(model))
 	switch {

@@ -307,100 +307,13 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 	return stream, nil
 }
 
-func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	apiKey, baseURL := claudeCreds(auth)
+func (e *ClaudeExecutor) CountTokens(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	return cliproxyexecutor.Response{}, statusErr{code: http.StatusNotImplemented, msg: "count tokens not supported"}
+}
 
-	if baseURL == "" {
-		baseURL = "https://api.anthropic.com"
-	}
-
-	from := opts.SourceFormat
-	to := sdktranslator.FromString("claude")
-	// Use streaming translation to preserve function calling, except for claude.
-	stream := from != to
-	body := sdktranslator.TranslateRequest(from, to, req.Model, bytes.Clone(req.Payload), stream)
-	upstreamModel := util.ResolveOriginalModel(req.Model, req.Metadata)
-	if upstreamModel == "" {
-		upstreamModel = req.Model
-	}
-	if modelOverride := e.resolveUpstreamModel(upstreamModel, auth); modelOverride != "" {
-		upstreamModel = modelOverride
-	} else if !strings.EqualFold(upstreamModel, req.Model) {
-		if modelOverride := e.resolveUpstreamModel(req.Model, auth); modelOverride != "" {
-			upstreamModel = modelOverride
-		}
-	}
-	body, _ = sjson.SetBytes(body, "model", upstreamModel)
-
-	if !strings.HasPrefix(upstreamModel, "claude-3-5-haiku") {
-		body = checkSystemInstructions(body)
-	}
-
-	// Extract betas from body and convert to header (for count_tokens too)
-	var extraBetas []string
-	extraBetas, body = extractAndRemoveBetas(body)
-
-	url := fmt.Sprintf("%s/v1/messages/count_tokens?beta=true", baseURL)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return cliproxyexecutor.Response{}, err
-	}
-	applyClaudeHeaders(httpReq, auth, apiKey, false, extraBetas)
-	var authID, authLabel, authType, authValue string
-	if auth != nil {
-		authID = auth.ID
-		authLabel = auth.Label
-		authType, authValue = auth.AccountInfo()
-	}
-	recordAPIRequest(ctx, e.cfg, upstreamRequestLog{
-		URL:       url,
-		Method:    http.MethodPost,
-		Headers:   httpReq.Header.Clone(),
-		Body:      body,
-		Provider:  e.Identifier(),
-		AuthID:    authID,
-		AuthLabel: authLabel,
-		AuthType:  authType,
-		AuthValue: authValue,
-	})
-
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
-	resp, err := httpClient.Do(httpReq)
-	if err != nil {
-		recordAPIResponseError(ctx, e.cfg, err)
-		return cliproxyexecutor.Response{}, err
-	}
-	recordAPIResponseMetadata(ctx, e.cfg, resp.StatusCode, resp.Header.Clone())
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(resp.Body)
-		appendAPIResponseChunk(ctx, e.cfg, b)
-		if errClose := resp.Body.Close(); errClose != nil {
-			log.Errorf("response body close error: %v", errClose)
-		}
-		return cliproxyexecutor.Response{}, statusErr{code: resp.StatusCode, msg: string(b)}
-	}
-	decodedBody, err := decodeResponseBody(resp.Body, resp.Header.Get("Content-Encoding"))
-	if err != nil {
-		recordAPIResponseError(ctx, e.cfg, err)
-		if errClose := resp.Body.Close(); errClose != nil {
-			log.Errorf("response body close error: %v", errClose)
-		}
-		return cliproxyexecutor.Response{}, err
-	}
-	defer func() {
-		if errClose := decodedBody.Close(); errClose != nil {
-			log.Errorf("response body close error: %v", errClose)
-		}
-	}()
-	data, err := io.ReadAll(decodedBody)
-	if err != nil {
-		recordAPIResponseError(ctx, e.cfg, err)
-		return cliproxyexecutor.Response{}, err
-	}
-	appendAPIResponseChunk(ctx, e.cfg, data)
-	count := gjson.GetBytes(data, "input_tokens").Int()
-	out := sdktranslator.TranslateTokenCount(ctx, to, from, count, data)
-	return cliproxyexecutor.Response{Payload: []byte(out)}, nil
+// Embed performs an embedding request (not supported for Claude).
+func (e *ClaudeExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	return cliproxyexecutor.Response{}, statusErr{code: http.StatusNotImplemented, msg: "embeddings not supported"}
 }
 
 func (e *ClaudeExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {

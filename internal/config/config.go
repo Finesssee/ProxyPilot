@@ -361,6 +361,50 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	return &cfg, nil
 }
 
+// ValidateConfig performs basic semantic validation of a loaded configuration.
+// It returns a slice of human-readable warnings for potentially risky setups
+// (for example, remote management over plain HTTP) and a non-nil error only
+// for structurally invalid configurations that would prevent startup.
+func ValidateConfig(cfg *Config) ([]string, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("configuration is nil")
+	}
+
+	var warnings []string
+
+	// Validate port range for non-standby configurations.
+	if cfg.Port <= 0 || cfg.Port > 65535 {
+		return warnings, fmt.Errorf("port must be between 1 and 65535 (got %d)", cfg.Port)
+	}
+
+	// Warn when no API keys are configured for client access.
+	if len(cfg.APIKeys) == 0 {
+		warnings = append(warnings, "no api-keys configured; only clients using custom auth providers or anonymous access will be accepted")
+	}
+
+	// Inspect remote management settings for risky combinations.
+	if cfg.RemoteManagement.AllowRemote {
+		if strings.TrimSpace(cfg.RemoteManagement.SecretKey) == "" {
+			warnings = append(warnings, "remote-management.allow-remote is true but secret-key is empty; remote management will be unreachable until a key is configured")
+		}
+		host := strings.TrimSpace(cfg.Host)
+		hostIsLocal := strings.EqualFold(host, "localhost") || host == "127.0.0.1" || host == "::1"
+		if !hostIsLocal && !cfg.TLS.Enable {
+			warnings = append(warnings, "remote-management.allow-remote is true, host is not localhost, and TLS is disabled; if this proxy is exposed beyond a trusted network, consider enabling TLS or restricting management access")
+		}
+	}
+
+	// When TLS is enabled, cert and key should be provided; warn instead of failing
+	// hard so operators can rely on external termination when intentional.
+	if cfg.TLS.Enable {
+		if strings.TrimSpace(cfg.TLS.Cert) == "" || strings.TrimSpace(cfg.TLS.Key) == "" {
+			warnings = append(warnings, "tls.enable is true but cert/key are empty; HTTPS listener may fail to start unless TLS is terminated externally")
+		}
+	}
+
+	return warnings, nil
+}
+
 // SanitizeOpenAICompatibility removes OpenAI-compatibility provider entries that are
 // not actionable, specifically those missing a BaseURL. It trims whitespace before
 // evaluation and preserves the relative order of remaining entries.
@@ -1138,8 +1182,8 @@ func normalizeCollectionNodeStyles(node *yaml.Node) {
 
 // Legacy migration helpers (move deprecated config keys into structured fields).
 type legacyConfigData struct {
-	LegacyGeminiKeys      []string                    `yaml:"generative-language-api-key"`
-	OpenAICompat          []legacyOpenAICompatibility `yaml:"openai-compatibility"`
+	LegacyGeminiKeys []string                    `yaml:"generative-language-api-key"`
+	OpenAICompat     []legacyOpenAICompatibility `yaml:"openai-compatibility"`
 }
 
 type legacyOpenAICompatibility struct {
@@ -1251,7 +1295,6 @@ func findOpenAICompatTarget(entries []OpenAICompatibility, legacyName, legacyBas
 	}
 	return nil
 }
-
 
 func removeLegacyOpenAICompatAPIKeys(root *yaml.Node) {
 	if root == nil || root.Kind != yaml.MappingNode {

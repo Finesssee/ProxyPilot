@@ -82,6 +82,9 @@ func proxyPilotDashboardHTML(managementKey string) string {
       body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); margin:0; padding:20px; }
       .wrap{ max-width:1100px; margin:0 auto; display:grid; gap:12px; }
       .row{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+      .row-3{ display:grid; grid-template-columns: 1.1fr 0.9fr 1.1fr; gap:12px; }
+      @media (max-width: 1180px){ .row-3 { grid-template-columns: 1fr 1fr; } }
+      @media (max-width: 840px){ .row-3 { grid-template-columns: 1fr; } }
       @media (max-width: 980px){ .row { grid-template-columns: 1fr; } }
       .card{ background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px; }
       h1{ font-size:18px; margin:0 0 10px 0;}
@@ -114,6 +117,7 @@ func proxyPilotDashboardHTML(managementKey string) string {
           <h2>Status</h2>
           <div id="statusLine" class="pill warn">Checking...</div>
           <div class="muted" style="margin-top:8px">Base URL: <code id="baseUrl"></code></div>
+          <div class="muted" id="healthDetails" style="margin-top:6px; font-size:11px;"></div>
           <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">
             <button class="btn" id="refreshBtn">Refresh</button>
             <button class="btn btn2" id="openMgmtBtn">Open legacy management UI</button>
@@ -153,7 +157,21 @@ func proxyPilotDashboardHTML(managementKey string) string {
         <div id="authTableWrap" style="margin-top:10px"></div>
       </div>
 
-      <div class="row">
+      <div class="row-3">
+        <div class="card">
+          <h2>Routing preview</h2>
+          <div class="muted">Fast check of how a model will be routed according to current config.</div>
+          <div style="margin-top:10px; display:flex; gap:6px; flex-wrap:wrap; align-items:center">
+            <input id="routingPreviewModel" placeholder="e.g. auto, gpt-4.1, provider://model" style="flex:1; min-width:0; background:#0b1226; border:1px solid var(--border); color:var(--text); border-radius:10px; padding:6px 8px; font-family:var(--mono); font-size:11px;" />
+            <button class="btn" id="routingPreviewBtn">Preview model</button>
+          </div>
+          <div class="muted" style="margin-top:8px">Or paste a full request JSON (OpenAI/OpenAIResponses) and preview from that:</div>
+          <textarea id="routingPreviewJSON" placeholder="{ &quot;model&quot;: &quot;gpt-4.1&quot;, ... }" style="margin-top:6px; width:100%; min-height:80px; max-height:160px; background:#0b1226; border:1px solid var(--border); color:var(--text); border-radius:10px; padding:6px 8px; font-family:var(--mono); font-size:11px;"></textarea>
+          <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; align-items:center">
+            <button class="btn" id="routingPreviewJSONBtn">Preview from JSON</button>
+          </div>
+          <pre id="routingPreviewPre" style="margin-top:8px; max-height:220px; overflow:auto;"></pre>
+        </div>
         <div class="card">
           <h2>Diagnostics</h2>
           <div style="display:flex; gap:8px; flex-wrap:wrap">
@@ -163,7 +181,16 @@ func proxyPilotDashboardHTML(managementKey string) string {
           <pre id="diagPre"></pre>
         </div>
         <div class="card">
+          <h2>Recent routing</h2>
+          <div class="muted">Last few routed requests (localhost only). Uses selection trace + routing headers.</div>
+          <div id="recentRoutingWrap" style="margin-top:8px"></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="card">
           <h2>Logs (tail)</h2>
+          <div class="muted" style="margin-bottom:6px">Launcher-managed engine stdout/stderr.</div>
           <div style="display:flex; gap:8px; flex-wrap:wrap">
             <button class="btn" data-log="stdout" id="tailStdoutBtn">Stdout</button>
             <button class="btn" data-log="stderr" id="tailStderrBtn">Stderr</button>
@@ -195,13 +222,46 @@ func proxyPilotDashboardHTML(managementKey string) string {
         el.textContent = text;
       }
 
+      function formatSeconds(seconds) {
+        if (!Number.isFinite(seconds) || seconds < 0) return '';
+        if (seconds < 60) return seconds.toFixed(0) + 's';
+        const mins = Math.floor(seconds / 60);
+        const hrs = Math.floor(mins / 60);
+        const remMins = mins % 60;
+        if (hrs === 0) return mins + 'm';
+        return hrs + 'h ' + remMins + 'm';
+      }
+
       async function refreshStatus() {
         const pill = document.getElementById('statusLine');
+        const details = document.getElementById('healthDetails');
         setPill(pill, 'warn', 'Checking...');
+        details.textContent = '';
         try {
           const res = await fetch('/healthz');
-          if (res.ok) setPill(pill, 'good', 'Running');
-          else setPill(pill, 'bad', 'Stopped (' + res.status + ')');
+          let body = null;
+          if (res.ok) {
+            try { body = await res.json(); } catch (_) {}
+            setPill(pill, 'good', 'Running');
+          } else {
+            setPill(pill, 'bad', 'Stopped (' + res.status + ')');
+          }
+          if (body && typeof body === 'object') {
+            const uptime = typeof body.uptime_seconds === 'number' ? formatSeconds(body.uptime_seconds) : '';
+            const mgmt = body.management_enabled ? 'enabled' : 'disabled';
+            const ws = body.websocket_auth ? 'on' : 'off';
+            const host = body.host || '';
+            const port = body.port || '';
+            let line = '';
+            if (uptime) line += 'Uptime: ' + uptime;
+            if (host || port) {
+              if (line) line += ' · ';
+              line += 'Bind: ' + (host || '0.0.0.0') + ':' + port;
+            }
+            if (line) line += ' · ';
+            line += 'Management: ' + mgmt + ' · WS auth: ' + ws;
+            details.textContent = line;
+          }
         } catch (e) {
           setPill(pill, 'bad', 'Stopped (' + e.message + ')');
         }
@@ -305,7 +365,93 @@ func proxyPilotDashboardHTML(managementKey string) string {
         document.getElementById('logPre').textContent = (res.lines || []).join('\\n');
       }
 
-      document.getElementById('refreshBtn').addEventListener('click', () => { refreshStatus(); loadConfig(); refreshAuth(); });
+      function renderRoutingPreview(obj) {
+        try {
+          return JSON.stringify(obj, null, 2);
+        } catch (_) {
+          return String(obj ?? '');
+        }
+      }
+
+      async function loadRoutingPreview() {
+        const input = document.getElementById('routingPreviewModel');
+        const pre = document.getElementById('routingPreviewPre');
+        const model = (input.value || '').trim();
+        if (!model) {
+          pre.textContent = 'Enter a model name to preview routing.';
+          return;
+        }
+        try {
+          const res = await api('/v0/management/routing/preview?model=' + encodeURIComponent(model));
+          pre.textContent = renderRoutingPreview(res);
+        } catch (e) {
+          pre.textContent = 'Error: ' + e.message;
+        }
+      }
+
+      async function loadRoutingPreviewFromJSON() {
+        const textarea = document.getElementById('routingPreviewJSON');
+        const pre = document.getElementById('routingPreviewPre');
+        const raw = (textarea.value || '').trim();
+        if (!raw) {
+          pre.textContent = 'Paste a full request JSON to preview routing.';
+          return;
+        }
+        try {
+          const res = await api('/v0/management/routing/preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: raw,
+          });
+          pre.textContent = renderRoutingPreview(res);
+        } catch (e) {
+          pre.textContent = 'Error: ' + e.message;
+        }
+      }
+
+      function renderRecentRoutingTable(entries) {
+        if (!Array.isArray(entries) || entries.length === 0) {
+          return '<div class="muted">No recent routed requests captured yet.</div>';
+        }
+        let html = '<table><thead><tr>' +
+          '<th>When</th><th>Client</th><th>Path</th><th>Requested → Resolved</th><th>Provider</th>' +
+          '</tr></thead><tbody>';
+        for (const e of entries.slice(0, 12)) {
+          const ts = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '';
+          const client = (e.client || 'local').toString();
+          const path = (e.path || '').toString();
+          const requested = (e.requested_model || '').toString();
+          const resolved = (e.resolved_model || '').toString();
+          const selected = (e.selected_provider || '').toString();
+          const candidates = Array.isArray(e.provider_candidates) ? e.provider_candidates.join(',') : '';
+          let prov = escapeHtml(selected || '-');
+          if (candidates) {
+            prov += '<div class="muted">candidates: ' + escapeHtml(candidates) + '</div>';
+          }
+          html += '<tr>' +
+            '<td>' + escapeHtml(ts) + '</td>' +
+            '<td>' + escapeHtml(client) + '</td>' +
+            '<td><code>' + escapeHtml(path) + '</code></td>' +
+            '<td>' + escapeHtml(requested || '-') + '<div class="muted">→ ' + escapeHtml(resolved || '-') + '</div></td>' +
+            '<td>' + prov + '</td>' +
+          '</tr>';
+        }
+        html += '</tbody></table>';
+        return html;
+      }
+
+      async function loadRecentRouting() {
+        const wrap = document.getElementById('recentRoutingWrap');
+        if (!wrap) return;
+        try {
+          const res = await api('/v0/management/routing/recent');
+          wrap.innerHTML = renderRecentRoutingTable(res.entries || []);
+        } catch (e) {
+          wrap.innerHTML = '<div class="muted">Failed to load routing history: ' + escapeHtml(e.message) + '</div>';
+        }
+      }
+
+      document.getElementById('refreshBtn').addEventListener('click', () => { refreshStatus(); loadConfig(); refreshAuth(); loadRecentRouting(); });
       document.getElementById('openMgmtBtn').addEventListener('click', () => { location.href = baseUrl + '/management.html'; });
       document.getElementById('toggleDebugBtn').addEventListener('click', () => toggleDebug().catch(e => alert(e.message)));
       document.getElementById('saveRetryBtn').addEventListener('click', () => saveRetry().catch(e => alert(e.message)));
@@ -316,11 +462,15 @@ func proxyPilotDashboardHTML(managementKey string) string {
       document.getElementById('copyDiagBtn').addEventListener('click', () => copyDiagnostics().catch(e => alert(e.message)));
       document.getElementById('tailStdoutBtn').addEventListener('click', () => tailLogs('stdout').catch(e => alert(e.message)));
       document.getElementById('tailStderrBtn').addEventListener('click', () => tailLogs('stderr').catch(e => alert(e.message)));
+      document.getElementById('routingPreviewBtn').addEventListener('click', () => loadRoutingPreview().catch(e => alert(e.message)));
+      document.getElementById('routingPreviewJSONBtn').addEventListener('click', () => loadRoutingPreviewFromJSON().catch(e => alert(e.message)));
+      document.getElementById('routingPreviewModel').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); loadRoutingPreview().catch(e => alert(e.message)); } });
 
       (async () => {
         await refreshStatus();
         await loadConfig();
         await refreshAuth();
+        await loadRecentRouting();
         await tailLogs('stdout');
       })().catch(e => alert(e.message));
     </script>

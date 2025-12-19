@@ -21,8 +21,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/claude"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/codex"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/copilot"
 	geminiAuth "github.com/router-for-me/CLIProxyAPI/v6/internal/auth/gemini"
 	iflowauth "github.com/router-for-me/CLIProxyAPI/v6/internal/auth/iflow"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/kiro"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/qwen"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
@@ -45,6 +47,7 @@ const (
 	anthropicCallbackPort   = 54545
 	geminiCallbackPort      = 8085
 	codexCallbackPort       = 1455
+	kiroCallbackPort        = 8086
 	geminiCLIEndpoint       = "https://cloudcode-pa.googleapis.com"
 	geminiCLIVersion        = "v1internal"
 	geminiCLIUserAgent      = "google-api-nodejs-client/9.15.1"
@@ -2142,4 +2145,165 @@ func (h *Handler) GetAuthStatus(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	}
 	delete(oauthStatus, state)
+}
+
+func (h *Handler) RequestKiroToken(c *gin.Context) {
+	ctx := context.Background()
+
+	fmt.Println("Initializing Kiro authentication...")
+
+	state, errState := misc.GenerateRandomState()
+	if errState != nil {
+		log.Errorf("Failed to generate state parameter: %v", errState)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate state parameter"})
+		return
+	}
+
+	// kiroAuth := kiro.NewKiroAuth()
+	// Dummy auth URL generation for now, mirroring logic in kiro/auth.go but adapted for web flow
+	// In a real scenario, KiroAuth should expose a method to get the URL
+	conf := &oauth2.Config{
+		ClientID:     "kiro-client-id-placeholder",
+		ClientSecret: "kiro-client-secret-placeholder",
+		RedirectURL:  "http://localhost:8086/oauth2callback",
+		Scopes:       []string{"openid", "profile", "email"},
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  "https://kiro.ai/auth",
+			TokenURL: "https://kiro.ai/token",
+		},
+	}
+	authURL := conf.AuthCodeURL(state, oauth2.AccessTypeOffline)
+
+	isWebUI := isWebUIRequest(c)
+	if isWebUI {
+		targetURL, errTarget := h.managementCallbackURL("/kiro/callback")
+		if errTarget != nil {
+			log.WithError(errTarget).Error("failed to compute kiro callback target")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "callback server unavailable"})
+			return
+		}
+		if _, errStart := startCallbackForwarder(kiroCallbackPort, "kiro", targetURL); errStart != nil {
+			log.WithError(errStart).Error("failed to start kiro callback forwarder")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start callback server"})
+			return
+		}
+	}
+
+	go func() {
+		if isWebUI {
+			defer stopCallbackForwarder(kiroCallbackPort)
+		}
+
+		fmt.Println("Waiting for Kiro authentication...")
+		waitFile := filepath.Join(h.cfg.AuthDir, fmt.Sprintf(".oauth-kiro-%s.oauth", state))
+		deadline := time.Now().Add(5 * time.Minute)
+
+		var authCode string
+		for {
+			if time.Now().After(deadline) {
+				oauthStatus[state] = "Authentication failed: timeout"
+				return
+			}
+			if data, errR := os.ReadFile(waitFile); errR == nil {
+				var m map[string]string
+				_ = json.Unmarshal(data, &m)
+				_ = os.Remove(waitFile)
+				if errStr := m["error"]; errStr != "" {
+					oauthStatus[state] = "Authentication failed: " + errStr
+					return
+				}
+				authCode = m["code"]
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+
+		token, err := conf.Exchange(ctx, authCode)
+		if err != nil {
+			log.Errorf("Failed to exchange token: %v", err)
+			oauthStatus[state] = "Failed to exchange token"
+			return
+		}
+
+		// Save token
+		ts := &kiro.KiroTokenStorage{
+			AccessToken:  token.AccessToken,
+			RefreshToken: token.RefreshToken,
+			TokenType:    token.TokenType,
+			Expiry:       token.Expiry.Format(time.RFC3339),
+		}
+
+		// Use email from token if available (requires ID token parsing usually, skipping for brevity)
+		identifier := fmt.Sprintf("kiro-%d", time.Now().UnixMilli())
+
+		record := &coreauth.Auth{
+			ID:       fmt.Sprintf("kiro-%s.json", identifier),
+			Provider: "kiro",
+			FileName: fmt.Sprintf("kiro-%s.json", identifier),
+			Storage:  ts,
+			Metadata: map[string]any{"email": identifier},
+		}
+
+		savedPath, errSave := h.saveTokenRecord(ctx, record)
+		if errSave != nil {
+			log.Errorf("Failed to save Kiro token: %v", errSave)
+			oauthStatus[state] = "Failed to save token"
+			return
+		}
+
+		fmt.Printf("Kiro authentication successful! Token saved to %s\n", savedPath)
+		delete(oauthStatus, state)
+	}()
+
+	oauthStatus[state] = ""
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "url": authURL, "state": state})
+}
+
+func (h *Handler) RequestCopilotToken(c *gin.Context) {
+	ctx := context.Background()
+	fmt.Println("Initializing Copilot authentication...")
+
+	state := fmt.Sprintf("cop-%d", time.Now().UnixNano())
+	copilotAuth := copilot.NewCopilotAuth(h.cfg)
+
+	deviceFlow, err := copilotAuth.InitiateDeviceFlow(ctx)
+	if err != nil {
+		log.Errorf("Failed to initiate device flow: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to initiate device flow"})
+		return
+	}
+	authURL := deviceFlow.VerificationURI
+
+	go func() {
+		fmt.Println("Waiting for Copilot authentication...")
+		tokenData, errPoll := copilotAuth.PollForToken(deviceFlow.DeviceCode)
+		if errPoll != nil {
+			oauthStatus[state] = "Authentication failed: " + errPoll.Error()
+			return
+		}
+
+		tokenStorage := copilotAuth.CreateTokenStorage(tokenData)
+		identifier := fmt.Sprintf("copilot-%d", time.Now().UnixMilli())
+
+		record := &coreauth.Auth{
+			ID:       fmt.Sprintf("copilot-%s.json", identifier),
+			Provider: "copilot",
+			FileName: fmt.Sprintf("copilot-%s.json", identifier),
+			Storage:  tokenStorage,
+			Metadata: map[string]any{"email": identifier},
+		}
+
+		savedPath, errSave := h.saveTokenRecord(ctx, record)
+		if errSave != nil {
+			log.Errorf("Failed to save Copilot token: %v", errSave)
+			oauthStatus[state] = "Failed to save token"
+			return
+		}
+
+		fmt.Printf("Copilot authentication successful! Token saved to %s\n", savedPath)
+		delete(oauthStatus, state)
+	}()
+
+	oauthStatus[state] = ""
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "url": authURL, "state": state})
 }

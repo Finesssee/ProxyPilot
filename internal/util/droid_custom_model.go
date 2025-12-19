@@ -21,7 +21,7 @@ func NormalizeDroidCustomModel(model string) string {
 	// Prefer well-known ":-<family>" markers so we don't get confused by "reasoning:-low".
 	candidate := ""
 	lower := strings.ToLower(raw)
-	for _, marker := range []string{":-gemini-", ":-gpt-", ":-claude-", ":-qwen", ":-deepseek", ":-kimi", ":-glm-", ":-minimax", ":-tstars"} {
+	for _, marker := range []string{":-antigravity-", ":-gemini-", ":-gpt-", ":-claude-", ":-qwen", ":-deepseek", ":-kimi", ":-glm-", ":-minimax", ":-tstars"} {
 		if idx := strings.LastIndex(lower, marker); idx >= 0 {
 			candidate = raw[idx+2:] // drop the leading ":-"
 			break

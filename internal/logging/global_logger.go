@@ -39,11 +39,36 @@ func (m *LogFormatter) Format(entry *log.Entry) ([]byte, error) {
 	timestamp := entry.Time.Format("2006-01-02 15:04:05")
 	message := strings.TrimRight(entry.Message, "\r\n")
 
+	// Serialize structured fields (if any) as key=value pairs for easier parsing.
+	var fieldsBuf strings.Builder
+	if len(entry.Data) > 0 {
+		first := true
+		for k, v := range entry.Data {
+			if !first {
+				fieldsBuf.WriteString(" ")
+			} else {
+				first = false
+			}
+			fieldsBuf.WriteString(k)
+			fieldsBuf.WriteString("=")
+			fieldsBuf.WriteString(fmt.Sprint(v))
+		}
+	}
+	fieldsStr := fieldsBuf.String()
+
 	var formatted string
 	if entry.Caller != nil {
-		formatted = fmt.Sprintf("[%s] [%s] [%s:%d] %s\n", timestamp, entry.Level, filepath.Base(entry.Caller.File), entry.Caller.Line, message)
+		if fieldsStr != "" {
+			formatted = fmt.Sprintf("[%s] [%s] [%s:%d] %s %s\n", timestamp, entry.Level, filepath.Base(entry.Caller.File), entry.Caller.Line, message, fieldsStr)
+		} else {
+			formatted = fmt.Sprintf("[%s] [%s] [%s:%d] %s\n", timestamp, entry.Level, filepath.Base(entry.Caller.File), entry.Caller.Line, message)
+		}
 	} else {
-		formatted = fmt.Sprintf("[%s] [%s] %s\n", timestamp, entry.Level, message)
+		if fieldsStr != "" {
+			formatted = fmt.Sprintf("[%s] [%s] %s %s\n", timestamp, entry.Level, message, fieldsStr)
+		} else {
+			formatted = fmt.Sprintf("[%s] [%s] %s\n", timestamp, entry.Level, message)
+		}
 	}
 	buffer.WriteString(formatted)
 

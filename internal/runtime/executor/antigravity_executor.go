@@ -317,6 +317,11 @@ func (e *AntigravityExecutor) CountTokens(context.Context, *cliproxyauth.Auth, c
 	return cliproxyexecutor.Response{}, statusErr{code: http.StatusNotImplemented, msg: "count tokens not supported"}
 }
 
+// Embed performs an embedding request (not supported for Antigravity).
+func (e *AntigravityExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	return cliproxyexecutor.Response{}, statusErr{code: http.StatusNotImplemented, msg: "embeddings not supported"}
+}
+
 // FetchAntigravityModels retrieves available models using the supplied auth.
 func FetchAntigravityModels(ctx context.Context, auth *cliproxyauth.Auth, cfg *config.Config) []*registry.ModelInfo {
 	exec := &AntigravityExecutor{cfg: cfg}
@@ -429,17 +434,18 @@ func FetchAntigravityModels(ctx context.Context, auth *cliproxyauth.Auth, cfg *c
 			}
 			models = append(models, modelInfo)
 		}
-		for originalName := range result.Map() {
-			aliasName := modelName2Alias(originalName)
-			if aliasName != "" {
-				appendModel(aliasName)
-				// Newer model naming: some clients prefer the stable name (e.g. "gemini-3-flash") over our
-				// historical alias (e.g. "gemini-3-flash-preview"). Register both for compatibility.
-				if strings.EqualFold(strings.TrimSpace(originalName), "gemini-3-flash") && strings.EqualFold(aliasName, "gemini-3-flash-preview") {
-					appendModel("gemini-3-flash")
-				}
-			}
+		for id := range result.Map() {
+			appendModel(id)
 		}
+
+		// Also append static models from config (e.g. antigravity-claude-*)
+		for id := range modelConfig {
+			if !strings.HasPrefix(id, "antigravity-") {
+				continue
+			}
+			appendModel(id)
+		}
+
 		return models
 	}
 	return nil
@@ -881,11 +887,11 @@ func modelName2Alias(modelName string) string {
 	case "gemini-3-pro-low":
 		return "gemini-3-pro-low-preview"
 	case "claude-sonnet-4-5":
-		return "gemini-claude-sonnet-4-5"
+		return "antigravity-claude-sonnet-4-5"
 	case "claude-sonnet-4-5-thinking":
-		return "gemini-claude-sonnet-4-5-thinking"
+		return "antigravity-claude-sonnet-4-5-thinking"
 	case "claude-opus-4-5-thinking":
-		return "gemini-claude-opus-4-5-thinking"
+		return "antigravity-claude-opus-4-5-thinking"
 	case "chat_20706", "chat_23310", "gemini-2.5-flash-thinking", "gemini-2.5-pro":
 		return ""
 	default:
@@ -905,12 +911,12 @@ func alias2ModelName(modelName string) string {
 		return "gemini-3-pro-high"
 	case "gemini-3-pro-low-preview":
 		return "gemini-3-pro-low"
-	case "gemini-claude-sonnet-4-5":
-		return "claude-sonnet-4-5"
-	case "gemini-claude-sonnet-4-5-thinking":
-		return "claude-sonnet-4-5-thinking"
-	case "gemini-claude-opus-4-5-thinking":
-		return "claude-opus-4-5-thinking"
+	case "antigravity-claude-sonnet-4-5":
+		return "claude-3-5-sonnet"
+	case "antigravity-claude-sonnet-4-5-thinking":
+		return "claude-3-5-sonnet"
+	case "antigravity-claude-opus-4-5-thinking":
+		return "claude-3-opus"
 	default:
 		return modelName
 	}

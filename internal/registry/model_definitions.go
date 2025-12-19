@@ -206,6 +206,50 @@ func GetGeminiModels() []*ModelInfo {
 			SupportedGenerationMethods: []string{"generateContent", "countTokens", "createCachedContent", "batchGenerateContent"},
 		},
 		{
+			ID:                         "antigravity-claude-sonnet-4-5-thinking",
+			Object:                     "model",
+			Created:                    1759104000,
+			OwnedBy:                    "google",
+			Type:                       "gemini",
+			Name:                       "models/antigravity-claude-sonnet-4-5-thinking",
+			Version:                    "4.5",
+			DisplayName:                "Antigravity Claude 4.5 Sonnet (Thinking)",
+			Description:                "Antigravity-routed Claude 4.5 Sonnet with thinking support",
+			InputTokenLimit:            200000,
+			OutputTokenLimit:           64000,
+			SupportedGenerationMethods: []string{"generateContent", "countTokens", "createCachedContent", "batchGenerateContent"},
+			Thinking:                   &ThinkingSupport{Min: 1024, Max: 200000, ZeroAllowed: false, DynamicAllowed: true},
+		},
+		{
+			ID:                         "antigravity-claude-opus-4-5-thinking",
+			Object:                     "model",
+			Created:                    1761955200,
+			OwnedBy:                    "google",
+			Type:                       "gemini",
+			Name:                       "models/antigravity-claude-opus-4-5-thinking",
+			Version:                    "4.5",
+			DisplayName:                "Antigravity Claude 4.5 Opus (Thinking)",
+			Description:                "Antigravity-routed Claude 4.5 Opus with thinking support",
+			InputTokenLimit:            200000,
+			OutputTokenLimit:           64000,
+			SupportedGenerationMethods: []string{"generateContent", "countTokens", "createCachedContent", "batchGenerateContent"},
+			Thinking:                   &ThinkingSupport{Min: 1024, Max: 200000, ZeroAllowed: false, DynamicAllowed: true},
+		},
+		{
+			ID:                         "text-embedding-004",
+			Object:                     "model",
+			Created:                    1715644800,
+			OwnedBy:                    "google",
+			Type:                       "gemini",
+			Name:                       "models/text-embedding-004",
+			Version:                    "004",
+			DisplayName:                "Text Embedding 004",
+			Description:                "Google's state-of-the-art text embedding model",
+			InputTokenLimit:            2048,
+			OutputTokenLimit:           768,
+			SupportedGenerationMethods: []string{"embedContent", "batchEmbedContents"},
+		},
+		{
 			ID:                         "gemini-3-pro-image-preview",
 			Object:                     "model",
 			Created:                    1737158400,
@@ -332,6 +376,51 @@ func GetGeminiVertexModels() []*ModelInfo {
 	}
 }
 
+// GetKiroModels returns the standard Kiro model definitions
+func GetKiroModels() []*ModelInfo {
+	return []*ModelInfo{
+		{
+			ID:                  "kiro-code-v1",
+			Object:              "model",
+			Created:             1700000000,
+			OwnedBy:             "kiro",
+			Type:                "kiro",
+			DisplayName:         "Kiro Code V1",
+			Description:         "Kiro Code Generation Model",
+			ContextLength:       16384,
+			MaxCompletionTokens: 8192,
+		},
+	}
+}
+
+// GetCopilotModels returns the standard GitHub Copilot model definitions
+func GetCopilotModels() []*ModelInfo {
+	return []*ModelInfo{
+		{
+			ID:                  "gpt-4",
+			Object:              "model",
+			Created:             1687882410,
+			OwnedBy:             "github",
+			Type:                "copilot",
+			DisplayName:         "GPT-4 (Copilot)",
+			Description:         "GitHub Copilot GPT-4",
+			ContextLength:       8192,
+			MaxCompletionTokens: 4096,
+		},
+		{
+			ID:                  "gpt-3.5-turbo",
+			Object:              "model",
+			Created:             1677610602,
+			OwnedBy:             "github",
+			Type:                "copilot",
+			DisplayName:         "GPT-3.5 Turbo (Copilot)",
+			Description:         "GitHub Copilot GPT-3.5 Turbo",
+			ContextLength:       4096,
+			MaxCompletionTokens: 2048,
+		},
+	}
+}
+
 // GetGeminiCLIModels returns the standard Gemini model definitions
 func GetGeminiCLIModels() []*ModelInfo {
 	return []*ModelInfo{
@@ -395,23 +484,35 @@ func GetGeminiCLIModels() []*ModelInfo {
 			SupportedGenerationMethods: []string{"generateContent", "countTokens", "createCachedContent", "batchGenerateContent"},
 			Thinking:                   &ThinkingSupport{Min: 128, Max: 32768, ZeroAllowed: false, DynamicAllowed: true},
 		},
-		{
-			ID:                         "gemini-3-flash",
-			Object:                     "model",
-			Created:                    1737158400,
+		        		{
+		        			ID:                         "gemini-3-flash",
+		        			Object:                     "model",
+		        			Created:                    1737158400,
+		        			OwnedBy:                    "google",
+		        			Type:                       "gemini",
+		        			Name:                       "models/gemini-3-flash",
+		        			Version:                    "3.0",
+		        			DisplayName:                "Gemini 3 Flash",
+		        			Description:                "Gemini 3 Flash",
+		        			InputTokenLimit:            1048576,
+		        			OutputTokenLimit:           65536,
+		        			SupportedGenerationMethods: []string{"generateContent", "countTokens", "createCachedContent", "batchGenerateContent"},
+		        		},
+		        		{
+		        			ID:                         "text-embedding-004",			Object:                     "model",
+			Created:                    1715644800,
 			OwnedBy:                    "google",
 			Type:                       "gemini",
-			Name:                       "models/gemini-3-flash",
-			Version:                    "3.0",
-			DisplayName:                "Gemini 3 Flash",
-			Description:                "Gemini 3 Flash",
-			InputTokenLimit:            1048576,
-			OutputTokenLimit:           65536,
-			SupportedGenerationMethods: []string{"generateContent", "countTokens", "createCachedContent", "batchGenerateContent"},
+			Name:                       "models/text-embedding-004",
+			Version:                    "004",
+			DisplayName:                "Text Embedding 004",
+			Description:                "Google's state-of-the-art text embedding model",
+			InputTokenLimit:            2048,
+			OutputTokenLimit:           768,
+			SupportedGenerationMethods: []string{"embedContent", "batchEmbedContents"},
 		},
 	}
 }
-
 // GetAIStudioModels returns the Gemini model definitions for AI Studio integrations
 func GetAIStudioModels() []*ModelInfo {
 	return []*ModelInfo{
@@ -563,6 +664,20 @@ func GetAIStudioModels() []*ModelInfo {
 			OutputTokenLimit:           8192,
 			SupportedGenerationMethods: []string{"generateContent", "countTokens", "createCachedContent", "batchGenerateContent"},
 			// image models don't support thinkingConfig; leave Thinking nil
+		},
+		{
+			ID:                         "text-embedding-004",
+			Object:                     "model",
+			Created:                    1715644800,
+			OwnedBy:                    "google",
+			Type:                       "gemini",
+			Name:                       "models/text-embedding-004",
+			Version:                    "004",
+			DisplayName:                "Text Embedding 004",
+			Description:                "Google's state-of-the-art text embedding model",
+			InputTokenLimit:            2048,
+			OutputTokenLimit:           768,
+			SupportedGenerationMethods: []string{"embedContent", "batchEmbedContents"},
 		},
 	}
 }
@@ -795,7 +910,7 @@ func GetAntigravityModelConfig() map[string]*AntigravityModelConfig {
 		"gemini-3-pro-image-preview":              {Thinking: &ThinkingSupport{Min: 128, Max: 32768, ZeroAllowed: false, DynamicAllowed: true}, Name: "models/gemini-3-pro-image-preview"},
 		"gemini-3-flash-preview":                  {Name: "models/gemini-3-flash-preview"},
 		"gemini-3-flash":                          {Name: "models/gemini-3-flash"},
-		"gemini-claude-sonnet-4-5-thinking":       {Thinking: &ThinkingSupport{Min: 1024, Max: 200000, ZeroAllowed: false, DynamicAllowed: true}, MaxCompletionTokens: 64000},
-		"gemini-claude-opus-4-5-thinking":         {Thinking: &ThinkingSupport{Min: 1024, Max: 200000, ZeroAllowed: false, DynamicAllowed: true}, MaxCompletionTokens: 64000},
+		"antigravity-claude-sonnet-4-5-thinking":  {Thinking: &ThinkingSupport{Min: 1024, Max: 200000, ZeroAllowed: false, DynamicAllowed: true}, MaxCompletionTokens: 64000},
+		"antigravity-claude-opus-4-5-thinking":    {Thinking: &ThinkingSupport{Min: 1024, Max: 200000, ZeroAllowed: false, DynamicAllowed: true}, MaxCompletionTokens: 64000},
 	}
 }

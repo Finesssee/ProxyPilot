@@ -467,23 +467,28 @@ func (e *GeminiCLIExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.
 		}
 		appendAPIResponseChunk(ctx, e.cfg, data)
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			count := gjson.GetBytes(data, "totalTokens").Int()
-			translated := sdktranslator.TranslateTokenCount(respCtx, to, from, count, data)
-			return cliproxyexecutor.Response{Payload: []byte(translated)}, nil
+				count := gjson.GetBytes(data, "totalTokens").Int()
+				translated := sdktranslator.TranslateTokenCount(respCtx, to, from, count, data)
+				return cliproxyexecutor.Response{Payload: []byte(translated)}, nil
+			}
+			lastStatus = resp.StatusCode
+			lastBody = append([]byte(nil), data...)
+			if resp.StatusCode == 429 {
+				log.Debugf("gemini cli executor: rate limited, retrying with next model")
+				continue
+			}
+			break
 		}
-		lastStatus = resp.StatusCode
-		lastBody = append([]byte(nil), data...)
-		if resp.StatusCode == 429 {
-			log.Debugf("gemini cli executor: rate limited, retrying with next model")
-			continue
-		}
-		break
-	}
 
 	if lastStatus == 0 {
 		lastStatus = 429
 	}
 	return cliproxyexecutor.Response{}, newGeminiStatusErr(lastStatus, lastBody)
+}
+
+// Embed performs an embedding request (not supported for Gemini CLI).
+func (e *GeminiCLIExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	return cliproxyexecutor.Response{}, statusErr{code: http.StatusNotImplemented, msg: "embeddings not supported"}
 }
 
 // Refresh refreshes the authentication credentials (no-op for Gemini CLI).

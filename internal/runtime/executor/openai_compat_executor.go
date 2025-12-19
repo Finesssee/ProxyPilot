@@ -257,30 +257,72 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *cliproxy
 	return stream, nil
 }
 
-func (e *OpenAICompatExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	from := opts.SourceFormat
-	to := sdktranslator.FromString("openai")
-	translated := sdktranslator.TranslateRequest(from, to, req.Model, bytes.Clone(req.Payload), false)
+func (e *OpenAICompatExecutor) CountTokens(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	return cliproxyexecutor.Response{}, statusErr{code: http.StatusNotImplemented, msg: "count tokens not supported"}
+}
 
-	modelForCounting := req.Model
-	if modelOverride := e.resolveUpstreamModel(req.Model, auth); modelOverride != "" {
-		translated = e.overrideModel(translated, modelOverride)
-		modelForCounting = modelOverride
+// Embed performs an embedding request to the OpenAI-compatible API.
+func (e *OpenAICompatExecutor) Embed(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	baseURL, apiKey := e.resolveCredentials(auth)
+	if baseURL == "" {
+		return cliproxyexecutor.Response{}, statusErr{code: http.StatusInternalServerError, msg: "missing base url"}
 	}
 
-	enc, err := tokenizerForModel(modelForCounting)
+	url := baseURL + "/embeddings"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(req.Payload))
 	if err != nil {
-		return cliproxyexecutor.Response{}, fmt.Errorf("openai compat executor: tokenizer init failed: %w", err)
+		return cliproxyexecutor.Response{}, err
 	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	var attrs map[string]string
+	if auth != nil {
+		attrs = auth.Attributes
+	}
+	util.ApplyCustomHeadersFromAttrs(httpReq, attrs)
 
-	count, err := countOpenAIChatTokens(enc, translated)
+	var authID, authLabel, authType, authValue string
+	if auth != nil {
+		authID = auth.ID
+		authLabel = auth.Label
+		authType, authValue = auth.AccountInfo()
+	}
+	recordAPIRequest(ctx, e.cfg, upstreamRequestLog{
+		URL:       url,
+		Method:    http.MethodPost,
+		Headers:   httpReq.Header.Clone(),
+		Body:      req.Payload,
+		Provider:  e.Identifier(),
+		AuthID:    authID,
+		AuthLabel: authLabel,
+		AuthType:  authType,
+		AuthValue: authValue,
+	})
+
+	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
-		return cliproxyexecutor.Response{}, fmt.Errorf("openai compat executor: token counting failed: %w", err)
+		recordAPIResponseError(ctx, e.cfg, err)
+		return cliproxyexecutor.Response{}, err
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+	recordAPIResponseMetadata(ctx, e.cfg, httpResp.StatusCode, httpResp.Header.Clone())
+
+	data, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		recordAPIResponseError(ctx, e.cfg, err)
+		return cliproxyexecutor.Response{}, err
+	}
+	appendAPIResponseChunk(ctx, e.cfg, data)
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		log.Debugf("request error, error status: %d, error body: %s", httpResp.StatusCode, summarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
+		return cliproxyexecutor.Response{}, statusErr{code: httpResp.StatusCode, msg: string(data)}
 	}
 
-	usageJSON := buildOpenAIUsageJSON(count)
-	translatedUsage := sdktranslator.TranslateTokenCount(ctx, to, from, count, usageJSON)
-	return cliproxyexecutor.Response{Payload: []byte(translatedUsage)}, nil
+	return cliproxyexecutor.Response{Payload: data}, nil
 }
 
 // Refresh is a no-op for API-key based compatibility providers.
