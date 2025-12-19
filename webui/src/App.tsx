@@ -40,6 +40,7 @@ declare global {
     pp_set_oauth_private?: (enabled: boolean) => Promise<void>;
     pp_oauth?: (provider: string) => Promise<void>;
     pp_copy_diagnostics?: () => Promise<void>;
+    pp_get_management_key?: () => Promise<string>;
   }
 }
 
@@ -64,21 +65,71 @@ export default function App() {
   const [privateOAuth, setPrivateOAuth] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
+  const [mgmtKey, setMgmtKey] = useState<string | null>(null);
+  const [mgmtError, setMgmtError] = useState<string | null>(null);
+  const [mgmtConfig, setMgmtConfig] = useState<any>(null);
+  const [authFiles, setAuthFiles] = useState<any[]>([]);
+  const [routingModel, setRoutingModel] = useState('');
+  const [routingJSON, setRoutingJSON] = useState('');
+  const [routingPreview, setRoutingPreview] = useState('');
+  const [recentRouting, setRecentRouting] = useState<any[]>([]);
+  const [diagnostics, setDiagnostics] = useState('');
+  const [logText, setLogText] = useState('');
+  const [semanticHealth, setSemanticHealth] = useState<any>(null);
+  const [semanticNamespaces, setSemanticNamespaces] = useState<any[]>([]);
+  const [semanticNamespace, setSemanticNamespace] = useState('');
+  const [semanticLimit, setSemanticLimit] = useState(50);
+  const [semanticItems, setSemanticItems] = useState('');
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 2500);
   };
 
+  const isDesktop = typeof window.pp_status === 'function';
+
   const refreshStatus = async () => {
     try {
       if (window.pp_status) {
         const s = await window.pp_status();
         setStatus(s);
+      } else {
+        const res = await fetch('/healthz');
+        if (!res.ok) {
+          setStatus({ running: false, port: 0, base_url: location.origin, last_error: res.statusText });
+          return;
+        }
+        const body = await res.json().catch(() => ({}));
+        setStatus({
+          running: true,
+          port: body.port || 0,
+          base_url: location.origin,
+          last_error: '',
+        });
       }
     } catch (e) {
       console.error('Status error:', e);
     }
+  };
+
+  const getMgmtKey = () => {
+    const meta = document.querySelector('meta[name="pp-mgmt-key"]');
+    return meta ? meta.getAttribute('content') : null;
+  };
+
+  const mgmtFetch = async (path: string, opts: RequestInit = {}) => {
+    if (!mgmtKey) {
+      throw new Error('Missing management key');
+    }
+    const headers = Object.assign({}, opts.headers || {}, { 'X-Management-Key': mgmtKey });
+    const res = await fetch(path, { ...opts, headers });
+    const ct = (res.headers.get('content-type') || '').toLowerCase();
+    const body = ct.includes('application/json') ? await res.json() : await res.text();
+    if (!res.ok) {
+      const msg = typeof body === 'string' ? body : body?.error ? body.error : JSON.stringify(body);
+      throw new Error(`${res.status} ${res.statusText}: ${msg}`);
+    }
+    return body;
   };
 
   useEffect(() => {
@@ -90,6 +141,13 @@ export default function App() {
         if (window.pp_get_oauth_private) {
           const priv = await window.pp_get_oauth_private();
           setPrivateOAuth(priv);
+        }
+        if (window.pp_get_management_key) {
+          const key = await window.pp_get_management_key();
+          setMgmtKey(key);
+        } else if (!isDesktop) {
+          const key = getMgmtKey();
+          setMgmtKey(key);
         }
       } catch (e) {
         console.error('OAuth private error:', e);
@@ -139,7 +197,159 @@ export default function App() {
     }
   };
 
+  const loadMgmtConfig = async () => {
+    const cfg = await mgmtFetch('/v0/management/config');
+    setMgmtConfig(cfg);
+  };
+
+  const toggleDebug = async () => {
+    const cur = await mgmtFetch('/v0/management/debug');
+    await mgmtFetch('/v0/management/debug', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: !cur.value }),
+    });
+    await loadMgmtConfig();
+  };
+
+  const saveRetry = async (value: number) => {
+    await mgmtFetch('/v0/management/request-retry', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value }),
+    });
+    await loadMgmtConfig();
+  };
+
+  const saveMaxRetry = async (value: number) => {
+    await mgmtFetch('/v0/management/max-retry-interval', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value }),
+    });
+    await loadMgmtConfig();
+  };
+
+  const loadAuthFiles = async () => {
+    const res = await mgmtFetch('/v0/management/auth-files');
+    setAuthFiles(res.files || []);
+  };
+
+  const resetCooldown = async (authId?: string) => {
+    await mgmtFetch('/v0/management/auth/reset-cooldown', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(authId ? { auth_id: authId } : {}),
+    });
+    await loadAuthFiles();
+  };
+
+  const loadRoutingPreview = async () => {
+    if (!routingModel.trim()) {
+      setRoutingPreview('Enter a model name to preview routing.');
+      return;
+    }
+    const res = await mgmtFetch(`/v0/management/routing/preview?model=${encodeURIComponent(routingModel.trim())}`);
+    setRoutingPreview(JSON.stringify(res, null, 2));
+  };
+
+  const loadRoutingPreviewFromJSON = async () => {
+    if (!routingJSON.trim()) {
+      setRoutingPreview('Paste a full request JSON to preview routing.');
+      return;
+    }
+    const res = await mgmtFetch('/v0/management/routing/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: routingJSON,
+    });
+    setRoutingPreview(JSON.stringify(res, null, 2));
+  };
+
+  const loadDiagnostics = async () => {
+    const res = await mgmtFetch('/v0/management/proxypilot/diagnostics?lines=120');
+    setDiagnostics(res.text || '');
+  };
+
+  const copyDiagnostics = async () => {
+    if (!diagnostics) return;
+    await navigator.clipboard.writeText(diagnostics);
+    showToast('Copied diagnostics', 'success');
+  };
+
+  const tailLogs = async (kind: 'stdout' | 'stderr') => {
+    const res = await mgmtFetch(`/v0/management/proxypilot/logs/tail?file=${kind}&lines=200`);
+    setLogText((res.lines || []).join('\n'));
+  };
+
+  const loadRecentRouting = async () => {
+    const res = await mgmtFetch('/v0/management/routing/recent');
+    setRecentRouting(res.entries || []);
+  };
+
+  const loadSemanticHealth = async () => {
+    const res = await mgmtFetch('/v0/management/semantic/health');
+    setSemanticHealth(res);
+  };
+
+  const loadSemanticNamespaces = async () => {
+    const res = await mgmtFetch('/v0/management/semantic/namespaces');
+    setSemanticNamespaces(res.namespaces || []);
+    if (!semanticNamespace && res.namespaces && res.namespaces.length > 0) {
+      setSemanticNamespace(res.namespaces[0].key);
+    }
+  };
+
+  const loadSemanticItems = async () => {
+    if (!semanticNamespace) {
+      setSemanticItems('Select a namespace.');
+      return;
+    }
+    const res = await mgmtFetch(`/v0/management/semantic/items?namespace=${encodeURIComponent(semanticNamespace)}&limit=${encodeURIComponent(semanticLimit)}`);
+    const items = res.items || [];
+    if (!Array.isArray(items) || items.length === 0) {
+      setSemanticItems('No items.');
+      return;
+    }
+    const lines = items.map((it: any) => {
+      const ts = it.ts || '';
+      const src = it.source || '';
+      const role = it.role || '';
+      const text = (it.text || '').toString();
+      return `[${ts}][${src}][${role}] ${text}`;
+    });
+    setSemanticItems(lines.join('\n\n'));
+  };
+
+  useEffect(() => {
+    if (!mgmtKey) return;
+    setMgmtError(null);
+    (async () => {
+      try {
+        await loadMgmtConfig();
+        await loadAuthFiles();
+        await loadRecentRouting();
+        await loadSemanticHealth();
+        await loadSemanticNamespaces();
+        await tailLogs('stdout');
+      } catch (e) {
+        setMgmtError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+  }, [mgmtKey]);
+
   const isRunning = status?.running ?? false;
+  const debugOn = !!mgmtConfig?.debug;
+  const retryVal =
+    mgmtConfig?.['request-retry'] ??
+    mgmtConfig?.request_retry ??
+    mgmtConfig?.requestRetry ??
+    0;
+  const maxRetryVal =
+    mgmtConfig?.['max-retry-interval'] ??
+    mgmtConfig?.max_retry_interval ??
+    mgmtConfig?.maxRetryInterval ??
+    0;
 
   return (
     <TooltipProvider>
@@ -418,6 +628,265 @@ export default function App() {
               </CardContent>
             </Card>
           </div>
+
+          {!isDesktop && !mgmtKey && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-300">
+              Management key missing. Start ProxyPilot from the tray app to inject a local key,
+              or set `MANAGEMENT_PASSWORD` before loading this page.
+            </div>
+          )}
+
+          {mgmtError && (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+              Management error: {mgmtError}
+            </div>
+          )}
+
+          {mgmtKey && (
+            <>
+              <div className="grid gap-6 lg:grid-cols-2">
+                <Card className="backdrop-blur-sm bg-card/60 border-border/50 shadow-xl">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-lg">Quick Config</CardTitle>
+                    <CardDescription>Management API settings</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Debug</span>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={debugOn ? 'default' : 'secondary'}>
+                          {debugOn ? 'On' : 'Off'}
+                        </Badge>
+                        <Button size="sm" variant="outline" onClick={() => toggleDebug().catch((e) => showToast(String(e), 'error'))}>
+                          Toggle
+                        </Button>
+                      </div>
+                    </div>
+                    <Separator className="bg-border/50" />
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm text-muted-foreground">Request retry</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          max={10}
+                          className="w-24 rounded-md border border-border bg-background/60 px-2 py-1 text-sm"
+                          value={retryVal}
+                          onChange={(e) => saveRetry(parseInt(e.target.value || '0', 10)).catch((err) => showToast(String(err), 'error'))}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm text-muted-foreground">Max retry interval (s)</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          max={3600}
+                          className="w-24 rounded-md border border-border bg-background/60 px-2 py-1 text-sm"
+                          value={maxRetryVal}
+                          onChange={(e) => saveMaxRetry(parseInt(e.target.value || '0', 10)).catch((err) => showToast(String(err), 'error'))}
+                        />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="backdrop-blur-sm bg-card/60 border-border/50 shadow-xl">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-lg">Accounts</CardTitle>
+                    <CardDescription>Loaded auth files</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => loadAuthFiles().catch((e) => showToast(String(e), 'error'))}>
+                        Refresh
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => resetCooldown().catch((e) => showToast(String(e), 'error'))}>
+                        Reset all cooldowns
+                      </Button>
+                    </div>
+                    <div className="max-h-56 overflow-auto rounded-md border border-border/50">
+                      <table className="w-full text-xs">
+                        <thead className="bg-muted/40">
+                          <tr>
+                            <th className="px-2 py-2 text-left">Provider</th>
+                            <th className="px-2 py-2 text-left">Email/Label</th>
+                            <th className="px-2 py-2 text-left">Status</th>
+                            <th className="px-2 py-2 text-left">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {authFiles.length === 0 && (
+                            <tr>
+                              <td className="px-2 py-2 text-muted-foreground" colSpan={4}>
+                                No auth files loaded.
+                              </td>
+                            </tr>
+                          )}
+                          {authFiles.map((f) => (
+                            <tr key={f.id} className="border-t border-border/40">
+                              <td className="px-2 py-2 font-mono">{f.provider || f.type || '-'}</td>
+                              <td className="px-2 py-2">{f.email || f.label || '-'}</td>
+                              <td className="px-2 py-2">{f.status || '-'}</td>
+                              <td className="px-2 py-2">
+                                <Button size="sm" variant="ghost" onClick={() => resetCooldown(f.id).catch((e) => showToast(String(e), 'error'))}>
+                                  Reset
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-3">
+                <Card className="backdrop-blur-sm bg-card/60 border-border/50 shadow-xl lg:col-span-1">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-lg">Routing Preview</CardTitle>
+                    <CardDescription>How a model will be routed</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <input
+                      className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
+                      placeholder="model name (auto, gpt-5, provider://model)"
+                      value={routingModel}
+                      onChange={(e) => setRoutingModel(e.target.value)}
+                    />
+                    <Button size="sm" variant="outline" onClick={() => loadRoutingPreview().catch((e) => showToast(String(e), 'error'))}>
+                      Preview
+                    </Button>
+                    <textarea
+                      className="h-24 w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
+                      placeholder={'{ "model": "gpt-5" }'}
+                      value={routingJSON}
+                      onChange={(e) => setRoutingJSON(e.target.value)}
+                    />
+                    <Button size="sm" variant="outline" onClick={() => loadRoutingPreviewFromJSON().catch((e) => showToast(String(e), 'error'))}>
+                      Preview from JSON
+                    </Button>
+                    <pre className="max-h-48 overflow-auto rounded-md border border-border/50 bg-muted/30 p-2 text-xs">
+                      {routingPreview || 'No preview yet.'}
+                    </pre>
+                  </CardContent>
+                </Card>
+
+                <Card className="backdrop-blur-sm bg-card/60 border-border/50 shadow-xl lg:col-span-1">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-lg">Diagnostics</CardTitle>
+                    <CardDescription>Engine snapshot</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => loadDiagnostics().catch((e) => showToast(String(e), 'error'))}>
+                        Load
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => copyDiagnostics().catch((e) => showToast(String(e), 'error'))}>
+                        Copy
+                      </Button>
+                    </div>
+                    <pre className="max-h-48 overflow-auto rounded-md border border-border/50 bg-muted/30 p-2 text-xs">
+                      {diagnostics || 'No diagnostics loaded.'}
+                    </pre>
+                  </CardContent>
+                </Card>
+
+                <Card className="backdrop-blur-sm bg-card/60 border-border/50 shadow-xl lg:col-span-1">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-lg">Recent Routing</CardTitle>
+                    <CardDescription>Last routed requests</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Button size="sm" variant="outline" onClick={() => loadRecentRouting().catch((e) => showToast(String(e), 'error'))}>
+                      Refresh
+                    </Button>
+                    <div className="max-h-48 overflow-auto rounded-md border border-border/50 bg-muted/30 p-2 text-xs">
+                      {recentRouting.length === 0 && <div className="text-muted-foreground">No entries.</div>}
+                      {recentRouting.map((e) => (
+                        <div key={e.request_id || e.timestamp} className="border-b border-border/40 py-1">
+                          <div className="font-mono">{e.path}</div>
+                          <div className="text-muted-foreground">
+                            {e.requested_model} → {e.resolved_model} [{e.selected_provider}]
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-2">
+                <Card className="backdrop-blur-sm bg-card/60 border-border/50 shadow-xl">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-lg">Logs (tail)</CardTitle>
+                    <CardDescription>Engine stdout/stderr</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => tailLogs('stdout').catch((e) => showToast(String(e), 'error'))}>
+                        Stdout
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => tailLogs('stderr').catch((e) => showToast(String(e), 'error'))}>
+                        Stderr
+                      </Button>
+                    </div>
+                    <pre className="max-h-56 overflow-auto rounded-md border border-border/50 bg-muted/30 p-2 text-xs">
+                      {logText || 'No logs loaded.'}
+                    </pre>
+                  </CardContent>
+                </Card>
+
+                <Card className="backdrop-blur-sm bg-card/60 border-border/50 shadow-xl">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-lg">Semantic Memory</CardTitle>
+                    <CardDescription>Ollama embeddings + per-repo namespaces</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" variant="outline" onClick={() => loadSemanticHealth().catch((e) => showToast(String(e), 'error'))}>
+                        Refresh
+                      </Button>
+                      <Badge variant={semanticHealth?.status === 'ok' ? 'default' : 'secondary'}>
+                        {semanticHealth?.status || 'unknown'}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {semanticHealth?.model} {semanticHealth?.version ? `v${semanticHealth.version}` : ''}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <select
+                        className="min-w-[200px] rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
+                        value={semanticNamespace}
+                        onChange={(e) => setSemanticNamespace(e.target.value)}
+                      >
+                        {semanticNamespaces.length === 0 && <option value="">(no namespaces)</option>}
+                        {semanticNamespaces.map((n) => (
+                          <option key={n.key} value={n.key}>{n.label || n.key}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        min={10}
+                        max={200}
+                        className="w-20 rounded-md border border-border bg-background/60 px-2 py-1 text-xs"
+                        value={semanticLimit}
+                        onChange={(e) => setSemanticLimit(parseInt(e.target.value || '50', 10))}
+                      />
+                      <Button size="sm" variant="outline" onClick={() => loadSemanticItems().catch((e) => showToast(String(e), 'error'))}>
+                        Load
+                      </Button>
+                    </div>
+                    <pre className="max-h-56 overflow-auto rounded-md border border-border/50 bg-muted/30 p-2 text-xs">
+                      {semanticItems || 'No items loaded.'}
+                    </pre>
+                  </CardContent>
+                </Card>
+              </div>
+            </>
+          )}
 
           {/* Footer */}
           <footer className="text-center text-xs text-muted-foreground pt-4 opacity-60 hover:opacity-100 transition-opacity">

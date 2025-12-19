@@ -226,7 +226,7 @@ func run(repoRoot, configPath, exePath string) {
 						refresh()
 						continue
 					}
-					_ = desktopctl.OpenBrowser(st.BaseURL + "/management.html")
+					_ = desktopctl.OpenBrowser(st.BaseURL + "/management.html?legacy=1")
 				case <-openLogs.ClickedCh:
 					if err := desktopctl.OpenLogsFolder(repoRoot, configPath); err != nil {
 						lastErr = err.Error()

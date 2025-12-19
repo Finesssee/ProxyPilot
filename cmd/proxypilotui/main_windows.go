@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"net/http"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -86,9 +86,8 @@ func main() {
 		}
 	} else {
 		st, _ := desktopctl.StatusFor(configPath)
-		target = st.BaseURL + "/proxypilot.html"
 		if strings.EqualFold(strings.TrimSpace(url), "control") {
-			target = ""
+			target = st.BaseURL + "/proxypilot.html"
 		} else if strings.HasPrefix(strings.TrimSpace(url), "http://") || strings.HasPrefix(strings.TrimSpace(url), "https://") {
 			target = strings.TrimSpace(url)
 		}
@@ -158,7 +157,7 @@ func main() {
 		if !cur.Running || strings.TrimSpace(cur.BaseURL) == "" {
 			return fmt.Errorf("proxy is not running")
 		}
-		return openNewWindow(repoRoot, configPath, exePath, cur.BaseURL+"/management.html")
+		return openNewWindow(repoRoot, configPath, exePath, cur.BaseURL+"/management.html?legacy=1")
 	})
 	_ = w.Bind("pp_open_diagnostics", func() error {
 		cur, _ := desktopctl.StatusFor(configPath)
@@ -190,6 +189,7 @@ func main() {
 		return startOAuthFlow(configPath, endpoint)
 	})
 	_ = w.Bind("pp_copy_diagnostics", func() error { return copyDiagnosticsToClipboard(configPath) })
+	_ = w.Bind("pp_get_management_key", func() (string, error) { return desktopctl.GetManagementPassword() })
 
 	if target != "" {
 		w.Navigate(target)
