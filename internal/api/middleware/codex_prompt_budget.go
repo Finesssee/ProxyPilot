@@ -51,7 +51,46 @@ var (
 
 	pruneMu   sync.Mutex
 	lastPrune time.Time
+
+	limiterMu        sync.Mutex
+	memoryLimiters   = map[string]*rateLimiter{}
+	semanticLimiters = map[string]*rateLimiter{}
 )
+
+type rateLimiter struct {
+	mu     sync.Mutex
+	tokens float64
+	last   time.Time
+}
+
+func (r *rateLimiter) Allow(ratePerSec float64, burst float64) bool {
+	if ratePerSec <= 0 {
+		return true
+	}
+	if burst <= 0 {
+		burst = ratePerSec
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	if r.last.IsZero() {
+		r.last = now
+		r.tokens = burst
+	}
+	elapsed := now.Sub(r.last).Seconds()
+	if elapsed > 0 {
+		r.tokens += elapsed * ratePerSec
+		if r.tokens > burst {
+			r.tokens = burst
+		}
+		r.last = now
+	}
+	if r.tokens >= 1 {
+		r.tokens -= 1
+		return true
+	}
+	return false
+}
 
 func agenticMaxBodyBytes() int {
 	codexMaxBodyBytesOnce.Do(func() {
@@ -191,6 +230,7 @@ func (q *semanticEmbedQueue) run() {
 		}
 		vecs, err := client.Embed(context.Background(), task.texts)
 		if err != nil || len(vecs) != len(task.texts) {
+			memory.IncSemanticFailed(len(task.texts))
 			time.Sleep(2 * time.Second)
 			continue
 		}
@@ -214,6 +254,7 @@ func (q *semanticEmbedQueue) run() {
 		}
 		if len(records) > 0 {
 			_ = q.fs.AppendSemantic(task.namespace, records)
+			memory.IncSemanticProcessed(len(records))
 		}
 	}
 }
@@ -230,10 +271,12 @@ func enqueueSemanticEmbeds(fs *memory.FileStore, namespace string, session strin
 		q.fs = fs
 	}
 	task := semanticEmbedTask{namespace: namespace, session: session, texts: texts, roles: roles, source: source}
+	memory.IncSemanticQueued(len(texts))
 	select {
 	case q.ch <- task:
 	default:
 		// Drop if the queue is full to avoid backpressure.
+		memory.IncSemanticDropped(len(texts))
 	}
 }
 
@@ -309,6 +352,33 @@ func agenticSemanticMaxBytesPerNamespace() int64 {
 	return 0
 }
 
+func agenticMemoryMaxWritesPerMin() int {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_MEMORY_MAX_WRITES_PER_MIN")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return 120
+}
+
+func agenticSemanticMaxWritesPerMin() int {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_SEMANTIC_MAX_WRITES_PER_MIN")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return 120
+}
+
+func agenticSemanticQueryMaxChars() int {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_SEMANTIC_QUERY_MAX_CHARS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 512
+}
+
 func agenticAnchorAppendOnly() bool {
 	if v := strings.TrimSpace(os.Getenv("CLIPROXY_ANCHOR_APPEND_ONLY")); v != "" {
 		if strings.EqualFold(v, "0") || strings.EqualFold(v, "false") || strings.EqualFold(v, "off") || strings.EqualFold(v, "no") {
@@ -328,6 +398,58 @@ func agenticAnchorSummaryMaxChars() int {
 		}
 	}
 	return 14_000
+}
+
+func allowMemoryWrite(session string) bool {
+	limit := agenticMemoryMaxWritesPerMin()
+	if limit <= 0 || session == "" {
+		return true
+	}
+	limiter := getSessionLimiter(memoryLimiters, session)
+	rate := float64(limit) / 60.0
+	burst := float64(limit) / 6.0
+	if burst < 5 {
+		burst = 5
+	}
+	return limiter.Allow(rate, burst)
+}
+
+func allowSemanticWrite(session string) bool {
+	limit := agenticSemanticMaxWritesPerMin()
+	if limit <= 0 || session == "" {
+		return true
+	}
+	limiter := getSessionLimiter(semanticLimiters, session)
+	rate := float64(limit) / 60.0
+	burst := float64(limit) / 6.0
+	if burst < 5 {
+		burst = 5
+	}
+	return limiter.Allow(rate, burst)
+}
+
+func getSessionLimiter(store map[string]*rateLimiter, session string) *rateLimiter {
+	limiterMu.Lock()
+	defer limiterMu.Unlock()
+	if limiter, ok := store[session]; ok {
+		return limiter
+	}
+	limiter := &rateLimiter{}
+	store[session] = limiter
+	// best-effort cleanup for stale entries
+	for key, lim := range store {
+		if lim == nil {
+			delete(store, key)
+			continue
+		}
+		lim.mu.Lock()
+		last := lim.last
+		lim.mu.Unlock()
+		if !last.IsZero() && time.Since(last) > 15*time.Minute {
+			delete(store, key)
+		}
+	}
+	return limiter
 }
 
 // CodexPromptBudgetMiddleware trims oversized OpenAI requests coming from Codex CLI.
@@ -512,11 +634,16 @@ func agenticMaybeUpsertAndInjectPackedState(req *http.Request, session string, b
 		anchor = fs.ReadSummary(session, 2500)
 	}
 	mem := ""
-	if agenticSemanticEnabled() {
+	if agenticSemanticEnabled() && !fs.IsSemanticDisabled(session) {
 		ns := semanticNamespace(req, body, session)
 		query := semanticQueryText(shape, body)
 		query = strings.TrimSpace(query)
 		if query != "" {
+			if maxChars := agenticSemanticQueryMaxChars(); maxChars > 0 && len(query) > maxChars {
+				query = query[:maxChars] + "\n...[truncated]..."
+			}
+		}
+		if query != "" && allowSemanticWrite(session) {
 			client := agenticSemanticClient()
 			if client != nil {
 				vecs, err := client.Embed(context.Background(), []string{query})
@@ -1196,9 +1323,18 @@ func agenticStoreAndInjectMemory(c *gin.Context, req *http.Request, session stri
 	}
 
 	if len(res.Dropped) > 0 {
-		_ = store.Append(session, res.Dropped)
+		stored := false
+		if allowMemoryWrite(session) {
+			_ = store.Append(session, res.Dropped)
+			stored = true
+		} else if c != nil {
+			ip := c.ClientIP()
+			if ip == "127.0.0.1" || ip == "::1" {
+				c.Header("X-ProxyPilot-Memory-Limited", "true")
+			}
+		}
 		// Indicate memory was stored
-		if c != nil {
+		if stored && c != nil {
 			ip := c.ClientIP()
 			if ip == "127.0.0.1" || ip == "::1" {
 				c.Header("X-ProxyPilot-Memory-Stored", strconv.Itoa(len(res.Dropped)))
@@ -1215,11 +1351,18 @@ func agenticStoreAndInjectMemory(c *gin.Context, req *http.Request, session stri
 		if len(res.Dropped) > 0 {
 			_ = agenticUpdateAnchoredSummary(fs, session, res.Dropped, pinned, res.Query)
 		}
-		if agenticSemanticEnabled() && len(res.Dropped) > 0 {
+		if agenticSemanticEnabled() && len(res.Dropped) > 0 && !fs.IsSemanticDisabled(session) {
 			ns := semanticNamespace(req, res.Body, session)
-			texts, roles := collectSemanticTexts(res.Dropped, 12)
-			if len(texts) > 0 {
-				enqueueSemanticEmbeds(fs, ns, session, texts, roles, "dropped")
+			if allowSemanticWrite(session) {
+				texts, roles := collectSemanticTexts(res.Dropped, 12)
+				if len(texts) > 0 {
+					enqueueSemanticEmbeds(fs, ns, session, texts, roles, "dropped")
+				}
+			} else if c != nil {
+				ip := c.ClientIP()
+				if ip == "127.0.0.1" || ip == "::1" {
+					c.Header("X-ProxyPilot-Semantic-Limited", "true")
+				}
 			}
 		}
 	}
