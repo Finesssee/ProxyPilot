@@ -58,6 +58,8 @@ Environment variables:
 
 - `CLIPROXY_ANCHOR_SUMMARY_MAX_CHARS` (default: `14000`)
 - `CLIPROXY_ANCHOR_APPEND_ONLY` (default: enabled)
+- `CLIPROXY_MEMORY_MAX_WRITES_PER_MIN` (default: `120`)
+- `CLIPROXY_MEMORY_EXPORT_MAX_BYTES` (default: `262144000` / 250MB)
 
 When append-only anchoring is on, the new anchor is appended once and then preserved in subsequent turns by the client.
 If disabled, the anchor is included in the scaffold on every request (legacy behavior).
@@ -136,6 +138,8 @@ Environment variables:
 - `CLIPROXY_SEMANTIC_MAX_AGE_DAYS` (default: disabled)
 - `CLIPROXY_SEMANTIC_MAX_NAMESPACES` (default: disabled)
 - `CLIPROXY_SEMANTIC_MAX_BYTES_PER_NAMESPACE` (default: disabled)
+- `CLIPROXY_SEMANTIC_MAX_WRITES_PER_MIN` (default: `120`)
+- `CLIPROXY_SEMANTIC_QUERY_MAX_CHARS` (default: `512`)
 
 Namespace:
 
@@ -154,6 +158,11 @@ ProxyPilot will prune on a best-effort interval (every ~10 minutes after writes)
 
 The management UI also exposes manual prune + import/export tools.
 
+## Per-session semantic toggle
+
+You can disable semantic memory per session (stored in `semantic_disabled` in the session folder).
+This stops embeddings/retrieval for that session without disabling global semantic memory.
+
 Management endpoints (local only):
 
 - `GET /v0/management/memory/sessions`
@@ -161,6 +170,9 @@ Management endpoints (local only):
 - `GET /v0/management/memory/events?session=...`
 - `GET /v0/management/memory/anchors?session=...`
 - `POST /v0/management/memory/todo|pinned|summary`
+- `POST /v0/management/memory/semantic` (enable/disable per-session semantic)
 - `POST /v0/management/memory/prune`
 - `GET /v0/management/memory/export?session=...`
+- `GET /v0/management/memory/export-all`
 - `POST /v0/management/memory/import?session=...`
+- `POST /v0/management/memory/delete-all`
