@@ -14,15 +14,29 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 type FileStore struct {
-	BaseDir string
+	BaseDir   string
+	cacheMu   sync.Mutex
+	cache     map[string]searchCacheEntry
+	cacheKeys []string
+}
+
+type searchCacheEntry struct {
+	ts       time.Time
+	snippets []string
+	maxChars int
+	maxSnips int
 }
 
 func NewFileStore(baseDir string) *FileStore {
-	return &FileStore{BaseDir: baseDir}
+	return &FileStore{
+		BaseDir: baseDir,
+		cache:   make(map[string]searchCacheEntry, 64),
+	}
 }
 
 var (
@@ -37,6 +51,7 @@ func (s *FileStore) Append(session string, events []Event) error {
 	if session == "" || len(events) == 0 {
 		return nil
 	}
+	s.invalidateSearchCache(session)
 	dir := s.sessionDir(session)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -79,6 +94,11 @@ func (s *FileStore) Search(session string, query string, maxChars int, maxSnippe
 	}
 	if maxSnippets <= 0 {
 		maxSnippets = 8
+	}
+
+	cacheKey := s.searchCacheKey(session, query, maxChars, maxSnippets)
+	if cached, ok := s.getSearchCache(cacheKey); ok {
+		return cached, nil
 	}
 
 	dir := s.sessionDir(session)
@@ -193,6 +213,9 @@ func (s *FileStore) Search(session string, query string, maxChars int, maxSnippe
 		}
 		out = append(out, snip)
 		chars += len(snip) + 4
+	}
+	if len(out) > 0 {
+		s.setSearchCache(cacheKey, out, maxChars, maxSnippets)
 	}
 	return out, nil
 }
@@ -314,6 +337,7 @@ func (s *FileStore) WriteSummary(session string, summary string, maxChars int) e
 	if session == "" {
 		return nil
 	}
+	s.invalidateSearchCache(session)
 	summary = strings.TrimSpace(RedactText(summary))
 	if summary == "" {
 		return nil
@@ -339,6 +363,7 @@ func (s *FileStore) SetAnchorSummary(session string, summary string, maxChars in
 	if session == "" {
 		return nil
 	}
+	s.invalidateSearchCache(session)
 	if err := s.WriteSummary(session, summary, maxChars); err != nil {
 		return err
 	}
@@ -372,6 +397,33 @@ func (s *FileStore) ReadPendingAnchor(session string, maxChars int) string {
 		txt = txt[:maxChars] + "\n...[truncated]..."
 	}
 	return txt
+}
+
+func (s *FileStore) IsSemanticDisabled(session string) bool {
+	if s == nil || s.BaseDir == "" || session == "" {
+		return false
+	}
+	path := filepath.Join(s.sessionDir(session), "semantic_disabled")
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func (s *FileStore) SetSemanticDisabled(session string, disabled bool) error {
+	if s == nil || s.BaseDir == "" || session == "" {
+		return nil
+	}
+	dir := s.sessionDir(session)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, "semantic_disabled")
+	if !disabled {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return os.WriteFile(path, []byte("true\n"), 0o644)
 }
 
 func (s *FileStore) ClearPendingAnchor(session string) error {
@@ -410,6 +462,79 @@ func (s *FileStore) appendAnchorEvent(dir string, summary string) error {
 	_, _ = f.Write(b)
 	_, _ = f.WriteString("\n")
 	return nil
+}
+
+func (s *FileStore) searchCacheKey(session string, query string, maxChars int, maxSnips int) string {
+	q := strings.ToLower(strings.TrimSpace(query))
+	return session + "|" + strconv.Itoa(maxChars) + "|" + strconv.Itoa(maxSnips) + "|" + q
+}
+
+func (s *FileStore) getSearchCache(key string) ([]string, bool) {
+	if s == nil {
+		return nil, false
+	}
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	entry, ok := s.cache[key]
+	if !ok {
+		return nil, false
+	}
+	if time.Since(entry.ts) > 20*time.Second {
+		delete(s.cache, key)
+		return nil, false
+	}
+	out := make([]string, len(entry.snippets))
+	copy(out, entry.snippets)
+	return out, true
+}
+
+func (s *FileStore) setSearchCache(key string, snippets []string, maxChars int, maxSnips int) {
+	if s == nil {
+		return
+	}
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	if s.cache == nil {
+		s.cache = make(map[string]searchCacheEntry, 64)
+	}
+	if len(s.cacheKeys) >= 64 {
+		oldest := s.cacheKeys[0]
+		s.cacheKeys = s.cacheKeys[1:]
+		delete(s.cache, oldest)
+	}
+	s.cache[key] = searchCacheEntry{
+		ts:       time.Now(),
+		snippets: append([]string(nil), snippets...),
+		maxChars: maxChars,
+		maxSnips: maxSnips,
+	}
+	s.cacheKeys = append(s.cacheKeys, key)
+}
+
+func (s *FileStore) invalidateSearchCache(session string) {
+	if s == nil || session == "" {
+		return
+	}
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	if s.cache == nil {
+		return
+	}
+	prefix := session + "|"
+	for k := range s.cache {
+		if strings.HasPrefix(k, prefix) {
+			delete(s.cache, k)
+		}
+	}
+	if len(s.cacheKeys) > 0 {
+		filtered := s.cacheKeys[:0]
+		for _, k := range s.cacheKeys {
+			if !strings.HasPrefix(k, prefix) {
+				filtered = append(filtered, k)
+			}
+		}
+		s.cacheKeys = filtered
+	}
 }
 
 func sanitizeSessionKey(s string) string {

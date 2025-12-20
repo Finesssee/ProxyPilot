@@ -26,6 +26,14 @@ type SemanticRecord struct {
 	Repo    string    `json:"repo,omitempty"`
 }
 
+type SemanticNamespaceInfo struct {
+	Key        string    `json:"key"`
+	Namespace  string    `json:"namespace"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	SizeBytes  int64     `json:"size_bytes"`
+	ItemsBytes int64     `json:"items_bytes"`
+}
+
 func (s *FileStore) AppendSemantic(namespace string, records []SemanticRecord) error {
 	if s == nil || s.BaseDir == "" {
 		return errors.New("memory store not configured")
@@ -247,6 +255,59 @@ func (s *FileStore) ReadSemanticTail(namespace string, limit int) ([]SemanticRec
 	// Reverse to chronological order
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
 		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}
+
+func (s *FileStore) ListSemanticNamespaces(limit int) ([]SemanticNamespaceInfo, error) {
+	if s == nil || s.BaseDir == "" {
+		return nil, errors.New("memory store not configured")
+	}
+	root := filepath.Join(s.BaseDir, "semantic")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []SemanticNamespaceInfo{}, nil
+		}
+		return nil, err
+	}
+	out := make([]SemanticNamespaceInfo, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		dir := filepath.Join(root, e.Name())
+		itemsPath := filepath.Join(dir, "items.jsonl")
+		fi, err := os.Stat(itemsPath)
+		if err != nil {
+			continue
+		}
+		ns := strings.TrimSpace(s.readSmallTextFile(filepath.Join(dir, "namespace.txt"), 2048))
+		info := SemanticNamespaceInfo{
+			Key:        e.Name(),
+			Namespace:  ns,
+			UpdatedAt:  fi.ModTime(),
+			ItemsBytes: fi.Size(),
+		}
+		var total int64
+		if entries2, err := os.ReadDir(dir); err == nil {
+			for _, e2 := range entries2 {
+				if e2.IsDir() {
+					continue
+				}
+				if fi2, err := e2.Info(); err == nil {
+					total += fi2.Size()
+				}
+			}
+		}
+		info.SizeBytes = total
+		out = append(out, info)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].UpdatedAt.After(out[j].UpdatedAt)
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
 }

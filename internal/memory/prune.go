@@ -23,6 +23,7 @@ type SessionInfo struct {
 	HasTodo          bool      `json:"has_todo"`
 	HasPinned        bool      `json:"has_pinned"`
 	HasAnchorPending bool      `json:"has_anchor_pending"`
+	SemanticDisabled bool      `json:"semantic_disabled"`
 }
 
 type AnchorEvent struct {
@@ -117,6 +118,8 @@ func (s *FileStore) getSessionInfoFromDir(session string, dir string) (SessionIn
 			info.HasPinned = true
 		case "anchor_pending.md":
 			info.HasAnchorPending = true
+		case "semantic_disabled":
+			info.SemanticDisabled = true
 		case "events.jsonl":
 			eventsBytes = fi.Size()
 			_ = p
@@ -391,6 +394,73 @@ func ExportSessionZip(sessionDir string) ([]byte, error) {
 			return nil
 		}
 		rel, err := filepath.Rel(sessionDir, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if rel == "." || rel == "" {
+			return nil
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		w, err := zw.Create(rel)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(w, f); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		_ = zw.Close()
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func ExportAllZip(baseDir string, maxBytes int64) ([]byte, error) {
+	if strings.TrimSpace(baseDir) == "" {
+		return nil, errors.New("base directory required")
+	}
+	var total int64
+	err := filepath.WalkDir(baseDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		fi, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		total += fi.Size()
+		if maxBytes > 0 && total > maxBytes {
+			return errors.New("export exceeds size limit")
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	buf := &bytes.Buffer{}
+	zw := zip.NewWriter(buf)
+	err = filepath.WalkDir(baseDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(baseDir, path)
 		if err != nil {
 			return err
 		}
