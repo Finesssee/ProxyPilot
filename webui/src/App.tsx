@@ -91,6 +91,7 @@ export default function App() {
   const [memoryPinned, setMemoryPinned] = useState('');
   const [memorySummary, setMemorySummary] = useState('');
   const [memoryImportReplace, setMemoryImportReplace] = useState(false);
+  const [memorySemanticEnabled, setMemorySemanticEnabled] = useState(true);
   const [memoryPrune, setMemoryPrune] = useState({
     maxAgeDays: 30,
     maxSessions: 200,
@@ -360,6 +361,7 @@ export default function App() {
       setMemorySummary(session.summary || '');
       setMemoryPinned(session.pinned || '');
       setMemoryTodo(session.todo || '');
+      setMemorySemanticEnabled(!session.semantic_disabled);
     }
   };
 
@@ -436,6 +438,18 @@ export default function App() {
     showToast('Saved anchor summary', 'success');
   };
 
+  const toggleMemorySemantic = async (enabled: boolean) => {
+    if (!memorySession) return;
+    await mgmtFetch('/v0/management/memory/semantic', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: memorySession, enabled }),
+    });
+    setMemorySemanticEnabled(enabled);
+    await loadMemorySessionDetails();
+    showToast(`Semantic ${enabled ? 'enabled' : 'disabled'}`, 'success');
+  };
+
   const deleteMemorySession = async () => {
     if (!memorySession) return;
     await mgmtFetch(`/v0/management/memory/session?session=${encodeURIComponent(memorySession)}`, {
@@ -465,6 +479,36 @@ export default function App() {
     a.download = `proxypilot-session-${memorySession}.zip`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const exportAllMemory = async () => {
+    if (!mgmtKey) return;
+    const res = await fetch('/v0/management/memory/export-all', {
+      headers: { 'X-Management-Key': mgmtKey },
+    });
+    if (!res.ok) {
+      const msg = await res.text();
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'proxypilot-memory-all.zip';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const deleteAllMemory = async () => {
+    if (!mgmtKey) return;
+    if (!window.confirm('Delete all memory data? This cannot be undone.')) return;
+    await mgmtFetch('/v0/management/memory/delete-all?confirm=true', { method: 'POST' });
+    setMemorySession('');
+    setMemoryDetails(null);
+    setMemoryEvents('');
+    setMemoryAnchors('');
+    await loadMemorySessions();
+    showToast('Deleted all memory', 'success');
   };
 
   const importMemorySession = async (file: File | null) => {
@@ -1021,8 +1065,14 @@ export default function App() {
                       <Button size="sm" variant="outline" onClick={() => exportMemorySession().catch((e) => showToast(String(e), 'error'))}>
                         Export
                       </Button>
+                      <Button size="sm" variant="outline" onClick={() => exportAllMemory().catch((e) => showToast(String(e), 'error'))}>
+                        Export all
+                      </Button>
                       <Button size="sm" variant="destructive" onClick={() => deleteMemorySession().catch((e) => showToast(String(e), 'error'))}>
                         Delete
+                      </Button>
+                      <Button size="sm" variant="destructive" onClick={() => deleteAllMemory().catch((e) => showToast(String(e), 'error'))}>
+                        Delete all
                       </Button>
                     </div>
 
@@ -1058,6 +1108,15 @@ export default function App() {
                       <span className="text-xs text-muted-foreground">
                         {memoryDetails?.updated_at ? `Updated ${memoryDetails.updated_at}` : 'No session loaded.'}
                       </span>
+                      <label className="text-xs text-muted-foreground flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={memorySemanticEnabled}
+                          disabled={!memorySession}
+                          onChange={(e) => toggleMemorySemantic(e.target.checked).catch((err) => showToast(String(err), 'error'))}
+                        />
+                        Semantic enabled
+                      </label>
                     </div>
 
                     <div className="grid gap-4 lg:grid-cols-3">
@@ -1215,6 +1274,15 @@ export default function App() {
                       <span className="text-xs text-muted-foreground">
                         {semanticHealth?.model} {semanticHealth?.version ? `v${semanticHealth.version}` : ''}
                       </span>
+                      <span className="text-xs text-muted-foreground">
+                        {semanticHealth?.model_present === false ? 'model missing' : ''}
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {semanticHealth?.latency_ms ? `latency ${semanticHealth.latency_ms}ms` : 'latency n/a'}
+                      {semanticHealth?.queue
+                        ? ` · queue q${semanticHealth.queue.queued} d${semanticHealth.queue.dropped} p${semanticHealth.queue.processed} f${semanticHealth.queue.failed}`
+                        : ''}
                     </div>
                     <div className="flex items-center gap-2">
                       <select
