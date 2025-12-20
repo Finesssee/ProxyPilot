@@ -570,6 +570,15 @@ func (s *FileStore) sessionDir(session string) string {
 	return filepath.Join(s.BaseDir, "sessions", sanitizeSessionKey(session))
 }
 
+// SessionDir exposes the on-disk session directory for callers that need to store
+// per-session sidecar metadata.
+func (s *FileStore) SessionDir(session string) string {
+	if s == nil {
+		return ""
+	}
+	return s.sessionDir(session)
+}
+
 func (s *FileStore) readSmallTextFile(path string, maxBytes int64) string {
 	if maxBytes <= 0 {
 		maxBytes = 16_000
