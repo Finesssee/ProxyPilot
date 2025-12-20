@@ -214,20 +214,14 @@ func (s *FileStore) UpsertAnchoredSummary(session string, dropped []Event, pinne
 	}
 
 	prev := s.readSmallTextFile(filepath.Join(dir, "summary.md"), 60_000)
-	next := buildAnchoredSummary(prev, dropped, latestIntent)
+	next := BuildAnchoredSummary(prev, dropped, latestIntent)
 	if strings.TrimSpace(next) == "" {
 		return nil
 	}
-	// Keep summary bounded to preserve token budget.
-	const maxSummaryChars = 14_000
-	if len(next) > maxSummaryChars {
-		next = next[len(next)-maxSummaryChars:]
-		next = "\n...[truncated]...\n" + next
-	}
-	return os.WriteFile(filepath.Join(dir, "summary.md"), []byte(next), 0o644)
+	return s.WriteSummary(session, next, 14_000)
 }
 
-func buildAnchoredSummary(prev string, dropped []Event, latestIntent string) string {
+func BuildAnchoredSummary(prev string, dropped []Event, latestIntent string) string {
 	var b strings.Builder
 	prev = strings.TrimSpace(prev)
 	if prev != "" {
@@ -311,6 +305,111 @@ func buildAnchoredSummary(prev string, dropped []Event, latestIntent string) str
 		}
 	}
 	return strings.TrimSpace(b.String()) + "\n"
+}
+
+func (s *FileStore) WriteSummary(session string, summary string, maxChars int) error {
+	if s == nil || s.BaseDir == "" {
+		return errors.New("memory store not configured")
+	}
+	if session == "" {
+		return nil
+	}
+	summary = strings.TrimSpace(RedactText(summary))
+	if summary == "" {
+		return nil
+	}
+	if maxChars <= 0 {
+		maxChars = 14_000
+	}
+	if len(summary) > maxChars {
+		summary = summary[len(summary)-maxChars:]
+		summary = "\n...[truncated]...\n" + summary
+	}
+	dir := s.sessionDir(session)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "summary.md"), []byte(summary), 0o644)
+}
+
+func (s *FileStore) SetAnchorSummary(session string, summary string, maxChars int) error {
+	if s == nil || s.BaseDir == "" {
+		return errors.New("memory store not configured")
+	}
+	if session == "" {
+		return nil
+	}
+	if err := s.WriteSummary(session, summary, maxChars); err != nil {
+		return err
+	}
+	dir := s.sessionDir(session)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	pendingPath := filepath.Join(dir, "anchor_pending.md")
+	_ = os.WriteFile(pendingPath, []byte(summary), 0o644)
+	_ = s.appendAnchorEvent(dir, summary)
+	return nil
+}
+
+func (s *FileStore) ReadPendingAnchor(session string, maxChars int) string {
+	if s == nil || s.BaseDir == "" {
+		return ""
+	}
+	if session == "" {
+		return ""
+	}
+	if maxChars <= 0 {
+		maxChars = 4000
+	}
+	dir := s.sessionDir(session)
+	txt := strings.TrimSpace(s.readSmallTextFile(filepath.Join(dir, "anchor_pending.md"), int64(maxChars*2)))
+	if txt == "" {
+		return ""
+	}
+	txt = normalizeEscapedText(txt)
+	if len(txt) > maxChars {
+		txt = txt[:maxChars] + "\n...[truncated]..."
+	}
+	return txt
+}
+
+func (s *FileStore) ClearPendingAnchor(session string) error {
+	if s == nil || s.BaseDir == "" {
+		return errors.New("memory store not configured")
+	}
+	if session == "" {
+		return nil
+	}
+	dir := s.sessionDir(session)
+	path := filepath.Join(dir, "anchor_pending.md")
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func (s *FileStore) appendAnchorEvent(dir string, summary string) error {
+	if strings.TrimSpace(summary) == "" {
+		return nil
+	}
+	path := filepath.Join(dir, "anchors.jsonl")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	payload := map[string]any{
+		"ts":      time.Now().Format(time.RFC3339),
+		"summary": summary,
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return nil
+	}
+	_, _ = f.Write(b)
+	_, _ = f.WriteString("\n")
+	return nil
 }
 
 func sanitizeSessionKey(s string) string {
