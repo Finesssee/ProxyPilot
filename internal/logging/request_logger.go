@@ -427,6 +427,7 @@ func (l *FileRequestLogger) formatLogContent(url, method string, headers map[str
 	content.WriteString(l.formatRequestInfo(url, method, headers, body))
 
 	if len(apiRequest) > 0 {
+		apiRequest = util.RedactSensitiveJSON(apiRequest)
 		if bytes.HasPrefix(apiRequest, []byte("=== API REQUEST")) {
 			content.Write(apiRequest)
 			if !bytes.HasSuffix(apiRequest, []byte("\n")) {
@@ -448,6 +449,7 @@ func (l *FileRequestLogger) formatLogContent(url, method string, headers map[str
 	}
 
 	if len(apiResponse) > 0 {
+		apiResponse = util.RedactSensitiveJSON(apiResponse)
 		if bytes.HasPrefix(apiResponse, []byte("=== API RESPONSE")) {
 			content.Write(apiResponse)
 			if !bytes.HasSuffix(apiResponse, []byte("\n")) {
@@ -474,6 +476,7 @@ func (l *FileRequestLogger) formatLogContent(url, method string, headers map[str
 	}
 
 	content.WriteString("\n")
+	response = util.RedactSensitiveJSON(response)
 	content.Write(response)
 	content.WriteString("\n")
 
@@ -641,7 +644,8 @@ func (l *FileRequestLogger) formatRequestInfo(url, method string, headers map[st
 	content.WriteString("\n")
 
 	content.WriteString("=== REQUEST BODY ===\n")
-	content.Write(body)
+	redactedBody := util.RedactSensitiveJSON(body)
+	content.Write(redactedBody)
 	content.WriteString("\n\n")
 
 	return content.String()
@@ -785,14 +789,15 @@ func (w *FileStreamingLogWriter) Close() error {
 
 	// 1. Write API REQUEST section
 	if len(w.apiRequest) > 0 {
-		if bytes.HasPrefix(w.apiRequest, []byte("=== API REQUEST")) {
-			content.Write(w.apiRequest)
+		apiReq := util.RedactSensitiveJSON(w.apiRequest)
+		if bytes.HasPrefix(apiReq, []byte("=== API REQUEST")) {
+			content.Write(apiReq)
 			if !bytes.HasSuffix(w.apiRequest, []byte("\n")) {
 				content.WriteString("\n")
 			}
 		} else {
 			content.WriteString("=== API REQUEST ===\n")
-			content.Write(w.apiRequest)
+			content.Write(apiReq)
 			content.WriteString("\n")
 		}
 		content.WriteString("\n")
@@ -800,14 +805,15 @@ func (w *FileStreamingLogWriter) Close() error {
 
 	// 2. Write API RESPONSE section
 	if len(w.apiResponse) > 0 {
-		if bytes.HasPrefix(w.apiResponse, []byte("=== API RESPONSE")) {
-			content.Write(w.apiResponse)
+		apiResp := util.RedactSensitiveJSON(w.apiResponse)
+		if bytes.HasPrefix(apiResp, []byte("=== API RESPONSE")) {
+			content.Write(apiResp)
 			if !bytes.HasSuffix(w.apiResponse, []byte("\n")) {
 				content.WriteString("\n")
 			}
 		} else {
 			content.WriteString("=== API RESPONSE ===\n")
-			content.Write(w.apiResponse)
+			content.Write(apiResp)
 			content.WriteString("\n")
 		}
 		content.WriteString("\n")
