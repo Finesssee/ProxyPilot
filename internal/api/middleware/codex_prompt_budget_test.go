@@ -33,3 +33,13 @@ func TestSpecModeHeader(t *testing.T) {
 	req.Header.Set("X-CLIProxyAPI-Spec-Mode", "true")
 	require.True(t, agenticSpecModeEnabled(req, []byte(`{}`)))
 }
+
+func TestAppendSystemBlockChat(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
+	out, ok := appendSystemBlock("chat", body, "<proxypilot_anchor>ok</proxypilot_anchor>", 10000)
+	require.True(t, ok)
+	msgs := gjson.GetBytes(out, "messages").Array()
+	require.Len(t, msgs, 2)
+	require.Equal(t, "system", msgs[1].Get("role").String())
+	require.Contains(t, msgs[1].Get("content").String(), "proxypilot_anchor")
+}

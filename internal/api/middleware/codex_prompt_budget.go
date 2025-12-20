@@ -45,6 +45,12 @@ var (
 
 	embedOnce   sync.Once
 	embedClient *embeddings.OllamaClient
+
+	embedQueueOnce sync.Once
+	embedQueue     *semanticEmbedQueue
+
+	pruneMu   sync.Mutex
+	lastPrune time.Time
 )
 
 func agenticMaxBodyBytes() int {
@@ -145,6 +151,92 @@ func agenticSemanticClient() *embeddings.OllamaClient {
 	return embedClient
 }
 
+type semanticEmbedTask struct {
+	namespace string
+	session   string
+	texts     []string
+	roles     []string
+	source    string
+}
+
+type semanticEmbedQueue struct {
+	ch chan semanticEmbedTask
+	fs *memory.FileStore
+}
+
+func agenticSemanticQueue() *semanticEmbedQueue {
+	embedQueueOnce.Do(func() {
+		store := agenticMemoryStore()
+		fs, _ := store.(*memory.FileStore)
+		embedQueue = &semanticEmbedQueue{
+			ch: make(chan semanticEmbedTask, 64),
+			fs: fs,
+		}
+		go embedQueue.run()
+	})
+	return embedQueue
+}
+
+func (q *semanticEmbedQueue) run() {
+	for task := range q.ch {
+		if q == nil || q.fs == nil {
+			continue
+		}
+		if len(task.texts) == 0 {
+			continue
+		}
+		client := agenticSemanticClient()
+		if client == nil {
+			continue
+		}
+		vecs, err := client.Embed(context.Background(), task.texts)
+		if err != nil || len(vecs) != len(task.texts) {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		records := make([]memory.SemanticRecord, 0, len(task.texts))
+		for i := range task.texts {
+			if len(vecs[i]) == 0 {
+				continue
+			}
+			role := ""
+			if i < len(task.roles) {
+				role = task.roles[i]
+			}
+			records = append(records, memory.SemanticRecord{
+				Role:    role,
+				Text:    task.texts[i],
+				Vec:     vecs[i],
+				Source:  task.source,
+				Session: task.session,
+				Repo:    task.namespace,
+			})
+		}
+		if len(records) > 0 {
+			_ = q.fs.AppendSemantic(task.namespace, records)
+		}
+	}
+}
+
+func enqueueSemanticEmbeds(fs *memory.FileStore, namespace string, session string, texts []string, roles []string, source string) {
+	if fs == nil || namespace == "" || len(texts) == 0 {
+		return
+	}
+	q := agenticSemanticQueue()
+	if q == nil {
+		return
+	}
+	if q.fs == nil {
+		q.fs = fs
+	}
+	task := semanticEmbedTask{namespace: namespace, session: session, texts: texts, roles: roles, source: source}
+	select {
+	case q.ch <- task:
+	default:
+		// Drop if the queue is full to avoid backpressure.
+	}
+}
+
 func agenticTodoEnabled() bool {
 	if v := strings.TrimSpace(os.Getenv("CLIPROXY_TODO_ENABLED")); v != "" {
 		if strings.EqualFold(v, "0") || strings.EqualFold(v, "false") || strings.EqualFold(v, "off") || strings.EqualFold(v, "no") {
@@ -170,6 +262,72 @@ func agenticTodoMaxChars() int {
 		return 20_000
 	}
 	return n
+}
+
+func agenticMemoryMaxAgeDays() int {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_MEMORY_MAX_AGE_DAYS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return 0
+}
+
+func agenticMemoryMaxSessions() int {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_MEMORY_MAX_SESSIONS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return 0
+}
+
+func agenticMemoryMaxBytesPerSession() int64 {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_MEMORY_MAX_BYTES_PER_SESSION")); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return n
+		}
+	}
+	return 0
+}
+
+func agenticSemanticMaxNamespaces() int {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_SEMANTIC_MAX_NAMESPACES")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return 0
+}
+
+func agenticSemanticMaxBytesPerNamespace() int64 {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_SEMANTIC_MAX_BYTES_PER_NAMESPACE")); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return n
+		}
+	}
+	return 0
+}
+
+func agenticAnchorAppendOnly() bool {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_ANCHOR_APPEND_ONLY")); v != "" {
+		if strings.EqualFold(v, "0") || strings.EqualFold(v, "false") || strings.EqualFold(v, "off") || strings.EqualFold(v, "no") {
+			return false
+		}
+		if strings.EqualFold(v, "1") || strings.EqualFold(v, "true") || strings.EqualFold(v, "on") || strings.EqualFold(v, "yes") {
+			return true
+		}
+	}
+	return true
+}
+
+func agenticAnchorSummaryMaxChars() int {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_ANCHOR_SUMMARY_MAX_CHARS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 14_000
 }
 
 // CodexPromptBudgetMiddleware trims oversized OpenAI requests coming from Codex CLI.
@@ -200,6 +358,11 @@ func CodexPromptBudgetMiddlewareWithRootDir(rootDir string) gin.HandlerFunc {
 		mustKeepTools := strings.Contains(ua, "factory-cli") || strings.Contains(ua, "droid") || strings.Contains(ua, "claude-cli") || isStainless
 		isAgenticCLI := strings.Contains(ua, "openai codex") || strings.Contains(ua, "factory-cli") || strings.Contains(ua, "warp") || strings.Contains(ua, "droid") || strings.Contains(ua, "claude-cli") || isStainless
 		if !isAgenticCLI {
+			c.Next()
+			return
+		}
+
+		if strings.TrimSpace(req.Header.Get("X-CLIProxyAPI-Internal")) != "" {
 			c.Next()
 			return
 		}
@@ -288,7 +451,6 @@ func CodexPromptBudgetMiddlewareWithRootDir(rootDir string) gin.HandlerFunc {
 			req.Header.Set("X-CLIProxyAPI-Original-Bytes", strconv.Itoa(originalLen))
 			req.Header.Set("X-CLIProxyAPI-Trimmed-Bytes", strconv.Itoa(len(trimmed)))
 		}
-
 		c.Next()
 	}
 }
@@ -335,7 +497,20 @@ func agenticMaybeUpsertAndInjectPackedState(req *http.Request, session string, b
 	if agents := readAgentsMarkdown(rootDir); strings.TrimSpace(agents) != "" {
 		pinned = mergePinned(pinned, agents)
 	}
-	anchor := fs.ReadSummary(session, 2500)
+	if agenticAnchorAppendOnly() {
+		if pending := strings.TrimSpace(fs.ReadPendingAnchor(session, 4000)); pending != "" {
+			block := buildAnchorBlock(pending)
+			if out, ok := appendSystemBlock(shape, body, block, maxBytes); ok {
+				body = out
+				_ = fs.ClearPendingAnchor(session)
+			}
+		}
+	}
+
+	anchor := ""
+	if !agenticAnchorAppendOnly() {
+		anchor = fs.ReadSummary(session, 2500)
+	}
 	mem := ""
 	if agenticSemanticEnabled() {
 		ns := semanticNamespace(req, body, session)
@@ -346,7 +521,7 @@ func agenticMaybeUpsertAndInjectPackedState(req *http.Request, session string, b
 			if client != nil {
 				vecs, err := client.Embed(context.Background(), []string{query})
 				if err == nil && len(vecs) > 0 && len(vecs[0]) > 0 {
-					if snips, err := fs.SearchSemantic(ns, vecs[0], agenticSemanticMaxChars(), agenticSemanticMaxSnips()); err == nil {
+					if snips, err := fs.SearchSemanticWithText(ns, vecs[0], query, agenticSemanticMaxChars(), agenticSemanticMaxSnips()); err == nil {
 						mem = semanticBlockFromSnips(snips)
 					}
 					_ = fs.AppendSemantic(ns, []memory.SemanticRecord{
@@ -446,6 +621,18 @@ func buildPackedState(pinned string, anchor string, todo string, mem string, spe
 	return b.String()
 }
 
+func buildAnchorBlock(anchor string) string {
+	anchor = strings.TrimSpace(anchor)
+	if anchor == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("<proxypilot_anchor>\n")
+	b.WriteString(anchor)
+	b.WriteString("\n</proxypilot_anchor>\n\n")
+	return b.String()
+}
+
 func agenticScaffoldEnabled() bool {
 	if v := strings.TrimSpace(os.Getenv("CLIPROXY_SCAFFOLD_ENABLED")); v != "" {
 		if strings.EqualFold(v, "0") || strings.EqualFold(v, "false") || strings.EqualFold(v, "off") || strings.EqualFold(v, "no") {
@@ -523,13 +710,18 @@ func mergePinned(pinned string, agents string) string {
 }
 
 func appendScaffoldState(shape string, body []byte, block string, maxBytes int) []byte {
+	out, _ := appendSystemBlock(shape, body, block, maxBytes)
+	return out
+}
+
+func appendSystemBlock(shape string, body []byte, block string, maxBytes int) ([]byte, bool) {
 	block = strings.TrimSpace(block)
 	if block == "" {
-		return body
+		return body, false
 	}
 	limit := maxBytes - len(body) - 512
 	if maxBytes > 0 && limit <= 0 {
-		return body
+		return body, false
 	}
 	if maxBytes > 0 && len(block) > limit {
 		block = block[:limit] + "\n...[truncated]..."
@@ -546,11 +738,11 @@ func appendScaffoldState(shape string, body []byte, block string, maxBytes int) 
 				},
 			}
 			if out, err := sjson.SetBytes(body, "input.-1", entry); err == nil {
-				return out
+				return out, true
 			}
 		}
-		// Fallback to mutating instructions
-		return injectMemoryIntoBody("responses", body, block, maxBytes)
+		out := injectMemoryIntoBody("responses", body, block, maxBytes)
+		return out, out != nil && !bytes.Equal(out, body)
 	case "chat":
 		msgs := gjson.GetBytes(body, "messages")
 		if msgs.Exists() && msgs.IsArray() {
@@ -559,21 +751,23 @@ func appendScaffoldState(shape string, body []byte, block string, maxBytes int) 
 				"content": block,
 			}
 			if out, err := sjson.SetBytes(body, "messages.-1", entry); err == nil {
-				return out
+				return out, true
 			}
 		}
-		return injectMemoryIntoBody("chat", body, block, maxBytes)
+		out := injectMemoryIntoBody("chat", body, block, maxBytes)
+		return out, out != nil && !bytes.Equal(out, body)
 	case "claude":
 		// Claude Messages API prefers top-level "system"; append there as fallback.
 		if sys := gjson.GetBytes(body, "system"); sys.Exists() && sys.Type == gjson.String {
 			merged := strings.TrimSpace(sys.String()) + "\n\n" + block
 			if out, err := sjson.SetBytes(body, "system", merged); err == nil {
-				return out
+				return out, true
 			}
 		}
-		return injectMemoryIntoBody("claude", body, block, maxBytes)
+		out := injectMemoryIntoBody("claude", body, block, maxBytes)
+		return out, out != nil && !bytes.Equal(out, body)
 	default:
-		return body
+		return body, false
 	}
 }
 
@@ -621,11 +815,12 @@ func semanticBlockFromSnips(snips []string) string {
 	return strings.TrimSpace(b.String())
 }
 
-func collectSemanticTexts(dropped []memory.Event, maxItems int) []string {
+func collectSemanticTexts(dropped []memory.Event, maxItems int) ([]string, []string) {
 	if maxItems <= 0 {
 		maxItems = 12
 	}
 	out := make([]string, 0, maxItems)
+	roles := make([]string, 0, maxItems)
 	for i := len(dropped) - 1; i >= 0; i-- {
 		if len(out) >= maxItems {
 			break
@@ -638,8 +833,9 @@ func collectSemanticTexts(dropped []memory.Event, maxItems int) []string {
 			txt = txt[:800] + "\n...[truncated]..."
 		}
 		out = append(out, txt)
+		roles = append(roles, dropped[i].Role)
 	}
-	return out
+	return out, roles
 }
 
 func extractCodingGuidelinesFromBody(body []byte) string {
@@ -1013,36 +1209,17 @@ func agenticStoreAndInjectMemory(c *gin.Context, req *http.Request, session stri
 	// Update anchored summary and pinned context (best-effort).
 	if fs, ok := store.(*memory.FileStore); ok {
 		pinned := extractPinnedContext(req, res.Shape, res.Body)
-		_ = fs.UpsertAnchoredSummary(session, res.Dropped, pinned, res.Query)
+		if pinned != "" {
+			_ = fs.WritePinned(session, pinned, 8000)
+		}
+		if len(res.Dropped) > 0 {
+			_ = agenticUpdateAnchoredSummary(fs, session, res.Dropped, pinned, res.Query)
+		}
 		if agenticSemanticEnabled() && len(res.Dropped) > 0 {
 			ns := semanticNamespace(req, res.Body, session)
-			texts := collectSemanticTexts(res.Dropped, 12)
+			texts, roles := collectSemanticTexts(res.Dropped, 12)
 			if len(texts) > 0 {
-				client := agenticSemanticClient()
-				if client != nil {
-					vecs, err := client.Embed(context.Background(), texts)
-					if err == nil && len(vecs) == len(texts) {
-						records := make([]memory.SemanticRecord, 0, len(texts))
-						for i := range texts {
-							if len(vecs[i]) == 0 {
-								continue
-							}
-							role := ""
-							if i < len(res.Dropped) {
-								role = res.Dropped[i].Role
-							}
-							records = append(records, memory.SemanticRecord{
-								Role:    role,
-								Text:    texts[i],
-								Vec:     vecs[i],
-								Source:  "dropped",
-								Session: session,
-								Repo:    ns,
-							})
-						}
-						_ = fs.AppendSemantic(ns, records)
-					}
-				}
+				enqueueSemanticEmbeds(fs, ns, session, texts, roles, "dropped")
 			}
 		}
 	}
@@ -1050,6 +1227,7 @@ func agenticStoreAndInjectMemory(c *gin.Context, req *http.Request, session stri
 	// Only inject retrieval when we actually trimmed (otherwise it just spends tokens).
 	// Also avoid injecting if tools were forcibly disabled by the client.
 	if strings.TrimSpace(res.Query) == "" {
+		agenticMaybePruneMemory()
 		return
 	}
 
@@ -1070,6 +1248,49 @@ func agenticStoreAndInjectMemory(c *gin.Context, req *http.Request, session stri
 
 	memBlock := buildMemoryBlock(snips)
 	res.Body = appendToLastUserText(res.Shape, res.Body, memBlock, maxBytes)
+
+	agenticMaybePruneMemory()
+}
+
+func agenticUpdateAnchoredSummary(fs *memory.FileStore, session string, dropped []memory.Event, pinned string, latestIntent string) error {
+	if fs == nil || session == "" {
+		return nil
+	}
+	prev := fs.ReadSummary(session, agenticAnchorSummaryMaxChars())
+	next := memory.BuildAnchoredSummary(prev, dropped, latestIntent)
+	if strings.TrimSpace(next) == "" {
+		return nil
+	}
+	if agenticAnchorAppendOnly() {
+		return fs.SetAnchorSummary(session, next, agenticAnchorSummaryMaxChars())
+	}
+	return fs.WriteSummary(session, next, agenticAnchorSummaryMaxChars())
+}
+
+func agenticMaybePruneMemory() {
+	maxAge := agenticMemoryMaxAgeDays()
+	maxSessions := agenticMemoryMaxSessions()
+	maxBytes := agenticMemoryMaxBytesPerSession()
+	maxNamespaces := agenticSemanticMaxNamespaces()
+	maxBytesNamespace := agenticSemanticMaxBytesPerNamespace()
+	if maxAge <= 0 && maxSessions <= 0 && maxBytes <= 0 && maxNamespaces <= 0 && maxBytesNamespace <= 0 {
+		return
+	}
+	pruneMu.Lock()
+	if time.Since(lastPrune) < 10*time.Minute {
+		pruneMu.Unlock()
+		return
+	}
+	lastPrune = time.Now()
+	pruneMu.Unlock()
+
+	store := agenticMemoryStore()
+	fs, ok := store.(*memory.FileStore)
+	if !ok || fs == nil {
+		return
+	}
+	_, _ = fs.PruneSessions(maxAge, maxSessions, maxBytes)
+	_, _ = fs.PruneSemantic(maxAge, maxNamespaces, maxBytesNamespace)
 }
 
 func extractPinnedContext(req *http.Request, shape string, body []byte) string {
