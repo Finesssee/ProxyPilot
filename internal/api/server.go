@@ -614,6 +614,19 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/semantic/health", s.mgmt.GetSemanticHealth)
 		mgmt.GET("/semantic/namespaces", s.mgmt.ListSemanticNamespaces)
 		mgmt.GET("/semantic/items", s.mgmt.GetSemanticItems)
+
+		// Memory management (sessions, anchors, export/import, hygiene).
+		mgmt.GET("/memory/sessions", s.mgmt.ListMemorySessions)
+		mgmt.GET("/memory/session", s.mgmt.GetMemorySession)
+		mgmt.DELETE("/memory/session", s.mgmt.DeleteMemorySession)
+		mgmt.GET("/memory/events", s.mgmt.GetMemoryEvents)
+		mgmt.GET("/memory/anchors", s.mgmt.GetMemoryAnchors)
+		mgmt.POST("/memory/todo", s.mgmt.PutMemoryTodo)
+		mgmt.POST("/memory/pinned", s.mgmt.PutMemoryPinned)
+		mgmt.POST("/memory/summary", s.mgmt.PutMemorySummary)
+		mgmt.POST("/memory/prune", s.mgmt.PruneMemory)
+		mgmt.GET("/memory/export", s.mgmt.ExportMemorySession)
+		mgmt.POST("/memory/import", s.mgmt.ImportMemorySession)
 	}
 }
 
