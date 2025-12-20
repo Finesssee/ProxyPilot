@@ -624,9 +624,12 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.POST("/memory/todo", s.mgmt.PutMemoryTodo)
 		mgmt.POST("/memory/pinned", s.mgmt.PutMemoryPinned)
 		mgmt.POST("/memory/summary", s.mgmt.PutMemorySummary)
+		mgmt.POST("/memory/semantic", s.mgmt.PutMemorySemanticToggle)
 		mgmt.POST("/memory/prune", s.mgmt.PruneMemory)
 		mgmt.GET("/memory/export", s.mgmt.ExportMemorySession)
+		mgmt.GET("/memory/export-all", s.mgmt.ExportAllMemory)
 		mgmt.POST("/memory/import", s.mgmt.ImportMemorySession)
+		mgmt.POST("/memory/delete-all", s.mgmt.DeleteAllMemory)
 	}
 }
 

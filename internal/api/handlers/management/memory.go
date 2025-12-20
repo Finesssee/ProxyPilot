@@ -44,6 +44,7 @@ func (h *Handler) ListMemorySessions(c *gin.Context) {
 			"has_todo":           s.HasTodo,
 			"has_pinned":         s.HasPinned,
 			"has_anchor_pending": s.HasAnchorPending,
+			"semantic_disabled":  s.SemanticDisabled,
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"sessions": out})
@@ -75,6 +76,7 @@ func (h *Handler) GetMemorySession(c *gin.Context) {
 		"has_todo":           info.HasTodo,
 		"has_pinned":         info.HasPinned,
 		"has_anchor_pending": info.HasAnchorPending,
+		"semantic_disabled":  info.SemanticDisabled,
 	}
 	out["summary"] = store.ReadSummary(session, 14_000)
 	out["todo"] = store.ReadTodo(session, 8_000)
@@ -178,6 +180,30 @@ func (h *Handler) PutMemorySummary(c *gin.Context) {
 	})
 }
 
+type memoryToggleRequest struct {
+	Session string `json:"session"`
+	Enabled *bool  `json:"enabled"`
+}
+
+func (h *Handler) PutMemorySemanticToggle(c *gin.Context) {
+	base := memoryBaseDir()
+	if base == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "memory not configured"})
+		return
+	}
+	var req memoryToggleRequest
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Session) == "" || req.Enabled == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	store := memory.NewFileStore(base)
+	if err := store.SetSemanticDisabled(req.Session, !*req.Enabled); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
 func (h *Handler) DeleteMemorySession(c *gin.Context) {
 	base := memoryBaseDir()
 	if base == "" {
@@ -278,15 +304,57 @@ func (h *Handler) ExportMemorySession(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	if max := memoryExportMaxBytes(); max > 0 && int64(len(data)) > max {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "export exceeds size limit"})
+		return
+	}
 	c.Header("Content-Type", "application/zip")
 	c.Header("Content-Disposition", "attachment; filename=\"proxypilot-session-"+session+".zip\"")
 	c.Data(http.StatusOK, "application/zip", data)
+}
+
+func (h *Handler) ExportAllMemory(c *gin.Context) {
+	base := memoryBaseDir()
+	if base == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "memory not configured"})
+		return
+	}
+	data, err := memory.ExportAllZip(base, memoryExportMaxBytes())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Header("Content-Type", "application/zip")
+	c.Header("Content-Disposition", "attachment; filename=\"proxypilot-memory-all.zip\"")
+	c.Data(http.StatusOK, "application/zip", data)
+}
+
+func (h *Handler) DeleteAllMemory(c *gin.Context) {
+	base := memoryBaseDir()
+	if base == "" {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		return
+	}
+	confirm := strings.TrimSpace(c.Query("confirm"))
+	if !strings.EqualFold(confirm, "true") && !strings.EqualFold(confirm, "yes") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "confirm=true required"})
+		return
+	}
+	if err := os.RemoveAll(base); err != nil && !os.IsNotExist(err) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func (h *Handler) ImportMemorySession(c *gin.Context) {
 	base := memoryBaseDir()
 	if base == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "memory not configured"})
+		return
+	}
+	if ct := strings.TrimSpace(c.ContentType()); ct != "" && !strings.HasPrefix(strings.ToLower(ct), "multipart/") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "multipart form required"})
 		return
 	}
 	session := strings.TrimSpace(c.Query("session"))
@@ -298,6 +366,10 @@ func (h *Handler) ImportMemorySession(c *gin.Context) {
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "file required"})
+		return
+	}
+	if fileHeader.Size > 50*1024*1024 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file too large"})
 		return
 	}
 	file, err := fileHeader.Open()
