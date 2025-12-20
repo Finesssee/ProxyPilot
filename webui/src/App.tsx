@@ -80,6 +80,24 @@ export default function App() {
   const [semanticNamespace, setSemanticNamespace] = useState('');
   const [semanticLimit, setSemanticLimit] = useState(50);
   const [semanticItems, setSemanticItems] = useState('');
+  const [memorySessions, setMemorySessions] = useState<any[]>([]);
+  const [memorySession, setMemorySession] = useState('');
+  const [memoryDetails, setMemoryDetails] = useState<any>(null);
+  const [memoryEvents, setMemoryEvents] = useState('');
+  const [memoryAnchors, setMemoryAnchors] = useState('');
+  const [memoryEventsLimit, setMemoryEventsLimit] = useState(120);
+  const [memoryAnchorsLimit, setMemoryAnchorsLimit] = useState(20);
+  const [memoryTodo, setMemoryTodo] = useState('');
+  const [memoryPinned, setMemoryPinned] = useState('');
+  const [memorySummary, setMemorySummary] = useState('');
+  const [memoryImportReplace, setMemoryImportReplace] = useState(false);
+  const [memoryPrune, setMemoryPrune] = useState({
+    maxAgeDays: 30,
+    maxSessions: 200,
+    maxBytesPerSession: 2000000,
+    maxNamespaces: 200,
+    maxBytesPerNamespace: 2000000,
+  });
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -321,6 +339,167 @@ export default function App() {
     setSemanticItems(lines.join('\n\n'));
   };
 
+  const loadMemorySessions = async () => {
+    const res = await mgmtFetch('/v0/management/memory/sessions?limit=200');
+    const sessions = res.sessions || [];
+    setMemorySessions(sessions);
+    if (!memorySession && sessions.length > 0) {
+      setMemorySession(sessions[0].key);
+    }
+  };
+
+  const loadMemorySessionDetails = async () => {
+    if (!memorySession) {
+      setMemoryDetails(null);
+      return;
+    }
+    const res = await mgmtFetch(`/v0/management/memory/session?session=${encodeURIComponent(memorySession)}`);
+    const session = res.session || null;
+    setMemoryDetails(session);
+    if (session) {
+      setMemorySummary(session.summary || '');
+      setMemoryPinned(session.pinned || '');
+      setMemoryTodo(session.todo || '');
+    }
+  };
+
+  const loadMemoryEvents = async () => {
+    if (!memorySession) {
+      setMemoryEvents('Select a session.');
+      return;
+    }
+    const res = await mgmtFetch(`/v0/management/memory/events?session=${encodeURIComponent(memorySession)}&limit=${encodeURIComponent(memoryEventsLimit)}`);
+    const events = res.events || [];
+    if (!Array.isArray(events) || events.length === 0) {
+      setMemoryEvents('No events.');
+      return;
+    }
+    const lines = events.map((e: any) => {
+      const ts = e.ts || '';
+      const kind = e.kind || '';
+      const role = e.role || '';
+      const text = (e.text || '').toString();
+      return `[${ts}][${kind}][${role}] ${text}`;
+    });
+    setMemoryEvents(lines.join('\n\n'));
+  };
+
+  const loadMemoryAnchors = async () => {
+    if (!memorySession) {
+      setMemoryAnchors('Select a session.');
+      return;
+    }
+    const res = await mgmtFetch(`/v0/management/memory/anchors?session=${encodeURIComponent(memorySession)}&limit=${encodeURIComponent(memoryAnchorsLimit)}`);
+    const anchors = res.anchors || [];
+    if (!Array.isArray(anchors) || anchors.length === 0) {
+      setMemoryAnchors('No anchors.');
+      return;
+    }
+    const lines = anchors.map((a: any) => {
+      const ts = a.ts || '';
+      const summary = (a.summary || '').toString();
+      return `[${ts}]\n${summary}`;
+    });
+    setMemoryAnchors(lines.join('\n\n---\n\n'));
+  };
+
+  const saveMemoryTodo = async () => {
+    if (!memorySession) return;
+    await mgmtFetch('/v0/management/memory/todo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: memorySession, value: memoryTodo }),
+    });
+    await loadMemorySessionDetails();
+    showToast('Saved TODO', 'success');
+  };
+
+  const saveMemoryPinned = async () => {
+    if (!memorySession) return;
+    await mgmtFetch('/v0/management/memory/pinned', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: memorySession, value: memoryPinned }),
+    });
+    await loadMemorySessionDetails();
+    showToast('Saved pinned context', 'success');
+  };
+
+  const saveMemorySummary = async () => {
+    if (!memorySession) return;
+    await mgmtFetch('/v0/management/memory/summary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: memorySession, value: memorySummary }),
+    });
+    await loadMemorySessionDetails();
+    showToast('Saved anchor summary', 'success');
+  };
+
+  const deleteMemorySession = async () => {
+    if (!memorySession) return;
+    await mgmtFetch(`/v0/management/memory/session?session=${encodeURIComponent(memorySession)}`, {
+      method: 'DELETE',
+    });
+    setMemorySession('');
+    setMemoryDetails(null);
+    setMemoryEvents('');
+    setMemoryAnchors('');
+    await loadMemorySessions();
+    showToast('Deleted session', 'success');
+  };
+
+  const exportMemorySession = async () => {
+    if (!memorySession || !mgmtKey) return;
+    const res = await fetch(`/v0/management/memory/export?session=${encodeURIComponent(memorySession)}`, {
+      headers: { 'X-Management-Key': mgmtKey },
+    });
+    if (!res.ok) {
+      const msg = await res.text();
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `proxypilot-session-${memorySession}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importMemorySession = async (file: File | null) => {
+    if (!file || !memorySession || !mgmtKey) return;
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`/v0/management/memory/import?session=${encodeURIComponent(memorySession)}&replace=${memoryImportReplace ? 'true' : 'false'}`, {
+      method: 'POST',
+      headers: { 'X-Management-Key': mgmtKey },
+      body: form,
+    });
+    if (!res.ok) {
+      const msg = await res.text();
+      throw new Error(msg);
+    }
+    await loadMemorySessionDetails();
+    showToast('Imported session', 'success');
+  };
+
+  const pruneMemory = async () => {
+    await mgmtFetch('/v0/management/memory/prune', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        max_age_days: memoryPrune.maxAgeDays,
+        max_sessions: memoryPrune.maxSessions,
+        max_bytes_per_session: memoryPrune.maxBytesPerSession,
+        max_namespaces: memoryPrune.maxNamespaces,
+        max_bytes_per_namespace: memoryPrune.maxBytesPerNamespace,
+      }),
+    });
+    await loadMemorySessions();
+    showToast('Prune completed', 'success');
+  };
+
   useEffect(() => {
     if (!mgmtKey) return;
     setMgmtError(null);
@@ -331,6 +510,7 @@ export default function App() {
         await loadRecentRouting();
         await loadSemanticHealth();
         await loadSemanticNamespaces();
+        await loadMemorySessions();
         await tailLogs('stdout');
       } catch (e) {
         setMgmtError(e instanceof Error ? e.message : String(e));
@@ -813,6 +993,186 @@ export default function App() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-2">
+                <Card className="backdrop-blur-sm bg-card/60 border-border/50 shadow-xl lg:col-span-2">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-lg">Memory</CardTitle>
+                    <CardDescription>Anchors, pinned context, TODOs, and session history</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" onClick={() => loadMemorySessions().catch((e) => showToast(String(e), 'error'))}>
+                        Refresh sessions
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => loadMemorySessionDetails().catch((e) => showToast(String(e), 'error'))}>
+                        Load session
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => loadMemoryEvents().catch((e) => showToast(String(e), 'error'))}>
+                        Events
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => loadMemoryAnchors().catch((e) => showToast(String(e), 'error'))}>
+                        Anchors
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => exportMemorySession().catch((e) => showToast(String(e), 'error'))}>
+                        Export
+                      </Button>
+                      <Button size="sm" variant="destructive" onClick={() => deleteMemorySession().catch((e) => showToast(String(e), 'error'))}>
+                        Delete
+                      </Button>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        className="min-w-[220px] rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
+                        value={memorySession}
+                        onChange={(e) => setMemorySession(e.target.value)}
+                      >
+                        {memorySessions.length === 0 && <option value="">(no sessions)</option>}
+                        {memorySessions.map((s) => (
+                          <option key={s.key} value={s.key}>
+                            {s.key}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        min={10}
+                        max={500}
+                        className="w-24 rounded-md border border-border bg-background/60 px-2 py-1 text-xs"
+                        value={memoryEventsLimit}
+                        onChange={(e) => setMemoryEventsLimit(parseInt(e.target.value || '120', 10))}
+                      />
+                      <input
+                        type="number"
+                        min={5}
+                        max={200}
+                        className="w-24 rounded-md border border-border bg-background/60 px-2 py-1 text-xs"
+                        value={memoryAnchorsLimit}
+                        onChange={(e) => setMemoryAnchorsLimit(parseInt(e.target.value || '20', 10))}
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        {memoryDetails?.updated_at ? `Updated ${memoryDetails.updated_at}` : 'No session loaded.'}
+                      </span>
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-3">
+                      <div className="space-y-2">
+                        <div className="text-xs text-muted-foreground">Anchor summary</div>
+                        <textarea
+                          className="h-40 w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
+                          value={memorySummary}
+                          onChange={(e) => setMemorySummary(e.target.value)}
+                        />
+                        <Button size="sm" variant="outline" onClick={() => saveMemorySummary().catch((e) => showToast(String(e), 'error'))}>
+                          Save summary
+                        </Button>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs text-muted-foreground">Pinned context</div>
+                        <textarea
+                          className="h-40 w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
+                          value={memoryPinned}
+                          onChange={(e) => setMemoryPinned(e.target.value)}
+                        />
+                        <Button size="sm" variant="outline" onClick={() => saveMemoryPinned().catch((e) => showToast(String(e), 'error'))}>
+                          Save pinned
+                        </Button>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs text-muted-foreground">TODO</div>
+                        <textarea
+                          className="h-40 w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
+                          value={memoryTodo}
+                          onChange={(e) => setMemoryTodo(e.target.value)}
+                        />
+                        <Button size="sm" variant="outline" onClick={() => saveMemoryTodo().catch((e) => showToast(String(e), 'error'))}>
+                          Save TODO
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <pre className="max-h-56 overflow-auto rounded-md border border-border/50 bg-muted/30 p-2 text-xs">
+                        {memoryEvents || 'No events loaded.'}
+                      </pre>
+                      <pre className="max-h-56 overflow-auto rounded-md border border-border/50 bg-muted/30 p-2 text-xs">
+                        {memoryAnchors || 'No anchors loaded.'}
+                      </pre>
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="space-y-2">
+                        <div className="text-xs text-muted-foreground">Import session (zip)</div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="file"
+                            accept=".zip"
+                            className="text-xs"
+                            onChange={(e) => importMemorySession(e.target.files?.[0] || null).catch((err) => showToast(String(err), 'error'))}
+                          />
+                          <label className="text-xs text-muted-foreground flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={memoryImportReplace}
+                              onChange={(e) => setMemoryImportReplace(e.target.checked)}
+                            />
+                            Replace
+                          </label>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs text-muted-foreground">Prune limits</div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="number"
+                            min={0}
+                            className="rounded-md border border-border bg-background/60 px-2 py-1 text-xs"
+                            value={memoryPrune.maxAgeDays}
+                            onChange={(e) => setMemoryPrune({ ...memoryPrune, maxAgeDays: parseInt(e.target.value || '0', 10) })}
+                            placeholder="Max age (days)"
+                          />
+                          <input
+                            type="number"
+                            min={0}
+                            className="rounded-md border border-border bg-background/60 px-2 py-1 text-xs"
+                            value={memoryPrune.maxSessions}
+                            onChange={(e) => setMemoryPrune({ ...memoryPrune, maxSessions: parseInt(e.target.value || '0', 10) })}
+                            placeholder="Max sessions"
+                          />
+                          <input
+                            type="number"
+                            min={0}
+                            className="rounded-md border border-border bg-background/60 px-2 py-1 text-xs"
+                            value={memoryPrune.maxNamespaces}
+                            onChange={(e) => setMemoryPrune({ ...memoryPrune, maxNamespaces: parseInt(e.target.value || '0', 10) })}
+                            placeholder="Max namespaces"
+                          />
+                          <input
+                            type="number"
+                            min={0}
+                            className="rounded-md border border-border bg-background/60 px-2 py-1 text-xs"
+                            value={memoryPrune.maxBytesPerSession}
+                            onChange={(e) => setMemoryPrune({ ...memoryPrune, maxBytesPerSession: parseInt(e.target.value || '0', 10) })}
+                            placeholder="Max bytes/session"
+                          />
+                          <input
+                            type="number"
+                            min={0}
+                            className="rounded-md border border-border bg-background/60 px-2 py-1 text-xs"
+                            value={memoryPrune.maxBytesPerNamespace}
+                            onChange={(e) => setMemoryPrune({ ...memoryPrune, maxBytesPerNamespace: parseInt(e.target.value || '0', 10) })}
+                            placeholder="Max bytes/namespace"
+                          />
+                        </div>
+                        <Button size="sm" variant="outline" onClick={() => pruneMemory().catch((e) => showToast(String(e), 'error'))}>
+                          Prune memory
+                        </Button>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
