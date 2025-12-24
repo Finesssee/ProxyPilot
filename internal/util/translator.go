@@ -88,6 +88,50 @@ func DeleteKey(jsonStr, keyName string) string {
 	return jsonStr
 }
 
+// NormalizeNullableTypes converts JSON schema array types like ["string", "null"]
+// or ["STRING", "NULL"] to just the first non-null type ("string" or "STRING").
+// This is required because Vertex AI / Antigravity doesn't accept array-style
+// nullable type definitions in function/tool parameter schemas.
+//
+// For example:
+//
+//	{"type": ["string", "null"]} => {"type": "string"}
+//	{"type": ["STRING", "NULL"]} => {"type": "STRING"}
+//	{"type": ["array", "null"]}  => {"type": "array"}
+//
+// The function recursively finds all "type" fields throughout the JSON structure
+// and normalizes any that have array values.
+func NormalizeNullableTypes(jsonStr string) string {
+	// Find all paths to "type" fields
+	paths := make([]string, 0)
+	Walk(gjson.Parse(jsonStr), "", "type", &paths)
+
+	for _, p := range paths {
+		value := gjson.Get(jsonStr, p)
+		if !value.IsArray() {
+			continue
+		}
+
+		// Extract the first non-null type from the array
+		var primaryType string
+		for _, item := range value.Array() {
+			typeVal := item.String()
+			// Check for both lowercase and uppercase null
+			if typeVal != "null" && typeVal != "NULL" {
+				primaryType = typeVal
+				break
+			}
+		}
+
+		// If we found a primary type, replace the array with just that type
+		if primaryType != "" {
+			jsonStr, _ = sjson.Set(jsonStr, p, primaryType)
+		}
+	}
+
+	return jsonStr
+}
+
 // FixJSON converts non-standard JSON that uses single quotes for strings into
 // RFC 8259-compliant JSON by converting those single-quoted strings to
 // double-quoted strings with proper escaping.
