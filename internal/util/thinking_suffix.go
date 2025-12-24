@@ -68,6 +68,23 @@ func NormalizeThinkingModel(modelName string) (string, map[string]any) {
 				matched = true
 			}
 		}
+	} else if idx := strings.LastIndex(modelName, "-thinking-"); idx != -1 {
+		// Match "-thinking-<value>" pattern
+		value := modelName[idx+len("-thinking-"):]
+		candidateBase := modelName[:idx]
+
+		if parsed, ok := parseIntPrefix(value); ok {
+			baseModel = candidateBase
+			budgetOverride = &parsed
+			matched = true
+		} else {
+			raw := strings.ToLower(strings.TrimSpace(value))
+			if raw != "" {
+				baseModel = candidateBase
+				reasoningEffort = &raw
+				matched = true
+			}
+		}
 	}
 
 	if !matched {

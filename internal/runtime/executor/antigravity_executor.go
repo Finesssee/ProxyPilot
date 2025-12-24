@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/agentdebug"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/memory"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
@@ -91,6 +92,7 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, auth *cliproxyauth.Au
 	translated = util.ApplyDefaultThinkingIfNeededCLI(req.Model, translated)
 	translated = normalizeAntigravityThinking(req.Model, translated)
 	translated = truncateConversation(translated, req.Model, req.Metadata)
+	translated = injectAnchoredSummary(translated, req.Model, req.Metadata)
 
 	baseURLs := antigravityBaseURLFallbackOrder(auth)
 	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
@@ -161,6 +163,19 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, auth *cliproxyauth.Au
 		var param any
 		converted := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, bytes.Clone(opts.OriginalRequest), translated, bodyBytes, &param)
 		resp = cliproxyexecutor.Response{Payload: []byte(converted)}
+		// #region agent log
+		agentdebug.Log(
+			"H1",
+			"internal/runtime/executor/antigravity_executor.go:Execute:nonstream_done",
+			"nonstream_payload_sizes",
+			map[string]any{
+				"model":           req.Model,
+				"reqPayloadBytes": len(req.Payload),
+				"translatedBytes": len(translated),
+				"respBytes":       len(resp.Payload),
+			},
+		)
+		// #endregion agent log
 		reporter.ensurePublished(ctx)
 		return resp, nil
 	}
@@ -199,9 +214,24 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 	translated = util.ApplyDefaultThinkingIfNeededCLI(req.Model, translated)
 	translated = normalizeAntigravityThinking(req.Model, translated)
 	translated = truncateConversation(translated, req.Model, req.Metadata)
+	translated = injectAnchoredSummary(translated, req.Model, req.Metadata)
 
 	baseURLs := antigravityBaseURLFallbackOrder(auth)
 	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+
+	// #region agent log
+	agentdebug.Log(
+		"H2",
+		"internal/runtime/executor/antigravity_executor.go:ExecuteStream:entry",
+		"stream_request_sizes",
+		map[string]any{
+			"model":           req.Model,
+			"reqPayloadBytes": len(req.Payload),
+			"translatedBytes": len(translated),
+			"baseURLCount":    len(baseURLs),
+		},
+	)
+	// #endregion agent log
 
 	var lastStatus int
 	var lastBody []byte
@@ -269,9 +299,15 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 			scanner := bufio.NewScanner(resp.Body)
 			scanner.Buffer(nil, streamScannerBuffer)
 			var param any
+			scanLines := 0
+			outChunks := 0
+			outBytes := 0
+			maxChunksPerLine := 0
+			maxPayloadBytes := 0
 			for scanner.Scan() {
 				line := scanner.Bytes()
 				appendAPIResponseChunk(ctx, e.cfg, line)
+				scanLines++
 
 				// Filter usage metadata for all models
 				// Only retain usage statistics in the terminal chunk
@@ -281,27 +317,64 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 				if payload == nil {
 					continue
 				}
+				if n := len(payload); n > maxPayloadBytes {
+					maxPayloadBytes = n
+				}
 
 				if detail, ok := parseAntigravityStreamUsage(payload); ok {
 					reporter.publish(ctx, detail)
 				}
 
 				chunks := sdktranslator.TranslateStream(ctx, to, from, req.Model, bytes.Clone(opts.OriginalRequest), translated, bytes.Clone(payload), &param)
+				if len(chunks) > maxChunksPerLine {
+					maxChunksPerLine = len(chunks)
+				}
 				for i := range chunks {
 					out <- cliproxyexecutor.StreamChunk{Payload: []byte(chunks[i])}
+					outChunks++
+					outBytes += len(chunks[i])
 				}
 			}
 			tail := sdktranslator.TranslateStream(ctx, to, from, req.Model, bytes.Clone(opts.OriginalRequest), translated, []byte("[DONE]"), &param)
 			for i := range tail {
 				out <- cliproxyexecutor.StreamChunk{Payload: []byte(tail[i])}
+				outChunks++
+				outBytes += len(tail[i])
 			}
 			if errScan := scanner.Err(); errScan != nil {
 				recordAPIResponseError(ctx, e.cfg, errScan)
 				reporter.publishFailure(ctx)
+				// #region agent log
+				agentdebug.Log(
+					"H5",
+					"internal/runtime/executor/antigravity_executor.go:ExecuteStream:scanner_err",
+					"stream_scanner_error",
+					map[string]any{
+						"model":     req.Model,
+						"scanLines": scanLines,
+						"error":     errScan.Error(),
+					},
+				)
+				// #endregion agent log
 				out <- cliproxyexecutor.StreamChunk{Err: errScan}
 			} else {
 				reporter.ensurePublished(ctx)
 			}
+			// #region agent log
+			agentdebug.Log(
+				"H2",
+				"internal/runtime/executor/antigravity_executor.go:ExecuteStream:done",
+				"stream_totals",
+				map[string]any{
+					"model":            req.Model,
+					"scanLines":        scanLines,
+					"outChunks":        outChunks,
+					"outBytes":         outBytes,
+					"maxChunksPerLine": maxChunksPerLine,
+					"maxPayloadBytes":  maxPayloadBytes,
+				},
+			)
+			// #endregion agent log
 		}(httpResp)
 		return stream, nil
 	}
@@ -531,6 +604,27 @@ func antigravityBuildStaticLimitsIndex() map[string]antigravityStaticLimit {
 	add(registry.GetClaudeModels())
 	add(registry.GetQwenModels())
 
+	// Add explicit limits for antigravity-claude models.
+	// These models route to Claude via Antigravity but use aliases that don't match GetClaudeModels() IDs.
+	// Claude 3.5 Sonnet and Claude 3 Opus both have 200k context but we use a more conservative
+	// limit to account for prompt overhead and ensure successful API calls.
+	claudeAntigravityLimit := antigravityStaticLimit{
+		ContextLength:       180000, // Conservative (200k actual but leave room for overhead)
+		MaxCompletionTokens: 64000,
+		InputTokenLimit:     180000,
+		OutputTokenLimit:    64000,
+	}
+	index["antigravity-claude-sonnet-4-5"] = claudeAntigravityLimit
+	index["antigravity-claude-sonnet-4-5-thinking"] = claudeAntigravityLimit
+	index["antigravity-claude-opus-4-5-thinking"] = claudeAntigravityLimit
+	// Also add the underlying claude model IDs that alias2ModelName() converts to
+	index["claude-3-5-sonnet"] = claudeAntigravityLimit
+	index["claude-3-opus"] = claudeAntigravityLimit
+	// Add the user-facing model names (without prefix) that get passed to truncateConversation
+	index["claude-opus-4-5-thinking"] = claudeAntigravityLimit
+	index["claude-sonnet-4-5-thinking"] = claudeAntigravityLimit
+	index["claude-sonnet-4-5"] = claudeAntigravityLimit
+
 	return index
 }
 
@@ -685,6 +779,10 @@ func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *cliproxyau
 			}
 		}
 
+		// Normalize nullable types like ["string", "null"] -> "string"
+		// Vertex AI doesn't accept array-style nullable type definitions
+		strJSON = util.NormalizeNullableTypes(strJSON)
+
 		payload = []byte(strJSON)
 	}
 
@@ -782,14 +880,23 @@ func truncateConversation(payload []byte, modelID string, metadata map[string]an
 		log.Warnf("Unknown context limit for model %s; defaulting to %d tokens", modelID, limit)
 	}
 
+	// Apply a 0.7 safety factor to the limit to account for system overhead,
+	// tool definitions, and potential token counting differences.
+	// We use 0.7 (instead of 0.9) to be more aggressive with truncation.
+	limit = int(float64(limit) * 0.7)
+
 	// 2. Estimate Tokens (Rough char count)
 	// OpenAI generic rule of thumb: 1 token ~= 4 chars.
 	// Gemini/Antigravity can be different, but strict safety margin is better.
-	// We'll use 3.5 chars/token to be safe.
+	// Claude models tend to tokenize more aggressively, so use 3.0 chars/token for them.
 	fullJSON := string(payload)
-	estimatedTokens := int(float64(len(fullJSON)) / 3.5)
+	charsPerToken := 3.5
+	if strings.Contains(strings.ToLower(modelID), "claude") {
+		charsPerToken = 3.0 // More conservative for Claude
+	}
+	estimatedTokens := int(float64(len(fullJSON)) / charsPerToken)
 
-	log.Debugf("truncateConversation: model=%s, limit=%d, payloadLen=%d, estimatedTokens=%d", modelID, limit, len(fullJSON), estimatedTokens)
+	log.Infof("truncateConversation: model=%s, limit=%d, payloadLen=%d, estimatedTokens=%d", modelID, limit, len(fullJSON), estimatedTokens)
 
 	if estimatedTokens <= limit {
 		return payload
@@ -799,13 +906,20 @@ func truncateConversation(payload []byte, modelID string, metadata map[string]an
 	// We need to parse "contents" and remove old messages.
 	// Typically, we keep system instruction (which is separate in Gemini)
 	// and the last few messages.
-	// Antigravity payload structure: { "contents": [ { "role": "...", "parts": [...] } ] }
+	// Antigravity payload structure: { "request": { "contents": [ { "role": "...", "parts": [...] } ] } }
 
 	log.Infof("Truncating conversation for model %s: Est. %d tokens > Limit %d", modelID, estimatedTokens, limit)
 
-	contents := gjson.GetBytes(payload, "contents")
+	contents := gjson.GetBytes(payload, "request.contents")
+	log.Infof("truncateConversation: request.contents exists=%v, isArray=%v", contents.Exists(), contents.IsArray())
 	if !contents.IsArray() {
-		return payload
+		// Fallback: check root level "contents" for other formats
+		contents = gjson.GetBytes(payload, "contents")
+		log.Infof("truncateConversation: fallback contents exists=%v, isArray=%v", contents.Exists(), contents.IsArray())
+		if !contents.IsArray() {
+			log.Warnf("truncateConversation: no contents array found, cannot truncate")
+			return payload
+		}
 	}
 
 	arr := contents.Array()
@@ -897,6 +1011,16 @@ func truncateConversation(payload []byte, modelID string, metadata map[string]an
 					if err := store.Append(sessionID, droppedEvents); err != nil {
 						log.Warnf("Failed to append dropped messages to memory: %v", err)
 					}
+
+					// Build anchored summary (Factory-style structured summarization)
+					if fs, ok := store.(*memory.FileStore); ok {
+						latestIntent := extractLatestUserIntent(droppedEvents)
+						if err := fs.UpsertAnchoredSummary(sessionID, droppedEvents, "", latestIntent); err != nil {
+							log.Warnf("Failed to upsert anchored summary: %v", err)
+						} else {
+							log.Infof("Updated anchored summary for session %s with %d dropped messages", sessionID, len(droppedEvents))
+						}
+					}
 				}
 			}
 		}
@@ -911,10 +1035,15 @@ func truncateConversation(payload []byte, modelID string, metadata map[string]an
 		// Join them
 		newJsonStr := "[" + strings.Join(newContents, ",") + "]"
 
-		updated, err := sjson.SetRawBytes(payload, "contents", []byte(newJsonStr))
+		// Set the truncated contents back - try request.contents first (Antigravity format)
+		updated, err := sjson.SetRawBytes(payload, "request.contents", []byte(newJsonStr))
 		if err != nil {
-			log.Errorf("Failed to truncate payload: %v", err)
-			return payload
+			// Fallback to root contents
+			updated, err = sjson.SetRawBytes(payload, "contents", []byte(newJsonStr))
+			if err != nil {
+				log.Errorf("Failed to truncate payload: %v", err)
+				return payload
+			}
 		}
 		return updated
 	}
@@ -935,19 +1064,95 @@ func getMemoryStore() memory.Store {
 	return memory.NewFileStore(base)
 }
 
+// injectAnchoredSummary prepends the anchored summary to the system instruction.
+// This allows the agent to recall context from truncated conversation history.
+func injectAnchoredSummary(payload []byte, modelID string, metadata map[string]any) []byte {
+	sessionID := extractSessionID(metadata)
+	if sessionID == "" {
+		return payload
+	}
+
+	store := getMemoryStore()
+	if store == nil {
+		return payload
+	}
+
+	fs, ok := store.(*memory.FileStore)
+	if !ok {
+		return payload
+	}
+
+	// Read the anchored summary (max 8k chars to avoid bloating)
+	summary := fs.ReadSummary(sessionID, 8000)
+	if strings.TrimSpace(summary) == "" {
+		return payload
+	}
+
+	log.Debugf("Injecting anchored summary (%d chars) for session %s", len(summary), sessionID)
+
+	// Get current system instruction
+	sysInstr := gjson.GetBytes(payload, "request.systemInstruction.parts.0.text").String()
+
+	// Check if summary is already present (avoid duplicates)
+	if strings.Contains(sysInstr, "## Session Context (from previous turns)") {
+		return payload
+	}
+
+	// Prepend the summary with a clear header
+	contextPrefix := "## Session Context (from previous turns)\n\n" +
+		"The following summarizes earlier conversation that was truncated due to context limits:\n\n" +
+		summary + "\n\n---\n\n"
+
+	newInstr := contextPrefix + sysInstr
+
+	// Update the system instruction
+	updated, err := sjson.SetBytes(payload, "request.systemInstruction.parts.0.text", newInstr)
+	if err != nil {
+		log.Warnf("Failed to inject anchored summary: %v", err)
+		return payload
+	}
+
+	return updated
+}
+
 func extractSessionID(metadata map[string]any) string {
 	if metadata == nil {
+		log.Debugf("extractSessionID: metadata is nil")
 		return ""
 	}
 	// Try standard headers often mapped to metadata
 	if v, ok := metadata["X-CLIProxyAPI-Session"].(string); ok && v != "" {
+		log.Debugf("extractSessionID: found X-CLIProxyAPI-Session=%s", v)
 		return v
 	}
 	if v, ok := metadata["X-Session-Id"].(string); ok && v != "" {
+		log.Debugf("extractSessionID: found X-Session-Id=%s", v)
 		return v
 	}
 	if v, ok := metadata["session_id"].(string); ok && v != "" {
+		log.Debugf("extractSessionID: found session_id=%s", v)
 		return v
+	}
+	// Log what keys ARE present for debugging
+	keys := make([]string, 0, len(metadata))
+	for k := range metadata {
+		keys = append(keys, k)
+	}
+	log.Debugf("extractSessionID: no session found in metadata, keys present: %v", keys)
+	return ""
+}
+
+// extractLatestUserIntent finds the last user message from dropped events to use as intent.
+func extractLatestUserIntent(events []memory.Event) string {
+	for i := len(events) - 1; i >= 0; i-- {
+		if strings.EqualFold(events[i].Role, "user") && events[i].Text != "" {
+			intent := events[i].Text
+			// Limit length to avoid huge intents
+			if len(intent) > 1500 {
+				intent = intent[:1500] + "...[truncated]..."
+			}
+			return intent
+		}
 	}
 	return ""
 }
@@ -1119,6 +1324,12 @@ func modelName2Alias(modelName string) string {
 	switch modelName {
 	case "rev19-uic3-1p":
 		return "gemini-2.5-computer-use-preview-10-2025"
+	case "rev19-uic3-img-1p":
+		return "gemini-2.5-image-pro-preview"
+	case "rev19-f1-1p":
+		return "gemini-2.5-flash"
+	case "rev19-f1-lite-1p":
+		return "gemini-2.5-flash-lite"
 	case "gemini-3-flash":
 		return "gemini-3-flash-preview"
 	case "gemini-3-flash-high":
@@ -1146,6 +1357,12 @@ func alias2ModelName(modelName string) string {
 	switch modelName {
 	case "gemini-2.5-computer-use-preview-10-2025":
 		return "rev19-uic3-1p"
+	case "gemini-2.5-image-pro-preview":
+		return "rev19-uic3-img-1p"
+	case "gemini-2.5-flash":
+		return "rev19-f1-1p"
+	case "gemini-2.5-flash-lite":
+		return "rev19-f1-lite-1p"
 	case "gemini-3-flash-preview":
 		return "gemini-3-flash"
 	case "gemini-3-pro-image-preview":

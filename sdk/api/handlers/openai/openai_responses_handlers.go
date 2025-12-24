@@ -88,6 +88,11 @@ func (h *OpenAIResponsesAPIHandler) Responses(c *gin.Context) {
 
 	rawJSON = util.NormalizeOpenAIResponsesToolOrder(rawJSON)
 	rawJSON = tightenToolSchemas(rawJSON, true)
+
+	// Truncate input array if too long to prevent "Prompt is too long" errors
+	modelName := gjson.GetBytes(rawJSON, "model").String()
+	rawJSON = truncateResponsesInput(rawJSON, modelName)
+
 	rawJSON = maybeCompactFactoryInput(c, rawJSON)
 	rawJSON = maybeInjectFactoryInstructions(c, rawJSON)
 	rawJSON = maybeInjectFactoryTools(c, rawJSON)
