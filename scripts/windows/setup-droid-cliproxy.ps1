@@ -9,7 +9,7 @@ param(
   [string]$ProxyBaseUrl = "http://127.0.0.1:8318/v1",
 
   [Parameter(Mandatory = $false)]
-  [string]$ProxyModel = "gpt-5.1"
+  [string]$ProxyModel = "gpt-5.2"
 )
 
 function Get-RepoRoot {
@@ -84,7 +84,6 @@ function Ensure-DroidConfig([string]$BaseUrl, [string]$ApiKey, [string]$Model) {
     "gpt-5",
     "gemini-3-pro-image-preview",
     "gemini-2.5-flash-lite",
-    "gpt-oss-120b-medium",
     "gemini-claude-sonnet-4-5",
     "gpt-5.1",
     "gemini-2.5-flash",

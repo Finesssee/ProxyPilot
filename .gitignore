@@ -50,3 +50,10 @@ GEMINI.md
 
 *.log
 *_out.txt
+
+# Added by Gemini CLI fix
+node_modules/
+dist/
+.turbo/
+.env
+
