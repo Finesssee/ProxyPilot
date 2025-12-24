@@ -369,29 +369,12 @@ func (s *Service) ensureExecutorsForAuth(a *coreauth.Auth) {
 			s.coreManager.RegisterExecutor(executor.NewAIStudioExecutor(s.cfg, a.ID, s.wsGateway))
 		}
 		return
-	case "antigravity":
-		s.coreManager.RegisterExecutor(executor.NewAntigravityExecutor(s.cfg))
-	case "claude":
-		s.coreManager.RegisterExecutor(executor.NewClaudeExecutor(s.cfg))
-	case "codex":
-		s.coreManager.RegisterExecutor(executor.NewCodexExecutor(s.cfg))
-	case "qwen":
-		s.coreManager.RegisterExecutor(executor.NewQwenExecutor(s.cfg))
-	case "kiro":
-		s.coreManager.RegisterExecutor(executor.NewKiroExecutor(s.cfg))
-	case "copilot":
-		s.coreManager.RegisterExecutor(executor.NewCopilotExecutor(s.cfg))
-	case "iflow":
-		s.coreManager.RegisterExecutor(executor.NewIFlowExecutor(s.cfg))
-	default:
-		providerKey := strings.ToLower(strings.TrimSpace(a.Provider))
-		if providerKey == "" {
-			providerKey = "openai-compatibility"
+		case "iflow":
+			s.coreManager.RegisterExecutor(executor.NewIFlowExecutor(s.cfg))
+		case "antigravity":
+			s.coreManager.RegisterExecutor(executor.NewAntigravityExecutor(s.cfg))
 		}
-		s.coreManager.RegisterExecutor(executor.NewOpenAICompatExecutor(providerKey, s.cfg))
 	}
-}
-
 // rebindExecutors refreshes provider executors so they observe the latest configuration.
 func (s *Service) rebindExecutors() {
 	if s == nil || s.coreManager == nil {
@@ -727,12 +710,6 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		models = applyExcludedModels(models, excluded)
 	case "qwen":
 		models = registry.GetQwenModels()
-		models = applyExcludedModels(models, excluded)
-	case "kiro":
-		models = registry.GetKiroModels()
-		models = applyExcludedModels(models, excluded)
-	case "copilot":
-		models = registry.GetCopilotModels()
 		models = applyExcludedModels(models, excluded)
 	case "iflow":
 		models = registry.GetIFlowModels()
