@@ -39,7 +39,7 @@ Run once in an **elevated PowerShell**:
 ## Use it in Droid
 
 - In `droid`, run `/model` and pick `CLIProxy (local)`
-- In non-interactive mode, use: `droid exec --model custom:gpt-5.1 "..."` (replace model as needed)
+- In non-interactive mode, use: `droid exec --model custom:gpt-5.2 "..."` (replace model as needed)
 - `scripts\setup-droid-cliproxy.ps1` adds several `custom:<model>` entries (e.g. `custom:gpt-5.2`, `custom:gpt-5.1-codex-max`, `custom:gemini-3-pro-preview`)
 - For reasoning variants, pick a model like `CLIProxy (local): gpt-5.2 (reasoning: high)` (this uses `gpt-5.2(high)` under the hood).
 - `gpt-5.1-codex-max` also has reasoning variants (including `xhigh`) like `custom:gpt-5.1-codex-max(xhigh)`.
