@@ -68,11 +68,6 @@ function Ensure-DroidConfig([string]$BaseUrl, [string]$ApiKey, [string]$Model) {
     "gpt-5.2(medium)",
     "gpt-5.2(high)",
     "gpt-5.2(xhigh)",
-    "gpt-5.1-codex-max",
-    "gpt-5.1-codex-max(low)",
-    "gpt-5.1-codex-max(medium)",
-    "gpt-5.1-codex-max(high)",
-    "gpt-5.1-codex-max(xhigh)",
     "gemini-3-pro-preview",
     "antigravity-claude-sonnet-4-5-thinking",
     "antigravity-claude-opus-4-5-thinking"
@@ -89,7 +84,12 @@ function Ensure-DroidConfig([string]$BaseUrl, [string]$ApiKey, [string]$Model) {
     "gemini-2.5-flash",
     "gemini-2.5-computer-use-preview-10-2025",
     "gpt-5.1-codex-mini",
-    "gpt-5.1-codex"
+    "gpt-5.1-codex",
+    "gpt-5.1-codex-max",
+    "gemini-2.0-pro-exp-02-05",
+    "gemini-2.0-flash-001",
+    "gemini-2.0-flash-lite-preview-02-05",
+    "gemini-2.0-flash-thinking-exp-01-21"
   )
 
   $newEntries = $modelsToAdd | ForEach-Object {
