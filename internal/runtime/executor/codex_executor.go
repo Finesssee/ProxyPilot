@@ -284,7 +284,7 @@ func tokenizerForCodexModel(model string) (tokenizer.Codec, error) {
 	switch {
 	case sanitized == "":
 		return tokenizer.Get(tokenizer.Cl100kBase)
-	case strings.HasPrefix(sanitized, "gpt-5"):
+	case strings.HasPrefix(sanitized, "gpt-5.2"):
 		return tokenizer.ForModel(tokenizer.GPT5)
 	case strings.HasPrefix(sanitized, "gpt-4.1"):
 		return tokenizer.ForModel(tokenizer.GPT41)

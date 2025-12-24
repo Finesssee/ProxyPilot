@@ -21,8 +21,8 @@ const (
 //
 // Examples:
 //   - "claude-sonnet-4-5-20250929(16384)" → budget=16384
-//   - "gpt-5.1(high)" → reasoning_effort="high"
-//   - "gemini-2.5-pro(32768)" → budget=32768
+//   - "gpt-5.2(high)" → reasoning_effort="high"
+//   - "gemini-3-pro-preview(32768)" → budget=32768
 //
 // Note: Empty parentheses "()" are not supported and will be ignored.
 func NormalizeThinkingModel(modelName string) (string, map[string]any) {
