@@ -91,6 +91,15 @@ ws-auth: false
 #       - "*-thinking"               # wildcard matching suffix (e.g. claude-opus-4-5-thinking)
 #       - "*haiku*"                  # wildcard matching substring (e.g. claude-3-5-haiku-20241022)
 
+# Kiro (AWS CodeWhisperer) configuration
+# kiro-key:
+#   - token-file: "~/.aws/sso/cache/kiro-auth-token.json"
+#     region: "us-east-1"
+#     proxy-url: "socks5://proxy.example.com:1080"
+#     agent-task-type: "dev"
+#     excluded-models:
+#       - "kiro-claude-haiku"
+
 # OpenAI compatibility providers
 # openai-compatibility:
 #   - name: "openrouter" # The name of the provider; it will be used in the user agent and other places.
@@ -138,6 +147,8 @@ ws-auth: false
 #     - "gpt-5-codex-mini"
 #   qwen:
 #     - "vision-model"
+#   kiro:
+#     - "kiro-claude-haiku"
 #   iflow:
 #     - "tstars2.0"
 
