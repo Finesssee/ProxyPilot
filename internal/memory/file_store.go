@@ -3,6 +3,7 @@ package memory
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -19,10 +20,11 @@ import (
 )
 
 type FileStore struct {
-	BaseDir   string
-	cacheMu   sync.Mutex
-	cache     map[string]searchCacheEntry
-	cacheKeys []string
+	BaseDir    string
+	cacheMu    sync.Mutex
+	cache      map[string]searchCacheEntry
+	cacheKeys  []string
+	summarizer *Summarizer
 }
 
 type searchCacheEntry struct {
@@ -812,4 +814,141 @@ func queryTokens(q string, max int) []string {
 		}
 	}
 	return out
+}
+
+// ReadHarnessFile reads a harness file from the session's harness subdirectory.
+func (s *FileStore) ReadHarnessFile(session string, filename string, maxChars int) string {
+	if s == nil || s.BaseDir == "" || session == "" {
+		return ""
+	}
+	if maxChars <= 0 {
+		maxChars = 50000
+	}
+	dir := filepath.Join(s.sessionDir(session), "harness")
+	txt := strings.TrimSpace(s.readSmallTextFile(filepath.Join(dir, filename), int64(maxChars*2)))
+	if len(txt) > maxChars {
+		txt = txt[:maxChars] + "\n...[truncated]..."
+	}
+	return txt
+}
+
+// WriteHarnessFile writes a harness file to the session's harness subdirectory.
+func (s *FileStore) WriteHarnessFile(session string, filename string, content string, maxChars int) error {
+	if s == nil || s.BaseDir == "" {
+		return errors.New("memory store not configured")
+	}
+	if session == "" {
+		return nil
+	}
+	if maxChars <= 0 {
+		maxChars = 100000
+	}
+	content = strings.TrimSpace(content)
+	if len(content) > maxChars {
+		content = content[:maxChars]
+	}
+	dir := filepath.Join(s.sessionDir(session), "harness")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, filename), []byte(content), 0o644)
+}
+
+// ListHarnessFiles returns all harness files for a session.
+func (s *FileStore) ListHarnessFiles(session string) ([]string, error) {
+	if s == nil || s.BaseDir == "" || session == "" {
+		return nil, nil
+	}
+	dir := filepath.Join(s.sessionDir(session), "harness")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	files := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			files = append(files, e.Name())
+		}
+	}
+	return files, nil
+}
+
+// SetSummarizer configures the LLM summarizer for this store
+func (s *FileStore) SetSummarizer(summarizer *Summarizer) {
+	if s == nil {
+		return
+	}
+	s.summarizer = summarizer
+}
+
+// GetSummarizer returns the configured summarizer, if any
+func (s *FileStore) GetSummarizer() *Summarizer {
+	if s == nil {
+		return nil
+	}
+	return s.summarizer
+}
+
+// ReadStructuredSummary reads and parses the structured summary for a session
+func (s *FileStore) ReadStructuredSummary(session string) (*StructuredSummary, error) {
+	if s == nil || s.BaseDir == "" {
+		return nil, errors.New("memory store not configured")
+	}
+	if session == "" {
+		return nil, errors.New("session is required")
+	}
+	dir := s.sessionDir(session)
+	path := filepath.Join(dir, "summary.md")
+	content := s.readSmallTextFile(path, 60_000)
+	if strings.TrimSpace(content) == "" {
+		return nil, nil
+	}
+	return ParseStructuredSummary(content)
+}
+
+// WriteStructuredSummary persists a structured summary for a session
+func (s *FileStore) WriteStructuredSummary(session string, summary *StructuredSummary) error {
+	if s == nil || s.BaseDir == "" {
+		return errors.New("memory store not configured")
+	}
+	if session == "" {
+		return errors.New("session is required")
+	}
+	if summary == nil {
+		return nil
+	}
+	dir := s.sessionDir(session)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	content := RenderStructuredSummary(summary)
+	return os.WriteFile(filepath.Join(dir, "summary.md"), []byte(content), 0o644)
+}
+
+// BuildAnchoredSummaryWithLLM generates a structured summary using LLM when available,
+// falling back to regex-based BuildAnchoredSummary when not.
+func BuildAnchoredSummaryWithLLM(ctx context.Context, model string, prev string, dropped []Event, latestIntent string, summarizer *Summarizer) string {
+	if summarizer == nil || !summarizer.config.Enabled {
+		return BuildAnchoredSummary(prev, dropped, latestIntent)
+	}
+
+	existing, _ := ParseStructuredSummary(prev)
+	var result *StructuredSummary
+	var err error
+
+	if existing == nil {
+		result, err = summarizer.GenerateInitialSummary(ctx, model, dropped, latestIntent)
+	} else {
+		result, err = summarizer.MergeSummary(ctx, model, existing, dropped, latestIntent)
+	}
+
+	if err != nil {
+		// Fallback to regex-based summary
+		return BuildAnchoredSummary(prev, dropped, latestIntent)
+	}
+
+	return RenderStructuredSummary(result)
 }
