@@ -9,7 +9,9 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func TestOpenAIToClaude_GroupsToolResultsInSingleMessage(t *testing.T) {
+func TestOpenAIToClaude_ToolResultsAsSeparateMessages(t *testing.T) {
+	// The translator produces separate messages for each tool result.
+	// Grouping is handled later by NormalizeClaudeToolResults in the executor.
 	raw := []byte(`{
   "model":"gpt-5.2",
   "messages":[
@@ -32,8 +34,9 @@ func TestOpenAIToClaude_GroupsToolResultsInSingleMessage(t *testing.T) {
 		false,
 	)
 
-	if got := gjson.GetBytes(out, "messages.#").Int(); got != 4 {
-		t.Fatalf("expected 4 messages, got %d body=%s", got, string(out))
+	// Translator produces 5 messages: user, assistant (with 2 tool_use), user (tool_result a), user (tool_result b), user (done)
+	if got := gjson.GetBytes(out, "messages.#").Int(); got != 5 {
+		t.Fatalf("expected 5 messages, got %d body=%s", got, string(out))
 	}
 	if gjson.GetBytes(out, "messages.1.role").String() != "assistant" {
 		t.Fatalf("expected messages.1.role=assistant body=%s", string(out))
@@ -41,21 +44,24 @@ func TestOpenAIToClaude_GroupsToolResultsInSingleMessage(t *testing.T) {
 	if got := gjson.GetBytes(out, "messages.1.content.#").Int(); got != 2 {
 		t.Fatalf("expected 2 tool_use blocks, got %d body=%s", got, string(out))
 	}
+	// Tool results are in separate user messages
 	if gjson.GetBytes(out, "messages.2.role").String() != "user" {
 		t.Fatalf("expected messages.2.role=user body=%s", string(out))
 	}
-	if got := gjson.GetBytes(out, "messages.2.content.#").Int(); got != 2 {
-		t.Fatalf("expected 2 tool_result blocks, got %d body=%s", got, string(out))
-	}
 	if gjson.GetBytes(out, "messages.2.content.0.tool_use_id").String() != "call_a" {
-		t.Fatalf("expected first tool_use_id=call_a body=%s", string(out))
+		t.Fatalf("expected messages.2 tool_use_id=call_a body=%s", string(out))
 	}
-	if gjson.GetBytes(out, "messages.2.content.1.tool_use_id").String() != "call_b" {
-		t.Fatalf("expected second tool_use_id=call_b body=%s", string(out))
+	if gjson.GetBytes(out, "messages.3.role").String() != "user" {
+		t.Fatalf("expected messages.3.role=user body=%s", string(out))
+	}
+	if gjson.GetBytes(out, "messages.3.content.0.tool_use_id").String() != "call_b" {
+		t.Fatalf("expected messages.3 tool_use_id=call_b body=%s", string(out))
 	}
 }
 
-func TestOpenAIResponsesToClaude_GroupsCallOutputsInSingleMessage(t *testing.T) {
+func TestOpenAIResponsesToClaude_CallOutputsAsSeparateMessages(t *testing.T) {
+	// The translator produces separate messages for each function_call and function_call_output.
+	// Grouping is handled later by NormalizeClaudeToolResults in the executor.
 	raw := []byte(`{
   "model":"gpt-5.2",
   "input":[
@@ -76,25 +82,36 @@ func TestOpenAIResponsesToClaude_GroupsCallOutputsInSingleMessage(t *testing.T) 
 		false,
 	)
 
-	if got := gjson.GetBytes(out, "messages.#").Int(); got != 4 {
-		t.Fatalf("expected 4 messages, got %d body=%s", got, string(out))
+	// Translator produces 6 messages: user (hi), assistant (tool_use a), assistant (tool_use b),
+	// user (tool_result a), user (tool_result b), user (done)
+	if got := gjson.GetBytes(out, "messages.#").Int(); got != 6 {
+		t.Fatalf("expected 6 messages, got %d body=%s", got, string(out))
 	}
+	// First message is user "hi"
+	if gjson.GetBytes(out, "messages.0.role").String() != "user" {
+		t.Fatalf("expected messages.0.role=user body=%s", string(out))
+	}
+	// Function calls become separate assistant messages with tool_use
 	if gjson.GetBytes(out, "messages.1.role").String() != "assistant" {
 		t.Fatalf("expected messages.1.role=assistant body=%s", string(out))
 	}
-	if got := gjson.GetBytes(out, "messages.1.content.#").Int(); got != 2 {
-		t.Fatalf("expected 2 tool_use blocks, got %d body=%s", got, string(out))
+	if gjson.GetBytes(out, "messages.1.content.0.type").String() != "tool_use" {
+		t.Fatalf("expected messages.1.content.0.type=tool_use body=%s", string(out))
 	}
-	if gjson.GetBytes(out, "messages.2.role").String() != "user" {
-		t.Fatalf("expected messages.2.role=user body=%s", string(out))
+	if gjson.GetBytes(out, "messages.2.role").String() != "assistant" {
+		t.Fatalf("expected messages.2.role=assistant body=%s", string(out))
 	}
-	if got := gjson.GetBytes(out, "messages.2.content.#").Int(); got != 2 {
-		t.Fatalf("expected 2 tool_result blocks, got %d body=%s", got, string(out))
+	// Function call outputs become separate user messages with tool_result
+	if gjson.GetBytes(out, "messages.3.role").String() != "user" {
+		t.Fatalf("expected messages.3.role=user body=%s", string(out))
 	}
-	if gjson.GetBytes(out, "messages.2.content.0.tool_use_id").String() != "call_a" {
-		t.Fatalf("expected first tool_use_id=call_a body=%s", string(out))
+	if gjson.GetBytes(out, "messages.3.content.0.tool_use_id").String() != "call_a" {
+		t.Fatalf("expected messages.3 tool_use_id=call_a body=%s", string(out))
 	}
-	if gjson.GetBytes(out, "messages.2.content.1.tool_use_id").String() != "call_b" {
-		t.Fatalf("expected second tool_use_id=call_b body=%s", string(out))
+	if gjson.GetBytes(out, "messages.4.role").String() != "user" {
+		t.Fatalf("expected messages.4.role=user body=%s", string(out))
+	}
+	if gjson.GetBytes(out, "messages.4.content.0.tool_use_id").String() != "call_b" {
+		t.Fatalf("expected messages.4 tool_use_id=call_b body=%s", string(out))
 	}
 }

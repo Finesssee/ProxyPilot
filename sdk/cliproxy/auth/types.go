@@ -19,6 +19,8 @@ type Auth struct {
 	Index uint64 `json:"-"`
 	// Provider is the upstream provider key (e.g. "gemini", "claude").
 	Provider string `json:"provider"`
+	// Prefix optionally namespaces models for routing (e.g., "teamA/gemini-3-pro-preview").
+	Prefix string `json:"prefix,omitempty"`
 	// FileName stores the relative or absolute path of the backing auth file.
 	FileName string `json:"-"`
 	// Storage holds the token persistence implementation used during login flows.
@@ -155,6 +157,20 @@ func (m *ModelState) Clone() *ModelState {
 		}
 	}
 	return &copyState
+}
+
+func (a *Auth) ProxyInfo() string {
+	if a == nil {
+		return ""
+	}
+	proxyStr := strings.TrimSpace(a.ProxyURL)
+	if proxyStr == "" {
+		return ""
+	}
+	if idx := strings.Index(proxyStr, "://"); idx > 0 {
+		return "via " + proxyStr[:idx] + " proxy"
+	}
+	return "via proxy"
 }
 
 func (a *Auth) AccountInfo() (string, string) {

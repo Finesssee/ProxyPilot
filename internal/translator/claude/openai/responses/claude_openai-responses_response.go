@@ -95,7 +95,7 @@ func ConvertClaudeResponseToOpenAIResponses(ctx context.Context, modelName strin
 				}
 			}
 			// response.created
-			created := `{"type":"response.created","sequence_number":0,"response":{"id":"","object":"response","created_at":0,"status":"in_progress","background":false,"error":null,"instructions":""}}`
+			created := `{"type":"response.created","sequence_number":0,"response":{"id":"","object":"response","created_at":0,"status":"in_progress","background":false,"error":null,"output":[]}}`
 			created, _ = sjson.Set(created, "sequence_number", nextSeq())
 			created, _ = sjson.Set(created, "response.id", st.ResponseID)
 			created, _ = sjson.Set(created, "response.created_at", st.CreatedAt)
@@ -197,11 +197,11 @@ func ConvertClaudeResponseToOpenAIResponses(ctx context.Context, modelName strin
 			if st.ReasoningActive {
 				if t := d.Get("thinking"); t.Exists() {
 					st.ReasoningBuf.WriteString(t.String())
-					msg := `{"type":"response.reasoning_summary_text.delta","sequence_number":0,"item_id":"","output_index":0,"summary_index":0,"text":""}`
+					msg := `{"type":"response.reasoning_summary_text.delta","sequence_number":0,"item_id":"","output_index":0,"summary_index":0,"delta":""}`
 					msg, _ = sjson.Set(msg, "sequence_number", nextSeq())
 					msg, _ = sjson.Set(msg, "item_id", st.ReasoningItemID)
 					msg, _ = sjson.Set(msg, "output_index", st.ReasoningIndex)
-					msg, _ = sjson.Set(msg, "text", t.String())
+					msg, _ = sjson.Set(msg, "delta", t.String())
 					out = append(out, emitEvent("response.reasoning_summary_text.delta", msg))
 				}
 			}
@@ -344,31 +344,20 @@ func ConvertClaudeResponseToOpenAIResponses(ctx context.Context, modelName strin
 		}
 
 		// Build response.output from aggregated state
-		var outputs []interface{}
+		outputsWrapper := `{"arr":[]}`
 		// reasoning item (if any)
 		if st.ReasoningBuf.Len() > 0 || st.ReasoningPartAdded {
-			r := map[string]interface{}{
-				"id":      st.ReasoningItemID,
-				"type":    "reasoning",
-				"summary": []interface{}{map[string]interface{}{"type": "summary_text", "text": st.ReasoningBuf.String()}},
-			}
-			outputs = append(outputs, r)
+			item := `{"id":"","type":"reasoning","summary":[{"type":"summary_text","text":""}]}`
+			item, _ = sjson.Set(item, "id", st.ReasoningItemID)
+			item, _ = sjson.Set(item, "summary.0.text", st.ReasoningBuf.String())
+			outputsWrapper, _ = sjson.SetRaw(outputsWrapper, "arr.-1", item)
 		}
 		// assistant message item (if any text)
 		if st.TextBuf.Len() > 0 || st.InTextBlock || st.CurrentMsgID != "" {
-			m := map[string]interface{}{
-				"id":     st.CurrentMsgID,
-				"type":   "message",
-				"status": "completed",
-				"content": []interface{}{map[string]interface{}{
-					"type":        "output_text",
-					"annotations": []interface{}{},
-					"logprobs":    []interface{}{},
-					"text":        st.TextBuf.String(),
-				}},
-				"role": "assistant",
-			}
-			outputs = append(outputs, m)
+			item := `{"id":"","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":""}],"role":"assistant"}`
+			item, _ = sjson.Set(item, "id", st.CurrentMsgID)
+			item, _ = sjson.Set(item, "content.0.text", st.TextBuf.String())
+			outputsWrapper, _ = sjson.SetRaw(outputsWrapper, "arr.-1", item)
 		}
 		// function_call items (in ascending index order for determinism)
 		if len(st.FuncArgsBuf) > 0 {
@@ -395,19 +384,16 @@ func ConvertClaudeResponseToOpenAIResponses(ctx context.Context, modelName strin
 				if callID == "" && st.CurrentFCID != "" {
 					callID = st.CurrentFCID
 				}
-				item := map[string]interface{}{
-					"id":        fmt.Sprintf("fc_%s", callID),
-					"type":      "function_call",
-					"status":    "completed",
-					"arguments": args,
-					"call_id":   callID,
-					"name":      name,
-				}
-				outputs = append(outputs, item)
+				item := `{"id":"","type":"function_call","status":"completed","arguments":"","call_id":"","name":""}`
+				item, _ = sjson.Set(item, "id", fmt.Sprintf("fc_%s", callID))
+				item, _ = sjson.Set(item, "arguments", args)
+				item, _ = sjson.Set(item, "call_id", callID)
+				item, _ = sjson.Set(item, "name", name)
+				outputsWrapper, _ = sjson.SetRaw(outputsWrapper, "arr.-1", item)
 			}
 		}
-		if len(outputs) > 0 {
-			completed, _ = sjson.Set(completed, "response.output", outputs)
+		if gjson.Get(outputsWrapper, "arr.#").Int() > 0 {
+			completed, _ = sjson.SetRaw(completed, "response.output", gjson.Get(outputsWrapper, "arr").Raw)
 		}
 
 		reasoningTokens := int64(0)
@@ -628,27 +614,18 @@ func ConvertClaudeResponseToOpenAIResponsesNonStream(_ context.Context, _ string
 	}
 
 	// Build output array
-	var outputs []interface{}
+	outputsWrapper := `{"arr":[]}`
 	if reasoningBuf.Len() > 0 {
-		outputs = append(outputs, map[string]interface{}{
-			"id":      reasoningItemID,
-			"type":    "reasoning",
-			"summary": []interface{}{map[string]interface{}{"type": "summary_text", "text": reasoningBuf.String()}},
-		})
+		item := `{"id":"","type":"reasoning","summary":[{"type":"summary_text","text":""}]}`
+		item, _ = sjson.Set(item, "id", reasoningItemID)
+		item, _ = sjson.Set(item, "summary.0.text", reasoningBuf.String())
+		outputsWrapper, _ = sjson.SetRaw(outputsWrapper, "arr.-1", item)
 	}
 	if currentMsgID != "" || textBuf.Len() > 0 {
-		outputs = append(outputs, map[string]interface{}{
-			"id":     currentMsgID,
-			"type":   "message",
-			"status": "completed",
-			"content": []interface{}{map[string]interface{}{
-				"type":        "output_text",
-				"annotations": []interface{}{},
-				"logprobs":    []interface{}{},
-				"text":        textBuf.String(),
-			}},
-			"role": "assistant",
-		})
+		item := `{"id":"","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":""}],"role":"assistant"}`
+		item, _ = sjson.Set(item, "id", currentMsgID)
+		item, _ = sjson.Set(item, "content.0.text", textBuf.String())
+		outputsWrapper, _ = sjson.SetRaw(outputsWrapper, "arr.-1", item)
 	}
 	if len(toolCalls) > 0 {
 		// Preserve index order
@@ -669,18 +646,16 @@ func ConvertClaudeResponseToOpenAIResponsesNonStream(_ context.Context, _ string
 			if args == "" {
 				args = "{}"
 			}
-			outputs = append(outputs, map[string]interface{}{
-				"id":        fmt.Sprintf("fc_%s", st.id),
-				"type":      "function_call",
-				"status":    "completed",
-				"arguments": args,
-				"call_id":   st.id,
-				"name":      st.name,
-			})
+			item := `{"id":"","type":"function_call","status":"completed","arguments":"","call_id":"","name":""}`
+			item, _ = sjson.Set(item, "id", fmt.Sprintf("fc_%s", st.id))
+			item, _ = sjson.Set(item, "arguments", args)
+			item, _ = sjson.Set(item, "call_id", st.id)
+			item, _ = sjson.Set(item, "name", st.name)
+			outputsWrapper, _ = sjson.SetRaw(outputsWrapper, "arr.-1", item)
 		}
 	}
-	if len(outputs) > 0 {
-		out, _ = sjson.Set(out, "output", outputs)
+	if gjson.Get(outputsWrapper, "arr.#").Int() > 0 {
+		out, _ = sjson.SetRaw(out, "output", gjson.Get(outputsWrapper, "arr").Raw)
 	}
 
 	// Usage

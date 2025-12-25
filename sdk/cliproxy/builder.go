@@ -5,12 +5,13 @@ package cliproxy
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/api"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
+	"github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 )
 
 // Builder constructs a Service instance with customizable providers.
@@ -197,7 +198,20 @@ func (b *Builder) Build() (*Service, error) {
 		if dirSetter, ok := tokenStore.(interface{ SetBaseDir(string) }); ok && b.cfg != nil {
 			dirSetter.SetBaseDir(b.cfg.AuthDir)
 		}
-		coreManager = coreauth.NewManager(tokenStore, nil, nil)
+
+		strategy := ""
+		if b.cfg != nil {
+			strategy = strings.ToLower(strings.TrimSpace(b.cfg.Routing.Strategy))
+		}
+		var selector coreauth.Selector
+		switch strategy {
+		case "fill-first", "fillfirst", "ff":
+			selector = &coreauth.FillFirstSelector{}
+		default:
+			selector = &coreauth.RoundRobinSelector{}
+		}
+
+		coreManager = coreauth.NewManager(tokenStore, selector, nil)
 	}
 	// Attach a default RoundTripper provider so providers can opt-in per-auth transports.
 	coreManager.SetRoundTripperProvider(newDefaultRoundTripperProvider())

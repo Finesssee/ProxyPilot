@@ -9,13 +9,11 @@ package claude
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync/atomic"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/translator/gemini/common"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -24,11 +22,10 @@ import (
 // This structure tracks the current state of the response translation process to ensure
 // proper sequencing of SSE events and transitions between different content types.
 type Params struct {
-	HasFirstResponse     bool   // Indicates if the initial message_start event has been sent
-	ResponseType         int    // Current response type: 0=none, 1=content, 2=thinking, 3=function
-	ResponseIndex        int    // Index counter for content blocks in the streaming response
-	HasContent           bool   // Tracks whether any content (text, thinking, or tool use) has been output
-	LastThoughtSignature string // Tracks the last seen thought signature
+	HasFirstResponse bool // Indicates if the initial message_start event has been sent
+	ResponseType     int  // Current response type: 0=none, 1=content, 2=thinking, 3=function
+	ResponseIndex    int  // Index counter for content blocks in the streaming response
+	HasContent       bool // Tracks whether any content (text, thinking, or tool use) has been output
 }
 
 // toolUseIDCounter provides a process-wide unique counter for tool use identifiers.
@@ -53,10 +50,9 @@ var toolUseIDCounter uint64
 func ConvertGeminiCLIResponseToClaude(_ context.Context, _ string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) []string {
 	if *param == nil {
 		*param = &Params{
-			HasFirstResponse:     false,
-			ResponseType:         0,
-			ResponseIndex:        0,
-			LastThoughtSignature: "",
+			HasFirstResponse: false,
+			ResponseType:     0,
+			ResponseIndex:    0,
 		}
 	}
 
@@ -113,19 +109,6 @@ func ConvertGeminiCLIResponseToClaude(_ context.Context, _ string, originalReque
 				if partResult.Get("thought").Bool() {
 					// Continue existing thinking block if already in thinking state
 					if (*param).(*Params).ResponseType == 2 {
-						// Check for signature in subsequent chunks (unlikely but possible)
-						sig := partResult.Get("thoughtSignature").String()
-						if sig == "" {
-							sig = partResult.Get("thought_signature").String()
-						}
-						if sig != "" {
-							output = output + "event: content_block_delta\n"
-							sigJson, _ := json.Marshal(sig)
-							data := fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"signature_delta","signature":%s}}`, (*param).(*Params).ResponseIndex, sigJson)
-							output = output + fmt.Sprintf("data: %s\n\n\n", data)
-							(*param).(*Params).LastThoughtSignature = sig
-						}
-
 						output = output + "event: content_block_delta\n"
 						data, _ := sjson.Set(fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"thinking_delta","thinking":""}}`, (*param).(*Params).ResponseIndex), "delta.thinking", partTextResult.String())
 						output = output + fmt.Sprintf("data: %s\n\n\n", data)
@@ -149,21 +132,6 @@ func ConvertGeminiCLIResponseToClaude(_ context.Context, _ string, originalReque
 						output = output + "event: content_block_start\n"
 						output = output + fmt.Sprintf(`data: {"type":"content_block_start","index":%d,"content_block":{"type":"thinking","thinking":""}}`, (*param).(*Params).ResponseIndex)
 						output = output + "\n\n\n"
-
-						// Check for signature and emit if present
-						sig := partResult.Get("thoughtSignature").String()
-						if sig == "" {
-							sig = partResult.Get("thought_signature").String()
-						}
-						if sig != "" {
-							output = output + "event: content_block_delta\n"
-							// Properly escape signature
-							sigJson, _ := json.Marshal(sig)
-							data := fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"signature_delta","signature":%s}}`, (*param).(*Params).ResponseIndex, sigJson)
-							output = output + fmt.Sprintf("data: %s\n\n\n", data)
-							(*param).(*Params).LastThoughtSignature = sig
-						}
-
 						output = output + "event: content_block_delta\n"
 						data, _ := sjson.Set(fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"thinking_delta","thinking":""}}`, (*param).(*Params).ResponseIndex), "delta.thinking", partTextResult.String())
 						output = output + fmt.Sprintf("data: %s\n\n\n", data)
@@ -241,14 +209,7 @@ func ConvertGeminiCLIResponseToClaude(_ context.Context, _ string, originalReque
 
 				// Create the tool use block with unique ID and function details
 				data := fmt.Sprintf(`{"type":"content_block_start","index":%d,"content_block":{"type":"tool_use","id":"","name":"","input":{}}}`, (*param).(*Params).ResponseIndex)
-				toolID := fmt.Sprintf("%s-%d-%d", fcName, time.Now().UnixNano(), atomic.AddUint64(&toolUseIDCounter, 1))
-
-				// Cache the signature for this tool ID if we have one
-				if sig := (*param).(*Params).LastThoughtSignature; sig != "" {
-					common.GlobalSignatureCache.Add(toolID, sig)
-				}
-
-				data, _ = sjson.Set(data, "content_block.id", toolID)
+				data, _ = sjson.Set(data, "content_block.id", fmt.Sprintf("%s-%d-%d", fcName, time.Now().UnixNano(), atomic.AddUint64(&toolUseIDCounter, 1)))
 				data, _ = sjson.Set(data, "content_block.name", fcName)
 				output = output + fmt.Sprintf("data: %s\n\n\n", data)
 
@@ -314,22 +275,16 @@ func ConvertGeminiCLIResponseToClaudeNonStream(_ context.Context, _ string, orig
 
 	root := gjson.ParseBytes(rawJSON)
 
-	response := map[string]interface{}{
-		"id":            root.Get("response.responseId").String(),
-		"type":          "message",
-		"role":          "assistant",
-		"model":         root.Get("response.modelVersion").String(),
-		"content":       []interface{}{},
-		"stop_reason":   nil,
-		"stop_sequence": nil,
-		"usage": map[string]interface{}{
-			"input_tokens":  root.Get("response.usageMetadata.promptTokenCount").Int(),
-			"output_tokens": root.Get("response.usageMetadata.candidatesTokenCount").Int() + root.Get("response.usageMetadata.thoughtsTokenCount").Int(),
-		},
-	}
+	out := `{"id":"","type":"message","role":"assistant","model":"","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}`
+	out, _ = sjson.Set(out, "id", root.Get("response.responseId").String())
+	out, _ = sjson.Set(out, "model", root.Get("response.modelVersion").String())
+
+	inputTokens := root.Get("response.usageMetadata.promptTokenCount").Int()
+	outputTokens := root.Get("response.usageMetadata.candidatesTokenCount").Int() + root.Get("response.usageMetadata.thoughtsTokenCount").Int()
+	out, _ = sjson.Set(out, "usage.input_tokens", inputTokens)
+	out, _ = sjson.Set(out, "usage.output_tokens", outputTokens)
 
 	parts := root.Get("response.candidates.0.content.parts")
-	var contentBlocks []interface{}
 	textBuilder := strings.Builder{}
 	thinkingBuilder := strings.Builder{}
 	toolIDCounter := 0
@@ -339,42 +294,24 @@ func ConvertGeminiCLIResponseToClaudeNonStream(_ context.Context, _ string, orig
 		if textBuilder.Len() == 0 {
 			return
 		}
-		contentBlocks = append(contentBlocks, map[string]interface{}{
-			"type": "text",
-			"text": textBuilder.String(),
-		})
+		block := `{"type":"text","text":""}`
+		block, _ = sjson.Set(block, "text", textBuilder.String())
+		out, _ = sjson.SetRaw(out, "content.-1", block)
 		textBuilder.Reset()
 	}
-
-	var currentThinkingSignature string
 
 	flushThinking := func() {
 		if thinkingBuilder.Len() == 0 {
 			return
 		}
-		block := map[string]interface{}{
-			"type":     "thinking",
-			"thinking": thinkingBuilder.String(),
-		}
-		if currentThinkingSignature != "" {
-			block["signature"] = currentThinkingSignature
-			currentThinkingSignature = ""
-		}
-		contentBlocks = append(contentBlocks, block)
+		block := `{"type":"thinking","thinking":""}`
+		block, _ = sjson.Set(block, "thinking", thinkingBuilder.String())
+		out, _ = sjson.SetRaw(out, "content.-1", block)
 		thinkingBuilder.Reset()
 	}
 
 	if parts.IsArray() {
 		for _, part := range parts.Array() {
-			// Extract signature
-			sig := part.Get("thoughtSignature").String()
-			if sig == "" {
-				sig = part.Get("thought_signature").String()
-			}
-			if sig != "" {
-				currentThinkingSignature = sig
-			}
-
 			if text := part.Get("text"); text.Exists() && text.String() != "" {
 				if part.Get("thought").Bool() {
 					flushText()
@@ -393,28 +330,15 @@ func ConvertGeminiCLIResponseToClaudeNonStream(_ context.Context, _ string, orig
 
 				name := functionCall.Get("name").String()
 				toolIDCounter++
-				toolID := fmt.Sprintf("tool_%d", toolIDCounter)
-
-				// Cache the signature if available
-				if currentThinkingSignature != "" {
-					common.GlobalSignatureCache.Add(toolID, currentThinkingSignature)
+				toolBlock := `{"type":"tool_use","id":"","name":"","input":{}}`
+				toolBlock, _ = sjson.Set(toolBlock, "id", fmt.Sprintf("tool_%d", toolIDCounter))
+				toolBlock, _ = sjson.Set(toolBlock, "name", name)
+				inputRaw := "{}"
+				if args := functionCall.Get("args"); args.Exists() && gjson.Valid(args.Raw) && args.IsObject() {
+					inputRaw = args.Raw
 				}
-
-				toolBlock := map[string]interface{}{
-					"type":  "tool_use",
-					"id":    toolID,
-					"name":  name,
-					"input": map[string]interface{}{},
-				}
-
-				if args := functionCall.Get("args"); args.Exists() {
-					var parsed interface{}
-					if err := json.Unmarshal([]byte(args.Raw), &parsed); err == nil {
-						toolBlock["input"] = parsed
-					}
-				}
-
-				contentBlocks = append(contentBlocks, toolBlock)
+				toolBlock, _ = sjson.SetRaw(toolBlock, "input", inputRaw)
+				out, _ = sjson.SetRaw(out, "content.-1", toolBlock)
 				continue
 			}
 		}
@@ -422,8 +346,6 @@ func ConvertGeminiCLIResponseToClaudeNonStream(_ context.Context, _ string, orig
 
 	flushThinking()
 	flushText()
-
-	response["content"] = contentBlocks
 
 	stopReason := "end_turn"
 	if hasToolCall {
@@ -440,19 +362,13 @@ func ConvertGeminiCLIResponseToClaudeNonStream(_ context.Context, _ string, orig
 			}
 		}
 	}
-	response["stop_reason"] = stopReason
+	out, _ = sjson.Set(out, "stop_reason", stopReason)
 
-	if usage := response["usage"].(map[string]interface{}); usage["input_tokens"] == int64(0) && usage["output_tokens"] == int64(0) {
-		if usageMeta := root.Get("response.usageMetadata"); !usageMeta.Exists() {
-			delete(response, "usage")
-		}
+	if inputTokens == int64(0) && outputTokens == int64(0) && !root.Get("response.usageMetadata").Exists() {
+		out, _ = sjson.Delete(out, "usage")
 	}
 
-	encoded, err := json.Marshal(response)
-	if err != nil {
-		return ""
-	}
-	return string(encoded)
+	return out
 }
 
 func ClaudeTokenCount(ctx context.Context, count int64) string {

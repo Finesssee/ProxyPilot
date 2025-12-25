@@ -12,7 +12,7 @@ ARG VERSION=dev
 ARG COMMIT=none
 ARG BUILD_DATE=unknown
 
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.Commit=${COMMIT}' -X 'main.BuildDate=${BUILD_DATE}'" -o ./proxypilot-engine ./cmd/server/
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X 'main.Version=${VERSION}-plus' -X 'main.Commit=${COMMIT}' -X 'main.BuildDate=${BUILD_DATE}'" -o ./CLIProxyAPIPlus ./cmd/server/
 
 FROM alpine:3.22.0
 
@@ -20,7 +20,7 @@ RUN apk add --no-cache tzdata
 
 RUN mkdir /ProxyPilot
 
-COPY --from=builder ./app/proxypilot-engine /ProxyPilot/proxypilot-engine
+COPY --from=builder ./app/CLIProxyAPIPlus /CLIProxyAPI/CLIProxyAPIPlus
 
 COPY config.example.yaml /ProxyPilot/config.example.yaml
 
@@ -32,4 +32,4 @@ ENV TZ=Asia/Shanghai
 
 RUN cp /usr/share/zoneinfo/${TZ} /etc/localtime && echo "${TZ}" > /etc/timezone
 
-CMD ["./proxypilot-engine"]
+CMD ["./CLIProxyAPIPlus"]

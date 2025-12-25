@@ -8,15 +8,15 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func TestAntigravityChatCompletionsStreamSupportsUnwrappedResponse(t *testing.T) {
+func TestAntigravityChatCompletionsStreamSupportsWrappedResponse(t *testing.T) {
 	from := sdktranslator.FromString("antigravity")
 	to := sdktranslator.FromString("openai")
 
 	originalReq := []byte(`{"model":"gemini-3-pro-preview","stream":true}`)
 	requestRaw := []byte(`{"model":"gemini-3-pro-preview","stream":true}`)
 
-	// Some upstreams send the response object directly (no top-level "response" wrapper).
-	chunk := []byte(`{"responseId":"r1","createTime":"2025-01-01T00:00:00Z","modelVersion":"gemini-3-pro-preview","candidates":[{"finishReason":"","content":{"parts":[{"text":"Hi"}]}}]}`)
+	// Upstreams send the response wrapped in a "response" object.
+	chunk := []byte(`{"response":{"responseId":"r1","createTime":"2025-01-01T00:00:00Z","modelVersion":"gemini-3-pro-preview","candidates":[{"finishReason":"","content":{"parts":[{"text":"Hi"}]}}]}}`)
 
 	var param any
 	segments := sdktranslator.TranslateStream(context.Background(), from, to, "gemini-3-pro-preview", originalReq, requestRaw, chunk, &param)

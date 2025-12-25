@@ -1,9 +1,6 @@
 services:
-  proxypilot:
-    # This compose file is optimized for local development. For shared or cloud
-    # use, copy config.example.yaml to config.yaml, harden remote-management,
-    # and consider terminating TLS in front of this container.
-    image: ${CLI_PROXY_IMAGE:-eceasy/cli-proxy-api:latest}
+  cli-proxy-api:
+    image: ${CLI_PROXY_IMAGE:-eceasy/cli-proxy-api-plus:latest}
     pull_policy: always
     build:
       context: .
@@ -12,7 +9,7 @@ services:
         VERSION: ${VERSION:-dev}
         COMMIT: ${COMMIT:-none}
         BUILD_DATE: ${BUILD_DATE:-unknown}
-    container_name: proxypilot
+    container_name: cli-proxy-api-plus
     # env_file:
     #   - .env
     environment:

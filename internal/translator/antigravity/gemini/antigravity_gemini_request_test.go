@@ -7,95 +7,123 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func TestFixCLIToolResponse_DoesNotDropEarlyResponses(t *testing.T) {
-	in := `{
-  "request": {
-    "contents": [
-      {"role":"model","parts":[{"functionCall":{"id":"a","name":"A","args":{}}}]},
-      {"role":"function","parts":[{"functionResponse":{"id":"a","name":"A","response":{"result":"outA"}}}]},
-      {"role":"function","parts":[{"functionResponse":{"id":"b","name":"B","response":{"result":"outB"}}}]},
-      {"role":"model","parts":[{"functionCall":{"id":"b","name":"B","args":{}}}]}
-    ]
-  }
-}`
-
-	out, err := fixCLIToolResponse(in)
-	if err != nil {
-		t.Fatalf("fixCLIToolResponse error: %v", err)
-	}
-
-	contents := gjson.Get(out, "request.contents")
-	if !contents.Exists() || !contents.IsArray() {
-		t.Fatalf("expected request.contents array, got body=%s", out)
-	}
-
-	var callBIndex int64 = -1
-	contents.ForEach(func(k, v gjson.Result) bool {
-		if v.Get("role").String() != "model" {
-			return true
-		}
-		v.Get("parts").ForEach(func(_, p gjson.Result) bool {
-			if p.Get("functionCall.id").String() == "b" {
-				callBIndex = k.Int()
-				return false
+func TestConvertGeminiRequestToAntigravity_PreserveValidSignature(t *testing.T) {
+	// Valid signature on functionCall should be preserved
+	validSignature := "abc123validSignature1234567890123456789012345678901234567890"
+	inputJSON := []byte(fmt.Sprintf(`{
+		"model": "gemini-3-pro-preview",
+		"contents": [
+			{
+				"role": "model",
+				"parts": [
+					{"functionCall": {"name": "test_tool", "args": {}}, "thoughtSignature": "%s"}
+				]
 			}
-			return true
-		})
-		return callBIndex == -1
-	})
-	if callBIndex < 0 {
-		t.Fatalf("expected to find functionCall id=b in output body=%s", out)
+		]
+	}`, validSignature))
+
+	output := ConvertGeminiRequestToAntigravity("gemini-3-pro-preview", inputJSON, false)
+	outputStr := string(output)
+
+	// Check that valid thoughtSignature is preserved
+	parts := gjson.Get(outputStr, "request.contents.0.parts").Array()
+	if len(parts) != 1 {
+		t.Fatalf("Expected 1 part, got %d", len(parts))
 	}
 
-	next := gjson.Get(out, fmt.Sprintf("request.contents.%d.parts", callBIndex+1))
-	if !next.Exists() || !next.IsArray() {
-		t.Fatalf("expected tool response content after call b body=%s", out)
-	}
-
-	found := false
-	next.ForEach(func(_, p gjson.Result) bool {
-		if p.Get("functionResponse.id").String() == "b" {
-			found = true
-			return false
-		}
-		return true
-	})
-	if !found {
-		t.Fatalf("expected functionResponse id=b immediately after call b body=%s", out)
+	sig := parts[0].Get("thoughtSignature").String()
+	if sig != validSignature {
+		t.Errorf("Expected thoughtSignature '%s', got '%s'", validSignature, sig)
 	}
 }
 
-func TestFixCLIToolResponse_PullsResponsesBeforeUserText(t *testing.T) {
-	in := `{
-  "request": {
-    "contents": [
-      {"role":"model","parts":[{"functionCall":{"id":"a","name":"A","args":{}}}]},
-      {"role":"user","parts":[{"text":"(some user text that must not split tool call/result)"}]},
-      {"role":"function","parts":[{"functionResponse":{"id":"a","name":"A","response":{"result":"outA"}}}]}
-    ]
-  }
-}`
+func TestConvertGeminiRequestToAntigravity_AddSkipSentinelToFunctionCall(t *testing.T) {
+	// functionCall without signature should get skip_thought_signature_validator
+	inputJSON := []byte(`{
+		"model": "gemini-3-pro-preview",
+		"contents": [
+			{
+				"role": "model",
+				"parts": [
+					{"functionCall": {"name": "test_tool", "args": {}}}
+				]
+			}
+		]
+	}`)
 
-	out, err := fixCLIToolResponse(in)
-	if err != nil {
-		t.Fatalf("fixCLIToolResponse error: %v", err)
+	output := ConvertGeminiRequestToAntigravity("gemini-3-pro-preview", inputJSON, false)
+	outputStr := string(output)
+
+	// Check that skip_thought_signature_validator is added to functionCall
+	sig := gjson.Get(outputStr, "request.contents.0.parts.0.thoughtSignature").String()
+	expectedSig := "skip_thought_signature_validator"
+	if sig != expectedSig {
+		t.Errorf("Expected skip sentinel '%s', got '%s'", expectedSig, sig)
+	}
+}
+
+func TestConvertGeminiRequestToAntigravity_RemoveThinkingBlocks(t *testing.T) {
+	// Thinking blocks should be removed entirely for Gemini
+	validSignature := "abc123validSignature1234567890123456789012345678901234567890"
+	inputJSON := []byte(fmt.Sprintf(`{
+		"model": "gemini-3-pro-preview",
+		"contents": [
+			{
+				"role": "model",
+				"parts": [
+					{"thought": true, "text": "Thinking...", "thoughtSignature": "%s"},
+					{"text": "Here is my response"}
+				]
+			}
+		]
+	}`, validSignature))
+
+	output := ConvertGeminiRequestToAntigravity("gemini-3-pro-preview", inputJSON, false)
+	outputStr := string(output)
+
+	// Check that thinking block is removed
+	parts := gjson.Get(outputStr, "request.contents.0.parts").Array()
+	if len(parts) != 1 {
+		t.Fatalf("Expected 1 part (thinking removed), got %d", len(parts))
 	}
 
-	contents := gjson.Get(out, "request.contents")
-	if !contents.Exists() || !contents.IsArray() {
-		t.Fatalf("expected request.contents array, got body=%s", out)
+	// Only text part should remain
+	if parts[0].Get("thought").Bool() {
+		t.Error("Thinking block should be removed for Gemini")
+	}
+	if parts[0].Get("text").String() != "Here is my response" {
+		t.Errorf("Expected text 'Here is my response', got '%s'", parts[0].Get("text").String())
+	}
+}
+
+func TestConvertGeminiRequestToAntigravity_ParallelFunctionCalls(t *testing.T) {
+	// Multiple functionCalls should all get skip_thought_signature_validator
+	inputJSON := []byte(`{
+		"model": "gemini-3-pro-preview",
+		"contents": [
+			{
+				"role": "model",
+				"parts": [
+					{"functionCall": {"name": "tool_one", "args": {"a": "1"}}},
+					{"functionCall": {"name": "tool_two", "args": {"b": "2"}}}
+				]
+			}
+		]
+	}`)
+
+	output := ConvertGeminiRequestToAntigravity("gemini-3-pro-preview", inputJSON, false)
+	outputStr := string(output)
+
+	parts := gjson.Get(outputStr, "request.contents.0.parts").Array()
+	if len(parts) != 2 {
+		t.Fatalf("Expected 2 parts, got %d", len(parts))
 	}
 
-	if contents.Get("0.role").String() != "model" {
-		t.Fatalf("expected first role=model, got %s body=%s", contents.Get("0.role").String(), out)
-	}
-	if contents.Get("1.role").String() != "user" {
-		t.Fatalf("expected second role=user, got %s body=%s", contents.Get("1.role").String(), out)
-	}
-	if contents.Get("1.parts.0.functionResponse.id").String() != "a" {
-		t.Fatalf("expected second message to contain functionResponse id=a body=%s", out)
-	}
-	if contents.Get("2.parts.0.text").String() == "" {
-		t.Fatalf("expected user text to follow tool result body=%s", out)
+	expectedSig := "skip_thought_signature_validator"
+	for i, part := range parts {
+		sig := part.Get("thoughtSignature").String()
+		if sig != expectedSig {
+			t.Errorf("Part %d: Expected '%s', got '%s'", i, expectedSig, sig)
+		}
 	}
 }
