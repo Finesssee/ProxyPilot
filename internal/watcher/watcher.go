@@ -1207,6 +1207,53 @@ func (w *Watcher) SnapshotCoreAuths() []*coreauth.Auth {
 			applyAuthExcludedModelsMeta(a, cfg, ck.ExcludedModels, "apikey")
 			out = append(out, a)
 		}
+		// Kiro keys -> synthesize auths
+		for i := range cfg.KiroKey {
+			kk := cfg.KiroKey[i]
+			// Support either token file or direct access/refresh tokens
+			tokenFile := strings.TrimSpace(kk.TokenFile)
+			accessToken := strings.TrimSpace(kk.AccessToken)
+			refreshToken := strings.TrimSpace(kk.RefreshToken)
+			// Must have either token file or access token
+			if tokenFile == "" && accessToken == "" {
+				continue
+			}
+			id, token := idGen.next("kiro:apikey", tokenFile, accessToken, kk.Region)
+			attrs := map[string]string{
+				"source": fmt.Sprintf("config:kiro[%s]", token),
+			}
+			if tokenFile != "" {
+				attrs["token_file"] = tokenFile
+			}
+			if accessToken != "" {
+				attrs["access_token"] = accessToken
+			}
+			if refreshToken != "" {
+				attrs["refresh_token"] = refreshToken
+			}
+			if kk.ProfileArn != "" {
+				attrs["profile_arn"] = kk.ProfileArn
+			}
+			if kk.Region != "" {
+				attrs["region"] = kk.Region
+			}
+			if kk.AgentTaskType != "" {
+				attrs["agent_task_type"] = kk.AgentTaskType
+			}
+			proxyURL := strings.TrimSpace(kk.ProxyURL)
+			a := &coreauth.Auth{
+				ID:         id,
+				Provider:   "kiro",
+				Label:      "kiro-apikey",
+				Status:     coreauth.StatusActive,
+				ProxyURL:   proxyURL,
+				Attributes: attrs,
+				CreatedAt:  now,
+				UpdatedAt:  now,
+			}
+			applyAuthExcludedModelsMeta(a, cfg, nil, "apikey")
+			out = append(out, a)
+		}
 		for i := range cfg.OpenAICompatibility {
 			compat := &cfg.OpenAICompatibility[i]
 			providerName := strings.ToLower(strings.TrimSpace(compat.Name))
