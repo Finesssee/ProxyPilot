@@ -27,4 +27,8 @@ config.yaml
 bin/*
 .claude/*
 .vscode/*
+.gemini/*
 .serena/*
+.agent/*
+.bmad/*
+_bmad/*

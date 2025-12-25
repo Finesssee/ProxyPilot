@@ -1,21 +1,20 @@
+// Package claude provides translation between Kiro and Claude formats.
 package claude
 
 import (
 	. "github.com/router-for-me/CLIProxyAPI/v6/internal/constant"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
-	"github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
+	translator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
 )
 
 func init() {
-	// Register Claude -> Kiro translation for Claude Messages API
 	translator.Register(
 		Claude,
 		Kiro,
 		ConvertClaudeRequestToKiro,
 		interfaces.TranslateResponse{
-			Stream:     ConvertKiroResponseToClaude,
-			NonStream:  ConvertKiroResponseToClaudeNonStream,
-			TokenCount: ClaudeTokenCount,
+			Stream:    ConvertKiroStreamToClaude,
+			NonStream: ConvertKiroNonStreamToClaude,
 		},
 	)
 }

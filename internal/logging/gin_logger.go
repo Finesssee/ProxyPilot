@@ -11,16 +11,28 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	log "github.com/sirupsen/logrus"
 )
+
+// aiAPIPrefixes defines path prefixes for AI API requests that should have request ID tracking.
+var aiAPIPrefixes = []string{
+	"/v1/chat/completions",
+	"/v1/completions",
+	"/v1/messages",
+	"/v1/responses",
+	"/v1beta/models/",
+	"/api/provider/",
+}
 
 const skipGinLogKey = "__gin_skip_request_logging__"
 
 // GinLogrusLogger returns a Gin middleware handler that logs HTTP requests and responses
 // using logrus. It captures request details including method, path, status code, latency,
-// client IP, and any error messages, and attaches structured fields for downstream analysis.
+// client IP, and any error messages. Request ID is only added for AI API requests.
+//
+// Output format (AI API): [2025-12-23 20:14:10] [info ] | a1b2c3d4 | 200 |       23.559s | ...
+// Output format (others): [2025-12-23 20:14:10] [info ] | -------- | 200 |       23.559s | ...
 //
 // Returns:
 //   - gin.HandlerFunc: A middleware handler for request logging
@@ -30,12 +42,14 @@ func GinLogrusLogger() gin.HandlerFunc {
 		path := c.Request.URL.Path
 		raw := util.MaskSensitiveQuery(c.Request.URL.RawQuery)
 
-		// Derive or generate a request ID and propagate it via response headers.
-		requestID := c.Request.Header.Get("X-Request-Id")
-		if strings.TrimSpace(requestID) == "" {
-			requestID = uuid.NewString()
+		// Only generate request ID for AI API paths
+		var requestID string
+		if isAIAPIPath(path) {
+			requestID = GenerateRequestID()
+			SetGinRequestID(c, requestID)
+			ctx := WithRequestID(c.Request.Context(), requestID)
+			c.Request = c.Request.WithContext(ctx)
 		}
-		c.Writer.Header().Set("X-Request-Id", requestID)
 
 		c.Next()
 
@@ -57,46 +71,18 @@ func GinLogrusLogger() gin.HandlerFunc {
 		statusCode := c.Writer.Status()
 		clientIP := c.ClientIP()
 		method := c.Request.Method
-		userAgent := c.Request.UserAgent()
-		// Basic client classification to help distinguish agentic CLIs and IDEs.
-		clientType := "generic"
-		uaLower := strings.ToLower(userAgent)
-		if strings.Contains(uaLower, "factory-cli") || strings.Contains(uaLower, "droid") {
-			clientType = "factory-cli"
-		} else if strings.Contains(uaLower, "openai codex") {
-			clientType = "codex-cli"
-		} else if strings.Contains(uaLower, "warp") {
-			clientType = "warp-cli"
-		} else if strings.Contains(uaLower, "cursor") {
-			clientType = "cursor-ide"
-		}
-
 		errorMessage := c.Errors.ByType(gin.ErrorTypePrivate).String()
-		timestamp := time.Now().Format("2006/01/02 - 15:04:05")
-		logLine := fmt.Sprintf("[GIN] %s | %3d | %13v | %15s | %-7s \"%s\"", timestamp, statusCode, latency, clientIP, method, path)
+
+		if requestID == "" {
+			requestID = "--------"
+		}
+		logLine := fmt.Sprintf("%3d | %13v | %15s | %-7s \"%s\"", statusCode, latency, clientIP, method, path)
 		if errorMessage != "" {
 			logLine = logLine + " | " + errorMessage
 		}
 
-		fields := log.Fields{
-			"status":      statusCode,
-			"latency_ms":  latency.Milliseconds(),
-			"client_ip":   clientIP,
-			"method":      method,
-			"path":        path,
-			"request_id":  requestID,
-			"client_type": clientType,
-		}
-		// Avoid logging very long user-agents verbatim, but keep a shortened hint.
-		if userAgent != "" {
-			ua := userAgent
-			if len(ua) > 180 {
-				ua = ua[:180] + "..."
-			}
-			fields["user_agent"] = ua
-		}
+		entry := log.WithField("request_id", requestID)
 
-		entry := log.WithFields(fields)
 		switch {
 		case statusCode >= http.StatusInternalServerError:
 			entry.Error(logLine)
@@ -106,6 +92,16 @@ func GinLogrusLogger() gin.HandlerFunc {
 			entry.Info(logLine)
 		}
 	}
+}
+
+// isAIAPIPath checks if the given path is an AI API endpoint that should have request ID tracking.
+func isAIAPIPath(path string) bool {
+	for _, prefix := range aiAPIPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // GinLogrusRecovery returns a Gin middleware handler that recovers from panics and logs

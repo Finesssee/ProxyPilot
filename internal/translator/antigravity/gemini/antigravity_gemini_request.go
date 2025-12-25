@@ -7,12 +7,11 @@ package gemini
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
-	"unicode/utf8"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/translator/gemini/common"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
+	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -43,8 +42,7 @@ func ConvertGeminiRequestToAntigravity(_ string, inputRawJSON []byte, _ bool) []
 
 	template, errFixCLIToolResponse := fixCLIToolResponse(template)
 	if errFixCLIToolResponse != nil {
-		// Fail open: tool-call normalization is a best-effort resilience feature.
-		// Returning an empty request here causes hard failures upstream.
+		return []byte{}
 	}
 
 	systemInstructionResult := gjson.Get(template, "request.system_instruction")
@@ -99,16 +97,34 @@ func ConvertGeminiRequestToAntigravity(_ string, inputRawJSON []byte, _ bool) []
 		}
 	}
 
-	gjson.GetBytes(rawJSON, "request.contents").ForEach(func(key, content gjson.Result) bool {
+	// Gemini-specific handling: add skip_thought_signature_validator to functionCall parts
+	// and remove thinking blocks entirely (Gemini doesn't need to preserve them)
+	const skipSentinel = "skip_thought_signature_validator"
+
+	gjson.GetBytes(rawJSON, "request.contents").ForEach(func(contentIdx, content gjson.Result) bool {
 		if content.Get("role").String() == "model" {
-			content.Get("parts").ForEach(func(partKey, part gjson.Result) bool {
+			// First pass: collect indices of thinking parts to remove
+			var thinkingIndicesToRemove []int64
+			content.Get("parts").ForEach(func(partIdx, part gjson.Result) bool {
+				// Mark thinking blocks for removal
+				if part.Get("thought").Bool() {
+					thinkingIndicesToRemove = append(thinkingIndicesToRemove, partIdx.Int())
+				}
+				// Add skip sentinel to functionCall parts
 				if part.Get("functionCall").Exists() {
-					rawJSON, _ = sjson.SetBytes(rawJSON, fmt.Sprintf("request.contents.%d.parts.%d.thoughtSignature", key.Int(), partKey.Int()), "skip_thought_signature_validator")
-				} else if part.Get("thoughtSignature").Exists() {
-					rawJSON, _ = sjson.SetBytes(rawJSON, fmt.Sprintf("request.contents.%d.parts.%d.thoughtSignature", key.Int(), partKey.Int()), "skip_thought_signature_validator")
+					existingSig := part.Get("thoughtSignature").String()
+					if existingSig == "" || len(existingSig) < 50 {
+						rawJSON, _ = sjson.SetBytes(rawJSON, fmt.Sprintf("request.contents.%d.parts.%d.thoughtSignature", contentIdx.Int(), partIdx.Int()), skipSentinel)
+					}
 				}
 				return true
 			})
+
+			// Remove thinking blocks in reverse order to preserve indices
+			for i := len(thinkingIndicesToRemove) - 1; i >= 0; i-- {
+				idx := thinkingIndicesToRemove[i]
+				rawJSON, _ = sjson.DeleteBytes(rawJSON, fmt.Sprintf("request.contents.%d.parts.%d", contentIdx.Int(), idx))
+			}
 		}
 		return true
 	})
@@ -116,194 +132,178 @@ func ConvertGeminiRequestToAntigravity(_ string, inputRawJSON []byte, _ bool) []
 	return common.AttachDefaultSafetySettings(rawJSON, "request.safetySettings")
 }
 
-// fixCLIToolResponse normalizes Gemini CLI-style tool calling so that any model content containing
-// one or more `functionCall` parts is immediately followed by a user content containing the matching
-// `functionResponse` parts (matched by `id` when present).
+// FunctionCallGroup represents a group of function calls and their responses
+type FunctionCallGroup struct {
+	ResponsesNeeded int
+}
+
+// parseFunctionResponseRaw attempts to normalize a function response part into a JSON object string.
+// Falls back to a minimal "functionResponse" object when parsing fails.
+func parseFunctionResponseRaw(response gjson.Result) string {
+	if response.IsObject() && gjson.Valid(response.Raw) {
+		return response.Raw
+	}
+
+	log.Debugf("parse function response failed, using fallback")
+	funcResp := response.Get("functionResponse")
+	if funcResp.Exists() {
+		fr := `{"functionResponse":{"name":"","response":{"result":""}}}`
+		fr, _ = sjson.Set(fr, "functionResponse.name", funcResp.Get("name").String())
+		fr, _ = sjson.Set(fr, "functionResponse.response.result", funcResp.Get("response").String())
+		if id := funcResp.Get("id").String(); id != "" {
+			fr, _ = sjson.Set(fr, "functionResponse.id", id)
+		}
+		return fr
+	}
+
+	fr := `{"functionResponse":{"name":"unknown","response":{"result":""}}}`
+	fr, _ = sjson.Set(fr, "functionResponse.response.result", response.String())
+	return fr
+}
+
+// fixCLIToolResponse performs sophisticated tool response format conversion and grouping.
+// This function transforms the CLI tool response format by intelligently grouping function calls
+// with their corresponding responses, ensuring proper conversation flow and API compatibility.
+// It converts from a linear format (1.json) to a grouped format (2.json) where function calls
+// and their responses are properly associated and structured.
 //
-// This is required for downstream Claude-style validation that enforces tool result adjacency, and
-// prevents orphan tool calls that would otherwise yield 400s.
+// Parameters:
+//   - input: The input JSON string to be processed
+//
+// Returns:
+//   - string: The processed JSON string with grouped function calls and responses
+//   - error: An error if the processing fails
 func fixCLIToolResponse(input string) (string, error) {
-	// Normalize to valid UTF-8 so encoding/json can safely parse even if upstream/client
-	// accidentally emits invalid bytes inside JSON strings.
-	inBytes := []byte(input)
-	if !utf8.Valid(inBytes) {
-		inBytes = bytes.ToValidUTF8(inBytes, []byte("\uFFFD"))
+	// Parse the input JSON to extract the conversation structure
+	parsed := gjson.Parse(input)
+
+	// Extract the contents array which contains the conversation messages
+	contents := parsed.Get("request.contents")
+	if !contents.Exists() {
+		// log.Debugf(input)
+		return input, fmt.Errorf("contents not found in input")
 	}
 
-	var root map[string]any
-	if err := json.Unmarshal(inBytes, &root); err != nil {
-		return input, nil
-	}
-	req, _ := root["request"].(map[string]any)
-	if req == nil {
-		return input, nil
-	}
-	rawContents, _ := req["contents"].([]any)
-	if rawContents == nil {
-		return input, nil
-	}
+	// Initialize data structures for processing and grouping
+	contentsWrapper := `{"contents":[]}`
+	var pendingGroups []*FunctionCallGroup // Groups awaiting completion with responses
+	var collectedResponses []gjson.Result  // Standalone responses to be matched
 
-	type callInfo struct {
-		id   string
-		name string
-	}
+	// Process each content object in the conversation
+	// This iterates through messages and groups function calls with their responses
+	contents.ForEach(func(key, value gjson.Result) bool {
+		role := value.Get("role").String()
+		parts := value.Get("parts")
 
-	// Collect all functionCall ids (so we only relocate matching responses).
-	callIDs := make(map[string]struct{})
-	for _, cAny := range rawContents {
-		c, _ := cAny.(map[string]any)
-		if c == nil {
-			continue
-		}
-		parts, _ := c["parts"].([]any)
-		for _, pAny := range parts {
-			p, _ := pAny.(map[string]any)
-			if p == nil {
-				continue
+		// Check if this content has function responses
+		var responsePartsInThisContent []gjson.Result
+		parts.ForEach(func(_, part gjson.Result) bool {
+			if part.Get("functionResponse").Exists() {
+				responsePartsInThisContent = append(responsePartsInThisContent, part)
 			}
-			fc, _ := p["functionCall"].(map[string]any)
-			if fc == nil {
-				continue
-			}
-			if id, _ := fc["id"].(string); id != "" {
-				callIDs[id] = struct{}{}
-			}
-		}
-	}
+			return true
+		})
 
-	// Index functionResponse parts by id (keep in encountered order).
-	responsesByID := make(map[string][]map[string]any)
-	for _, cAny := range rawContents {
-		c, _ := cAny.(map[string]any)
-		if c == nil {
-			continue
-		}
-		parts, _ := c["parts"].([]any)
-		for _, pAny := range parts {
-			p, _ := pAny.(map[string]any)
-			if p == nil {
-				continue
-			}
-			fr, _ := p["functionResponse"].(map[string]any)
-			if fr == nil {
-				continue
-			}
-			id, _ := fr["id"].(string)
-			if id == "" {
-				continue
-			}
-			if _, ok := callIDs[id]; !ok {
-				continue
-			}
-			responsesByID[id] = append(responsesByID[id], p)
-		}
-	}
+		// If this content has function responses, collect them
+		if len(responsePartsInThisContent) > 0 {
+			collectedResponses = append(collectedResponses, responsePartsInThisContent...)
 
-	// Remove the indexed response parts from their original locations so we don't duplicate them.
-	for idx := 0; idx < len(rawContents); idx++ {
-		c, _ := rawContents[idx].(map[string]any)
-		if c == nil {
-			continue
-		}
-		parts, _ := c["parts"].([]any)
-		if len(parts) == 0 {
-			continue
-		}
-		kept := make([]any, 0, len(parts))
-		for _, pAny := range parts {
-			p, _ := pAny.(map[string]any)
-			fr, _ := p["functionResponse"].(map[string]any)
-			if fr != nil {
-				id, _ := fr["id"].(string)
-				if id != "" {
-					if _, ok := callIDs[id]; ok {
-						continue // relocated
+			// Check if any pending groups can be satisfied
+			for i := len(pendingGroups) - 1; i >= 0; i-- {
+				group := pendingGroups[i]
+				if len(collectedResponses) >= group.ResponsesNeeded {
+					// Take the needed responses for this group
+					groupResponses := collectedResponses[:group.ResponsesNeeded]
+					collectedResponses = collectedResponses[group.ResponsesNeeded:]
+
+					// Create merged function response content
+					functionResponseContent := `{"parts":[],"role":"function"}`
+					for _, response := range groupResponses {
+						partRaw := parseFunctionResponseRaw(response)
+						if partRaw != "" {
+							functionResponseContent, _ = sjson.SetRaw(functionResponseContent, "parts.-1", partRaw)
+						}
 					}
+
+					if gjson.Get(functionResponseContent, "parts.#").Int() > 0 {
+						contentsWrapper, _ = sjson.SetRaw(contentsWrapper, "contents.-1", functionResponseContent)
+					}
+
+					// Remove this group as it's been satisfied
+					pendingGroups = append(pendingGroups[:i], pendingGroups[i+1:]...)
+					break
 				}
 			}
-			kept = append(kept, pAny)
-		}
-		if len(kept) == 0 {
-			// Drop content entries that were only tool responses.
-			delete(c, "parts")
-			rawContents[idx] = c
-		} else {
-			c["parts"] = kept
-			rawContents[idx] = c
-		}
-	}
 
-	// Build new contents, inserting a tool-response user message after each model functionCall turn.
-	outContents := make([]any, 0, len(rawContents))
-	for _, cAny := range rawContents {
-		c, _ := cAny.(map[string]any)
-		if c == nil {
-			continue
-		}
-		partsAny, _ := c["parts"].([]any)
-		if partsAny == nil {
-			// Empty content (e.g. removed response-only). Skip.
-			continue
+			return true // Skip adding this content, responses are merged
 		}
 
-		outContents = append(outContents, c)
-
-		if c["role"] != "model" {
-			continue
-		}
-
-		// Extract ordered functionCall parts in this model content.
-		calls := make([]callInfo, 0, 4)
-		for _, pAny := range partsAny {
-			p, _ := pAny.(map[string]any)
-			if p == nil {
-				continue
-			}
-			fc, _ := p["functionCall"].(map[string]any)
-			if fc == nil {
-				continue
-			}
-			id, _ := fc["id"].(string)
-			name, _ := fc["name"].(string)
-			if id == "" {
-				continue
-			}
-			calls = append(calls, callInfo{id: id, name: name})
-		}
-		if len(calls) == 0 {
-			continue
-		}
-
-		respParts := make([]any, 0, len(calls))
-		for _, call := range calls {
-			if bucket := responsesByID[call.id]; len(bucket) > 0 {
-				respParts = append(respParts, bucket[0])
-				responsesByID[call.id] = bucket[1:]
-				continue
-			}
-			// Fallback: synthesize a placeholder result so upstream validators are satisfied.
-			respParts = append(respParts, map[string]any{
-				"functionResponse": map[string]any{
-					"id":   call.id,
-					"name": call.name,
-					"response": map[string]any{
-						"result": fmt.Sprintf("tool_result missing for %s", call.id),
-					},
-				},
+		// If this is a model with function calls, create a new group
+		if role == "model" {
+			functionCallsCount := 0
+			parts.ForEach(func(_, part gjson.Result) bool {
+				if part.Get("functionCall").Exists() {
+					functionCallsCount++
+				}
+				return true
 			})
+
+			if functionCallsCount > 0 {
+				// Add the model content
+				if !value.IsObject() {
+					log.Warnf("failed to parse model content")
+					return true
+				}
+				contentsWrapper, _ = sjson.SetRaw(contentsWrapper, "contents.-1", value.Raw)
+
+				// Create a new group for tracking responses
+				group := &FunctionCallGroup{
+					ResponsesNeeded: functionCallsCount,
+				}
+				pendingGroups = append(pendingGroups, group)
+			} else {
+				// Regular model content without function calls
+				if !value.IsObject() {
+					log.Warnf("failed to parse content")
+					return true
+				}
+				contentsWrapper, _ = sjson.SetRaw(contentsWrapper, "contents.-1", value.Raw)
+			}
+		} else {
+			// Non-model content (user, etc.)
+			if !value.IsObject() {
+				log.Warnf("failed to parse content")
+				return true
+			}
+			contentsWrapper, _ = sjson.SetRaw(contentsWrapper, "contents.-1", value.Raw)
 		}
 
-		outContents = append(outContents, map[string]any{
-			"role":  "user",
-			"parts": respParts,
-		})
+		return true
+	})
+
+	// Handle any remaining pending groups with remaining responses
+	for _, group := range pendingGroups {
+		if len(collectedResponses) >= group.ResponsesNeeded {
+			groupResponses := collectedResponses[:group.ResponsesNeeded]
+			collectedResponses = collectedResponses[group.ResponsesNeeded:]
+
+			functionResponseContent := `{"parts":[],"role":"function"}`
+			for _, response := range groupResponses {
+				partRaw := parseFunctionResponseRaw(response)
+				if partRaw != "" {
+					functionResponseContent, _ = sjson.SetRaw(functionResponseContent, "parts.-1", partRaw)
+				}
+			}
+
+			if gjson.Get(functionResponseContent, "parts.#").Int() > 0 {
+				contentsWrapper, _ = sjson.SetRaw(contentsWrapper, "contents.-1", functionResponseContent)
+			}
+		}
 	}
 
-	req["contents"] = outContents
-	root["request"] = req
-	updated, err := json.Marshal(root)
-	if err != nil {
-		return input, err
-	}
-	return string(updated), nil
+	// Update the original JSON with the new contents
+	result := input
+	result, _ = sjson.SetRaw(result, "request.contents", gjson.Get(contentsWrapper, "contents").Raw)
+
+	return result, nil
 }

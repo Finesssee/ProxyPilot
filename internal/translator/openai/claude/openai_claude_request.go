@@ -7,9 +7,9 @@ package claude
 
 import (
 	"bytes"
-	"encoding/json"
 	"strings"
 
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -59,6 +59,30 @@ func ConvertClaudeRequestToOpenAI(modelName string, inputRawJSON []byte, stream 
 
 	// Stream
 	out, _ = sjson.Set(out, "stream", stream)
+
+	// Thinking: Convert Claude thinking.budget_tokens to OpenAI reasoning_effort
+	if thinking := root.Get("thinking"); thinking.Exists() && thinking.IsObject() {
+		if thinkingType := thinking.Get("type"); thinkingType.Exists() {
+			switch thinkingType.String() {
+			case "enabled":
+				if budgetTokens := thinking.Get("budget_tokens"); budgetTokens.Exists() {
+					budget := int(budgetTokens.Int())
+					if effort, ok := util.ThinkingBudgetToEffort(modelName, budget); ok && effort != "" {
+						out, _ = sjson.Set(out, "reasoning_effort", effort)
+					}
+				} else {
+					// No budget_tokens specified, default to "auto" for enabled thinking
+					if effort, ok := util.ThinkingBudgetToEffort(modelName, -1); ok && effort != "" {
+						out, _ = sjson.Set(out, "reasoning_effort", effort)
+					}
+				}
+			case "disabled":
+				if effort, ok := util.ThinkingBudgetToEffort(modelName, 0); ok && effort != "" {
+					out, _ = sjson.Set(out, "reasoning_effort", effort)
+				}
+			}
+		}
+	}
 
 	// Process messages and system
 	var messagesJSON = "[]"
@@ -113,11 +137,7 @@ func ConvertClaudeRequestToOpenAI(modelName string, inputRawJSON []byte, stream 
 
 						// Convert input to arguments JSON string
 						if input := part.Get("input"); input.Exists() {
-							if inputJSON, err := json.Marshal(input.Value()); err == nil {
-								toolCallJSON, _ = sjson.Set(toolCallJSON, "function.arguments", string(inputJSON))
-							} else {
-								toolCallJSON, _ = sjson.Set(toolCallJSON, "function.arguments", "{}")
-							}
+							toolCallJSON, _ = sjson.Set(toolCallJSON, "function.arguments", input.Raw)
 						} else {
 							toolCallJSON, _ = sjson.Set(toolCallJSON, "function.arguments", "{}")
 						}
@@ -166,8 +186,7 @@ func ConvertClaudeRequestToOpenAI(modelName string, inputRawJSON []byte, stream 
 				// Emit tool calls in a separate assistant message
 				if role == "assistant" && len(toolCalls) > 0 {
 					toolCallMsgJSON := `{"role":"assistant","tool_calls":[]}`
-					toolCallsJSON, _ := json.Marshal(toolCalls)
-					toolCallMsgJSON, _ = sjson.SetRaw(toolCallMsgJSON, "tool_calls", string(toolCallsJSON))
+					toolCallMsgJSON, _ = sjson.Set(toolCallMsgJSON, "tool_calls", toolCalls)
 					messagesJSON, _ = sjson.Set(messagesJSON, "-1", gjson.Parse(toolCallMsgJSON).Value())
 				}
 

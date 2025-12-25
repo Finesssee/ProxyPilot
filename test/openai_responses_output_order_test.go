@@ -8,7 +8,9 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func TestOpenAIResponsesNonStream_MessageOutputFirst(t *testing.T) {
+func TestOpenAIResponsesNonStream_ReasoningOutputFirst(t *testing.T) {
+	// When reasoning_content is present, the OpenAI Responses API puts reasoning first.
+	// This matches the order in which they appear during streaming.
 	chatCompletion := []byte(`{
   "id":"cmpl_1",
   "object":"chat.completion",
@@ -27,9 +29,16 @@ func TestOpenAIResponsesNonStream_MessageOutputFirst(t *testing.T) {
 		nil,
 	)
 
+	// Reasoning comes first when present
 	firstType := gjson.Get(resp, "output.0.type").String()
-	if firstType != "message" {
-		t.Fatalf("expected output[0].type to be %q, got %q (resp=%s)", "message", firstType, resp)
+	if firstType != "reasoning" {
+		t.Fatalf("expected output[0].type to be %q, got %q (resp=%s)", "reasoning", firstType, resp)
+	}
+
+	// Message comes second
+	secondType := gjson.Get(resp, "output.1.type").String()
+	if secondType != "message" {
+		t.Fatalf("expected output[1].type to be %q, got %q (resp=%s)", "message", secondType, resp)
 	}
 }
 

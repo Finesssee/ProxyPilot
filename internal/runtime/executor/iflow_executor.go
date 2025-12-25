@@ -57,15 +57,16 @@ func (e *IFlowExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	from := opts.SourceFormat
 	to := sdktranslator.FromString("openai")
 	body := sdktranslator.TranslateRequest(from, to, req.Model, bytes.Clone(req.Payload), false)
-	body = applyReasoningEffortMetadata(body, req.Metadata, req.Model, "reasoning_effort", false)
+	body = ApplyReasoningEffortMetadata(body, req.Metadata, req.Model, "reasoning_effort", false)
 	upstreamModel := util.ResolveOriginalModel(req.Model, req.Metadata)
 	if upstreamModel != "" {
 		body, _ = sjson.SetBytes(body, "model", upstreamModel)
 	}
-	body = normalizeThinkingConfig(body, upstreamModel, false)
-	if errValidate := validateThinkingConfig(body, upstreamModel); errValidate != nil {
+	body = NormalizeThinkingConfig(body, upstreamModel, false)
+	if errValidate := ValidateThinkingConfig(body, upstreamModel); errValidate != nil {
 		return resp, errValidate
 	}
+	body = applyIFlowThinkingConfig(body)
 	body = applyPayloadConfig(e.cfg, req.Model, body)
 
 	endpoint := strings.TrimSuffix(baseURL, "/") + iflowDefaultEndpoint
@@ -148,15 +149,16 @@ func (e *IFlowExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	to := sdktranslator.FromString("openai")
 	body := sdktranslator.TranslateRequest(from, to, req.Model, bytes.Clone(req.Payload), true)
 
-	body = applyReasoningEffortMetadata(body, req.Metadata, req.Model, "reasoning_effort", false)
+	body = ApplyReasoningEffortMetadata(body, req.Metadata, req.Model, "reasoning_effort", false)
 	upstreamModel := util.ResolveOriginalModel(req.Model, req.Metadata)
 	if upstreamModel != "" {
 		body, _ = sjson.SetBytes(body, "model", upstreamModel)
 	}
-	body = normalizeThinkingConfig(body, upstreamModel, false)
-	if errValidate := validateThinkingConfig(body, upstreamModel); errValidate != nil {
+	body = NormalizeThinkingConfig(body, upstreamModel, false)
+	if errValidate := ValidateThinkingConfig(body, upstreamModel); errValidate != nil {
 		return nil, errValidate
 	}
+	body = applyIFlowThinkingConfig(body)
 	// Ensure tools array exists to avoid provider quirks similar to Qwen's behaviour.
 	toolsResult := gjson.GetBytes(body, "tools")
 	if toolsResult.Exists() && toolsResult.IsArray() && len(toolsResult.Array()) == 0 {
@@ -447,4 +449,22 @@ func ensureToolsArray(body []byte) []byte {
 		return body
 	}
 	return updated
+}
+
+// applyIFlowThinkingConfig converts normalized reasoning_effort to iFlow chat_template_kwargs.enable_thinking.
+// This should be called after NormalizeThinkingConfig has processed the payload.
+// iFlow only supports boolean enable_thinking, so any non-"none" effort enables thinking.
+func applyIFlowThinkingConfig(body []byte) []byte {
+	effort := gjson.GetBytes(body, "reasoning_effort")
+	if !effort.Exists() {
+		return body
+	}
+
+	val := strings.ToLower(strings.TrimSpace(effort.String()))
+	enableThinking := val != "none" && val != ""
+
+	body, _ = sjson.DeleteBytes(body, "reasoning_effort")
+	body, _ = sjson.SetBytes(body, "chat_template_kwargs.enable_thinking", enableThinking)
+
+	return body
 }

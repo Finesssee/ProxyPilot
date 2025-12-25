@@ -7,13 +7,17 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers"
+	"github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 	"github.com/tidwall/gjson"
 )
 
 func TestEmbeddings_SingleInput_DefaultDimensions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := &OpenAIAPIHandler{}
+	h := &OpenAIAPIHandler{
+		BaseAPIHandler: handlers.NewBaseAPIHandlers(&config.SDKConfig{}, nil),
+	}
 	r.POST("/v1/embeddings", h.Embeddings)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", bytes.NewBufferString(`{"model":"text-embedding-3-small","input":"hello"}`))
@@ -33,7 +37,9 @@ func TestEmbeddings_SingleInput_DefaultDimensions(t *testing.T) {
 func TestEmbeddings_ArrayInput_CustomDimensions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := &OpenAIAPIHandler{}
+	h := &OpenAIAPIHandler{
+		BaseAPIHandler: handlers.NewBaseAPIHandlers(&config.SDKConfig{}, nil),
+	}
 	r.POST("/embeddings", h.Embeddings)
 
 	req := httptest.NewRequest(http.MethodPost, "/embeddings", bytes.NewBufferString(`{"model":"text-embedding-3-large","dimensions":64,"input":["a","b"]}`))

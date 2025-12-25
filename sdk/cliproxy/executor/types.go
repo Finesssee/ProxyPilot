@@ -1,11 +1,15 @@
 package executor
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
 )
+
+// ErrNotImplemented is returned when an executor does not support a particular operation.
+var ErrNotImplemented = errors.New("operation not implemented")
 
 // Request encapsulates the translated payload that will be sent to a provider executor.
 type Request struct {

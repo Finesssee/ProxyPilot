@@ -12,14 +12,15 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 )
 
+const DefaultPanelGitHubRepository = "https://github.com/router-for-me/Cli-Proxy-API-Management-Center"
+
 // Config represents the application's configuration, loaded from a YAML file.
 type Config struct {
-	config.SDKConfig `yaml:",inline"`
+	SDKConfig `yaml:",inline"`
 	// Host is the network host/interface on which the API server will bind.
 	// Default is empty ("") to bind all interfaces (IPv4 + IPv6). Use "127.0.0.1" or "localhost" for local-only access.
 	Host string `yaml:"host" json:"-"`
@@ -42,8 +43,15 @@ type Config struct {
 	// Debug enables or disables debug-level logging and other debug features.
 	Debug bool `yaml:"debug" json:"debug"`
 
+	// CommercialMode disables high-overhead HTTP middleware features to minimize per-request memory usage.
+	CommercialMode bool `yaml:"commercial-mode" json:"commercial-mode"`
+
 	// LoggingToFile controls whether application logs are written to rotating files or stdout.
 	LoggingToFile bool `yaml:"logging-to-file" json:"logging-to-file"`
+
+	// LogsMaxTotalSizeMB limits the total size (in MB) of log files under the logs directory.
+	// When exceeded, the oldest log files are deleted until within the limit. Set to 0 to disable.
+	LogsMaxTotalSizeMB int `yaml:"logs-max-total-size-mb" json:"logs-max-total-size-mb"`
 
 	// UsageStatisticsEnabled toggles in-memory usage aggregation; when false, usage data is discarded.
 	UsageStatisticsEnabled bool `yaml:"usage-statistics-enabled" json:"usage-statistics-enabled"`
@@ -59,9 +67,8 @@ type Config struct {
 	// QuotaExceeded defines the behavior when a quota is exceeded.
 	QuotaExceeded QuotaExceeded `yaml:"quota-exceeded" json:"quota-exceeded"`
 
-	// AntigravityPrimaryEmail sets the preferred antigravity OAuth account for strict fallback.
-	// When set, the proxy will keep this account as primary and only use other antigravity auths when it is blocked.
-	AntigravityPrimaryEmail string `yaml:"antigravity-primary-email" json:"-"`
+	// Routing controls credential selection behavior.
+	Routing RoutingConfig `yaml:"routing" json:"routing"`
 
 	// WebsocketAuth enables or disables authentication for the WebSocket API.
 	WebsocketAuth bool `yaml:"ws-auth" json:"ws-auth"`
@@ -69,14 +76,18 @@ type Config struct {
 	// GeminiKey defines Gemini API key configurations with optional routing overrides.
 	GeminiKey []GeminiKey `yaml:"gemini-api-key" json:"gemini-api-key"`
 
+	// KiroKey defines a list of Kiro (AWS CodeWhisperer) configurations.
+	KiroKey []KiroKey `yaml:"kiro" json:"kiro"`
+
+	// KiroPreferredEndpoint sets the global default preferred endpoint for all Kiro providers.
+	// Values: "ide" (default, CodeWhisperer) or "cli" (Amazon Q).
+	KiroPreferredEndpoint string `yaml:"kiro-preferred-endpoint" json:"kiro-preferred-endpoint"`
+
 	// Codex defines a list of Codex API key configurations as specified in the YAML configuration file.
 	CodexKey []CodexKey `yaml:"codex-api-key" json:"codex-api-key"`
 
 	// ClaudeKey defines a list of Claude API key configurations as specified in the YAML configuration file.
 	ClaudeKey []ClaudeKey `yaml:"claude-api-key" json:"claude-api-key"`
-
-	// KiroKey defines Kiro (AWS CodeWhisperer) configurations
-	KiroKey []KiroKey `yaml:"kiro-key" json:"kiro-key"`
 
 	// OpenAICompatibility defines OpenAI API compatibility configurations for external providers.
 	OpenAICompatibility []OpenAICompatibility `yaml:"openai-compatibility" json:"openai-compatibility"`
@@ -90,6 +101,11 @@ type Config struct {
 
 	// Payload defines default and override rules for provider payload parameters.
 	Payload PayloadConfig `yaml:"payload" json:"payload"`
+
+	// IncognitoBrowser enables opening OAuth URLs in incognito/private browsing mode.
+	// This is useful when you want to login with a different account without logging out
+	// from your current session. Default: false.
+	IncognitoBrowser bool `yaml:"incognito-browser" json:"incognito-browser"`
 
 	legacyMigrationPending bool `yaml:"-" json:"-"`
 }
@@ -112,6 +128,9 @@ type RemoteManagement struct {
 	SecretKey string `yaml:"secret-key"`
 	// DisableControlPanel skips serving and syncing the bundled management UI when true.
 	DisableControlPanel bool `yaml:"disable-control-panel"`
+	// PanelGitHubRepository overrides the GitHub repository used to fetch the management panel asset.
+	// Accepts either a repository URL (https://github.com/org/repo) or an API releases endpoint.
+	PanelGitHubRepository string `yaml:"panel-github-repository"`
 }
 
 // QuotaExceeded defines the behavior when API quota limits are exceeded.
@@ -122,6 +141,13 @@ type QuotaExceeded struct {
 
 	// SwitchPreviewModel indicates whether to automatically switch to a preview model when a quota is exceeded.
 	SwitchPreviewModel bool `yaml:"switch-preview-model" json:"switch-preview-model"`
+}
+
+// RoutingConfig configures how credentials are selected for requests.
+type RoutingConfig struct {
+	// Strategy selects the credential selection strategy.
+	// Supported values: "round-robin" (default), "fill-first".
+	Strategy string `yaml:"strategy,omitempty" json:"strategy,omitempty"`
 }
 
 // PayloadConfig defines default and override parameter rules applied to provider payloads.
@@ -153,6 +179,9 @@ type PayloadModelRule struct {
 type ClaudeKey struct {
 	// APIKey is the authentication key for accessing Claude API services.
 	APIKey string `yaml:"api-key" json:"api-key"`
+
+	// Prefix optionally namespaces models for this credential (e.g., "teamA/claude-sonnet-4").
+	Prefix string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
 
 	// BaseURL is the base URL for the Claude API endpoint.
 	// If empty, the default Claude API URL will be used.
@@ -186,6 +215,9 @@ type CodexKey struct {
 	// APIKey is the authentication key for accessing Codex API services.
 	APIKey string `yaml:"api-key" json:"api-key"`
 
+	// Prefix optionally namespaces models for this credential (e.g., "teamA/gpt-5-codex").
+	Prefix string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
+
 	// BaseURL is the base URL for the Codex API endpoint.
 	// If empty, the default Codex API URL will be used.
 	BaseURL string `yaml:"base-url" json:"base-url"`
@@ -200,38 +232,14 @@ type CodexKey struct {
 	ExcludedModels []string `yaml:"excluded-models,omitempty" json:"excluded-models,omitempty"`
 }
 
-// KiroKey represents the configuration for Kiro (AWS CodeWhisperer) authentication.
-type KiroKey struct {
-	// TokenFile is the path to Kiro token file (e.g., ~/.aws/sso/cache/kiro-auth-token.json)
-	TokenFile string `yaml:"token-file" json:"token-file"`
-
-	// AccessToken is the OAuth access token for direct configuration
-	AccessToken string `yaml:"access-token" json:"access-token"`
-
-	// RefreshToken is the OAuth refresh token for token renewal
-	RefreshToken string `yaml:"refresh-token" json:"refresh-token"`
-
-	// ProfileArn is the AWS CodeWhisperer profile ARN
-	ProfileArn string `yaml:"profile-arn" json:"profile-arn"`
-
-	// Region is the AWS region (default: us-east-1)
-	Region string `yaml:"region" json:"region"`
-
-	// ProxyURL overrides the global proxy setting
-	ProxyURL string `yaml:"proxy-url" json:"proxy-url"`
-
-	// AgentTaskType is the Kiro API task type (e.g., "vibe", "dev", "chat")
-	AgentTaskType string `yaml:"agent-task-type" json:"agent-task-type"`
-
-	// ExcludedModels lists model IDs to exclude
-	ExcludedModels []string `yaml:"excluded-models,omitempty" json:"excluded-models,omitempty"`
-}
-
 // GeminiKey represents the configuration for a Gemini API key,
 // including optional overrides for upstream base URL, proxy routing, and headers.
 type GeminiKey struct {
 	// APIKey is the authentication key for accessing Gemini API services.
 	APIKey string `yaml:"api-key" json:"api-key"`
+
+	// Prefix optionally namespaces models for this credential (e.g., "teamA/gemini-3-pro-preview").
+	Prefix string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
 
 	// BaseURL optionally overrides the Gemini API endpoint.
 	BaseURL string `yaml:"base-url,omitempty" json:"base-url,omitempty"`
@@ -246,11 +254,43 @@ type GeminiKey struct {
 	ExcludedModels []string `yaml:"excluded-models,omitempty" json:"excluded-models,omitempty"`
 }
 
+// KiroKey represents the configuration for Kiro (AWS CodeWhisperer) authentication.
+type KiroKey struct {
+	// TokenFile is the path to the Kiro token file (default: ~/.aws/sso/cache/kiro-auth-token.json)
+	TokenFile string `yaml:"token-file,omitempty" json:"token-file,omitempty"`
+
+	// AccessToken is the OAuth access token for direct configuration.
+	AccessToken string `yaml:"access-token,omitempty" json:"access-token,omitempty"`
+
+	// RefreshToken is the OAuth refresh token for token renewal.
+	RefreshToken string `yaml:"refresh-token,omitempty" json:"refresh-token,omitempty"`
+
+	// ProfileArn is the AWS CodeWhisperer profile ARN.
+	ProfileArn string `yaml:"profile-arn,omitempty" json:"profile-arn,omitempty"`
+
+	// Region is the AWS region (default: us-east-1).
+	Region string `yaml:"region,omitempty" json:"region,omitempty"`
+
+	// ProxyURL optionally overrides the global proxy for this configuration.
+	ProxyURL string `yaml:"proxy-url,omitempty" json:"proxy-url,omitempty"`
+
+	// AgentTaskType sets the Kiro API task type. Known values: "vibe", "dev", "chat".
+	// Leave empty to let API use defaults. Different values may inject different system prompts.
+	AgentTaskType string `yaml:"agent-task-type,omitempty" json:"agent-task-type,omitempty"`
+
+	// PreferredEndpoint sets the preferred Kiro API endpoint/quota.
+	// Values: "codewhisperer" (default, IDE quota) or "amazonq" (CLI quota).
+	PreferredEndpoint string `yaml:"preferred-endpoint,omitempty" json:"preferred-endpoint,omitempty"`
+}
+
 // OpenAICompatibility represents the configuration for OpenAI API compatibility
 // with external providers, allowing model aliases to be routed through OpenAI API format.
 type OpenAICompatibility struct {
 	// Name is the identifier for this OpenAI compatibility configuration.
 	Name string `yaml:"name" json:"name"`
+
+	// Prefix optionally namespaces model aliases for this provider (e.g., "teamA/kimi-k2").
+	Prefix string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
 
 	// BaseURL is the base URL for the external OpenAI-compatible API endpoint.
 	BaseURL string `yaml:"base-url" json:"base-url"`
@@ -324,8 +364,11 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Set defaults before unmarshal so that absent keys keep defaults.
 	cfg.Host = "" // Default empty: binds to all interfaces (IPv4 + IPv6)
 	cfg.LoggingToFile = false
+	cfg.LogsMaxTotalSizeMB = 0
 	cfg.UsageStatisticsEnabled = false
 	cfg.DisableCooling = false
+	cfg.RemoteManagement.PanelGitHubRepository = DefaultPanelGitHubRepository
+	cfg.IncognitoBrowser = false // Default to normal browser (AWS uses incognito by force)
 	if err = yaml.Unmarshal(data, &cfg); err != nil {
 		if optional {
 			// In cloud deploy mode, if YAML parsing fails, return empty config instead of error.
@@ -358,6 +401,15 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 		_ = SaveConfigPreserveCommentsUpdateNestedScalar(configFile, []string{"remote-management", "secret-key"}, hashed)
 	}
 
+	cfg.RemoteManagement.PanelGitHubRepository = strings.TrimSpace(cfg.RemoteManagement.PanelGitHubRepository)
+	if cfg.RemoteManagement.PanelGitHubRepository == "" {
+		cfg.RemoteManagement.PanelGitHubRepository = DefaultPanelGitHubRepository
+	}
+
+	if cfg.LogsMaxTotalSizeMB < 0 {
+		cfg.LogsMaxTotalSizeMB = 0
+	}
+
 	// Sync request authentication providers with inline API keys for backwards compatibility.
 	syncInlineAccessProvider(&cfg)
 
@@ -373,7 +425,7 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Sanitize Claude key headers
 	cfg.SanitizeClaudeKeys()
 
-	// Sanitize Kiro keys: normalize fields and excluded models
+	// Sanitize Kiro keys: trim whitespace from credential fields
 	cfg.SanitizeKiroKeys()
 
 	// Sanitize OpenAI compatibility providers: drop entries without base-url
@@ -453,6 +505,7 @@ func (cfg *Config) SanitizeOpenAICompatibility() {
 	for i := range cfg.OpenAICompatibility {
 		e := cfg.OpenAICompatibility[i]
 		e.Name = strings.TrimSpace(e.Name)
+		e.Prefix = normalizeModelPrefix(e.Prefix)
 		e.BaseURL = strings.TrimSpace(e.BaseURL)
 		e.Headers = NormalizeHeaders(e.Headers)
 		if e.BaseURL == "" {
@@ -473,6 +526,7 @@ func (cfg *Config) SanitizeCodexKeys() {
 	out := make([]CodexKey, 0, len(cfg.CodexKey))
 	for i := range cfg.CodexKey {
 		e := cfg.CodexKey[i]
+		e.Prefix = normalizeModelPrefix(e.Prefix)
 		e.BaseURL = strings.TrimSpace(e.BaseURL)
 		e.Headers = NormalizeHeaders(e.Headers)
 		e.ExcludedModels = NormalizeExcludedModels(e.ExcludedModels)
@@ -491,12 +545,13 @@ func (cfg *Config) SanitizeClaudeKeys() {
 	}
 	for i := range cfg.ClaudeKey {
 		entry := &cfg.ClaudeKey[i]
+		entry.Prefix = normalizeModelPrefix(entry.Prefix)
 		entry.Headers = NormalizeHeaders(entry.Headers)
 		entry.ExcludedModels = NormalizeExcludedModels(entry.ExcludedModels)
 	}
 }
 
-// SanitizeKiroKeys normalizes Kiro credentials by trimming whitespace and normalizing fields.
+// SanitizeKiroKeys trims whitespace from Kiro credential fields.
 func (cfg *Config) SanitizeKiroKeys() {
 	if cfg == nil || len(cfg.KiroKey) == 0 {
 		return
@@ -509,8 +564,7 @@ func (cfg *Config) SanitizeKiroKeys() {
 		entry.ProfileArn = strings.TrimSpace(entry.ProfileArn)
 		entry.Region = strings.TrimSpace(entry.Region)
 		entry.ProxyURL = strings.TrimSpace(entry.ProxyURL)
-		entry.AgentTaskType = strings.TrimSpace(entry.AgentTaskType)
-		entry.ExcludedModels = NormalizeExcludedModels(entry.ExcludedModels)
+		entry.PreferredEndpoint = strings.TrimSpace(entry.PreferredEndpoint)
 	}
 }
 
@@ -528,6 +582,7 @@ func (cfg *Config) SanitizeGeminiKeys() {
 		if entry.APIKey == "" {
 			continue
 		}
+		entry.Prefix = normalizeModelPrefix(entry.Prefix)
 		entry.BaseURL = strings.TrimSpace(entry.BaseURL)
 		entry.ProxyURL = strings.TrimSpace(entry.ProxyURL)
 		entry.Headers = NormalizeHeaders(entry.Headers)
@@ -539,6 +594,18 @@ func (cfg *Config) SanitizeGeminiKeys() {
 		out = append(out, entry)
 	}
 	cfg.GeminiKey = out
+}
+
+func normalizeModelPrefix(prefix string) string {
+	trimmed := strings.TrimSpace(prefix)
+	trimmed = strings.Trim(trimmed, "/")
+	if trimmed == "" {
+		return ""
+	}
+	if strings.Contains(trimmed, "/") {
+		return ""
+	}
+	return trimmed
 }
 
 func syncInlineAccessProvider(cfg *Config) {
@@ -712,7 +779,7 @@ func sanitizeConfigForPersist(cfg *Config) *Config {
 	}
 	clone := *cfg
 	clone.SDKConfig = cfg.SDKConfig
-	clone.SDKConfig.Access = config.AccessConfig{}
+	clone.SDKConfig.Access = AccessConfig{}
 	return &clone
 }
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -52,9 +53,25 @@ func ConvertOpenAIResponsesRequestToClaude(modelName string, inputRawJSON []byte
 
 	root := gjson.ParseBytes(rawJSON)
 
-	// Do not map OpenAI "reasoning.effort" to Claude extended thinking by default.
-	// Enabling Claude thinking requires assistant messages to start with a thinking block,
-	// which OpenAI-format requests do not provide and will be rejected upstream.
+	if v := root.Get("reasoning.effort"); v.Exists() && util.ModelSupportsThinking(modelName) && !util.ModelUsesThinkingLevels(modelName) {
+		effort := strings.ToLower(strings.TrimSpace(v.String()))
+		if effort != "" {
+			budget, ok := util.ThinkingEffortToBudget(modelName, effort)
+			if ok {
+				switch budget {
+				case 0:
+					out, _ = sjson.Set(out, "thinking.type", "disabled")
+				case -1:
+					out, _ = sjson.Set(out, "thinking.type", "enabled")
+				default:
+					if budget > 0 {
+						out, _ = sjson.Set(out, "thinking.type", "enabled")
+						out, _ = sjson.Set(out, "thinking.budget_tokens", budget)
+					}
+				}
+			}
+		}
+	}
 
 	// Helper for generating tool call IDs when missing
 	genToolCallID := func() string {
@@ -120,18 +137,14 @@ func ConvertOpenAIResponsesRequestToClaude(modelName string, inputRawJSON []byte
 
 	// input array processing
 	if input := root.Get("input"); input.Exists() && input.IsArray() {
-		items := input.Array()
-		for i := 0; i < len(items); i++ {
-			item := items[i]
+		input.ForEach(func(_, item gjson.Result) bool {
 			if extractedFromSystem && strings.EqualFold(item.Get("role").String(), "system") {
-				continue
+				return true
 			}
-
 			typ := item.Get("type").String()
 			if typ == "" && item.Get("role").String() != "" {
 				typ = "message"
 			}
-
 			switch typ {
 			case "message":
 				// Determine role and construct Claude-compatible content parts.
@@ -229,69 +242,42 @@ func ConvertOpenAIResponsesRequestToClaude(modelName string, inputRawJSON []byte
 				}
 
 			case "function_call":
-				// Group consecutive function_call items into a single assistant message so Claude receives
-				// all tool_use blocks together (and expects tool_result blocks in the next message).
-				asst := `{"role":"assistant","content":[]}`
-				for ; i < len(items); i++ {
-					callItem := items[i]
-					if extractedFromSystem && strings.EqualFold(callItem.Get("role").String(), "system") {
-						break
-					}
-					t := callItem.Get("type").String()
-					if t == "" && callItem.Get("role").String() != "" {
-						t = "message"
-					}
-					if t != "function_call" {
-						break
-					}
-
-					callID := callItem.Get("call_id").String()
-					if callID == "" {
-						callID = genToolCallID()
-					}
-					name := callItem.Get("name").String()
-					argsStr := callItem.Get("arguments").String()
-
-					toolUse := `{"type":"tool_use","id":"","name":"","input":{}}`
-					toolUse, _ = sjson.Set(toolUse, "id", callID)
-					toolUse, _ = sjson.Set(toolUse, "name", name)
-					if argsStr != "" && gjson.Valid(argsStr) {
-						toolUse, _ = sjson.SetRaw(toolUse, "input", argsStr)
-					}
-
-					asst, _ = sjson.SetRaw(asst, "content.-1", toolUse)
+				// Map to assistant tool_use
+				callID := item.Get("call_id").String()
+				if callID == "" {
+					callID = genToolCallID()
 				}
-				i-- // compensate for the for-loop increment
+				name := item.Get("name").String()
+				argsStr := item.Get("arguments").String()
+
+				toolUse := `{"type":"tool_use","id":"","name":"","input":{}}`
+				toolUse, _ = sjson.Set(toolUse, "id", callID)
+				toolUse, _ = sjson.Set(toolUse, "name", name)
+				if argsStr != "" && gjson.Valid(argsStr) {
+					argsJSON := gjson.Parse(argsStr)
+					if argsJSON.IsObject() {
+						toolUse, _ = sjson.SetRaw(toolUse, "input", argsJSON.Raw)
+					}
+				}
+
+				asst := `{"role":"assistant","content":[]}`
+				asst, _ = sjson.SetRaw(asst, "content.-1", toolUse)
 				out, _ = sjson.SetRaw(out, "messages.-1", asst)
 
 			case "function_call_output":
-				// Group consecutive outputs into a single user message containing multiple tool_result blocks.
+				// Map to user tool_result
+				callID := item.Get("call_id").String()
+				outputStr := item.Get("output").String()
+				toolResult := `{"type":"tool_result","tool_use_id":"","content":""}`
+				toolResult, _ = sjson.Set(toolResult, "tool_use_id", callID)
+				toolResult, _ = sjson.Set(toolResult, "content", outputStr)
+
 				usr := `{"role":"user","content":[]}`
-				for ; i < len(items); i++ {
-					outItem := items[i]
-					if extractedFromSystem && strings.EqualFold(outItem.Get("role").String(), "system") {
-						break
-					}
-					t := outItem.Get("type").String()
-					if t == "" && outItem.Get("role").String() != "" {
-						t = "message"
-					}
-					if t != "function_call_output" {
-						break
-					}
-
-					callID := outItem.Get("call_id").String()
-					outputStr := outItem.Get("output").String()
-					toolResult := `{"type":"tool_result","tool_use_id":"","content":""}`
-					toolResult, _ = sjson.Set(toolResult, "tool_use_id", callID)
-					toolResult, _ = sjson.Set(toolResult, "content", outputStr)
-
-					usr, _ = sjson.SetRaw(usr, "content.-1", toolResult)
-				}
-				i-- // compensate for the for-loop increment
+				usr, _ = sjson.SetRaw(usr, "content.-1", toolResult)
 				out, _ = sjson.SetRaw(out, "messages.-1", usr)
 			}
-		}
+			return true
+		})
 	}
 
 	// tools mapping: parameters -> input_schema
@@ -326,16 +312,18 @@ func ConvertOpenAIResponsesRequestToClaude(modelName string, inputRawJSON []byte
 		case gjson.String:
 			switch toolChoice.String() {
 			case "auto":
-				out, _ = sjson.Set(out, "tool_choice", map[string]interface{}{"type": "auto"})
+				out, _ = sjson.SetRaw(out, "tool_choice", `{"type":"auto"}`)
 			case "none":
 				// Leave unset; implies no tools
 			case "required":
-				out, _ = sjson.Set(out, "tool_choice", map[string]interface{}{"type": "any"})
+				out, _ = sjson.SetRaw(out, "tool_choice", `{"type":"any"}`)
 			}
 		case gjson.JSON:
 			if toolChoice.Get("type").String() == "function" {
 				fn := toolChoice.Get("function.name").String()
-				out, _ = sjson.Set(out, "tool_choice", map[string]interface{}{"type": "tool", "name": fn})
+				toolChoiceJSON := `{"name":"","type":"tool"}`
+				toolChoiceJSON, _ = sjson.Set(toolChoiceJSON, "name", fn)
+				out, _ = sjson.SetRaw(out, "tool_choice", toolChoiceJSON)
 			}
 		default:
 

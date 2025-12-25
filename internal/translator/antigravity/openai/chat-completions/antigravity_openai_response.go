@@ -8,11 +8,12 @@ package chat_completions
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	. "github.com/router-for-me/CLIProxyAPI/v6/internal/translator/gemini/openai/chat-completions"
 	"github.com/tidwall/gjson"
@@ -50,34 +51,20 @@ func ConvertAntigravityResponseToOpenAI(_ context.Context, _ string, originalReq
 		}
 	}
 
-	trimmed := bytes.TrimSpace(rawJSON)
-	if bytes.HasPrefix(trimmed, []byte("data:")) {
-		trimmed = bytes.TrimSpace(trimmed[len("data:"):])
-	}
-
-	if bytes.Equal(trimmed, []byte("[DONE]")) {
+	if bytes.Equal(rawJSON, []byte("[DONE]")) {
 		return []string{}
-	}
-
-	if len(trimmed) == 0 || !gjson.ValidBytes(trimmed) {
-		return []string{}
-	}
-
-	payload := trimmed
-	if responseResult := gjson.GetBytes(trimmed, "response"); responseResult.Exists() && responseResult.IsObject() {
-		payload = []byte(responseResult.Raw)
 	}
 
 	// Initialize the OpenAI SSE template.
 	template := `{"id":"","object":"chat.completion.chunk","created":12345,"model":"model","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":null,"tool_calls":null},"finish_reason":null,"native_finish_reason":null}]}`
 
 	// Extract and set the model version.
-	if modelVersionResult := gjson.GetBytes(payload, "modelVersion"); modelVersionResult.Exists() {
+	if modelVersionResult := gjson.GetBytes(rawJSON, "response.modelVersion"); modelVersionResult.Exists() {
 		template, _ = sjson.Set(template, "model", modelVersionResult.String())
 	}
 
 	// Extract and set the creation timestamp.
-	if createTimeResult := gjson.GetBytes(payload, "createTime"); createTimeResult.Exists() {
+	if createTimeResult := gjson.GetBytes(rawJSON, "response.createTime"); createTimeResult.Exists() {
 		t, err := time.Parse(time.RFC3339Nano, createTimeResult.String())
 		if err == nil {
 			(*param).(*convertCliResponseToOpenAIChatParams).UnixTimestamp = t.Unix()
@@ -88,34 +75,43 @@ func ConvertAntigravityResponseToOpenAI(_ context.Context, _ string, originalReq
 	}
 
 	// Extract and set the response ID.
-	if responseIDResult := gjson.GetBytes(payload, "responseId"); responseIDResult.Exists() {
+	if responseIDResult := gjson.GetBytes(rawJSON, "response.responseId"); responseIDResult.Exists() {
 		template, _ = sjson.Set(template, "id", responseIDResult.String())
 	}
 
 	// Extract and set the finish reason.
-	if finishReasonResult := gjson.GetBytes(payload, "candidates.0.finishReason"); finishReasonResult.Exists() {
+	if finishReasonResult := gjson.GetBytes(rawJSON, "response.candidates.0.finishReason"); finishReasonResult.Exists() {
 		template, _ = sjson.Set(template, "choices.0.finish_reason", strings.ToLower(finishReasonResult.String()))
 		template, _ = sjson.Set(template, "choices.0.native_finish_reason", strings.ToLower(finishReasonResult.String()))
 	}
 
 	// Extract and set usage metadata (token counts).
-	if usageResult := gjson.GetBytes(payload, "usageMetadata"); usageResult.Exists() {
+	if usageResult := gjson.GetBytes(rawJSON, "response.usageMetadata"); usageResult.Exists() {
+		cachedTokenCount := usageResult.Get("cachedContentTokenCount").Int()
 		if candidatesTokenCountResult := usageResult.Get("candidatesTokenCount"); candidatesTokenCountResult.Exists() {
 			template, _ = sjson.Set(template, "usage.completion_tokens", candidatesTokenCountResult.Int())
 		}
 		if totalTokenCountResult := usageResult.Get("totalTokenCount"); totalTokenCountResult.Exists() {
 			template, _ = sjson.Set(template, "usage.total_tokens", totalTokenCountResult.Int())
 		}
-		promptTokenCount := usageResult.Get("promptTokenCount").Int()
+		promptTokenCount := usageResult.Get("promptTokenCount").Int() - cachedTokenCount
 		thoughtsTokenCount := usageResult.Get("thoughtsTokenCount").Int()
 		template, _ = sjson.Set(template, "usage.prompt_tokens", promptTokenCount+thoughtsTokenCount)
 		if thoughtsTokenCount > 0 {
 			template, _ = sjson.Set(template, "usage.completion_tokens_details.reasoning_tokens", thoughtsTokenCount)
 		}
+		// Include cached token count if present (indicates prompt caching is working)
+		if cachedTokenCount > 0 {
+			var err error
+			template, err = sjson.Set(template, "usage.prompt_tokens_details.cached_tokens", cachedTokenCount)
+			if err != nil {
+				log.Warnf("antigravity openai response: failed to set cached_tokens: %v", err)
+			}
+		}
 	}
 
 	// Process the main content part of the response.
-	partsResult := gjson.GetBytes(payload, "candidates.0.content.parts")
+	partsResult := gjson.GetBytes(rawJSON, "response.candidates.0.content.parts")
 	hasFunctionCall := false
 	if partsResult.IsArray() {
 		partResults := partsResult.Array()
@@ -185,21 +181,14 @@ func ConvertAntigravityResponseToOpenAI(_ context.Context, _ string, originalReq
 					mimeType = "image/png"
 				}
 				imageURL := fmt.Sprintf("data:%s;base64,%s", mimeType, data)
-				imagePayload, err := json.Marshal(map[string]any{
-					"type": "image_url",
-					"image_url": map[string]string{
-						"url": imageURL,
-					},
-				})
-				if err != nil {
-					continue
-				}
+				imagePayload := `{"image_url":{"url":""},"type":"image_url"}`
+				imagePayload, _ = sjson.Set(imagePayload, "image_url.url", imageURL)
 				imagesResult := gjson.Get(template, "choices.0.delta.images")
 				if !imagesResult.Exists() || !imagesResult.IsArray() {
 					template, _ = sjson.SetRaw(template, "choices.0.delta.images", `[]`)
 				}
 				template, _ = sjson.Set(template, "choices.0.delta.role", "assistant")
-				template, _ = sjson.SetRaw(template, "choices.0.delta.images.-1", string(imagePayload))
+				template, _ = sjson.SetRaw(template, "choices.0.delta.images.-1", imagePayload)
 			}
 		}
 	}
@@ -227,9 +216,8 @@ func ConvertAntigravityResponseToOpenAI(_ context.Context, _ string, originalReq
 //   - string: An OpenAI-compatible JSON response containing all message content and metadata
 func ConvertAntigravityResponseToOpenAINonStream(ctx context.Context, modelName string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) string {
 	responseResult := gjson.GetBytes(rawJSON, "response")
-	payload := rawJSON
-	if responseResult.Exists() && responseResult.IsObject() {
-		payload = []byte(responseResult.Raw)
+	if responseResult.Exists() {
+		return ConvertGeminiResponseToOpenAINonStream(ctx, modelName, originalRequestRawJSON, requestRawJSON, []byte(responseResult.Raw), param)
 	}
-	return ConvertGeminiResponseToOpenAINonStream(ctx, modelName, originalRequestRawJSON, requestRawJSON, payload, param)
+	return ""
 }

@@ -14,18 +14,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	. "github.com/router-for-me/CLIProxyAPI/v6/internal/constant"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 // ClaudeCodeAPIHandler contains the handlers for Claude API endpoints.
@@ -60,34 +56,6 @@ func (h *ClaudeCodeAPIHandler) Models() []map[string]any {
 	return modelRegistry.GetAvailableModels("claude")
 }
 
-func mapClaudeCodeModel(model string) string {
-	normalized := strings.ToLower(strings.TrimSpace(model))
-	if normalized == "" {
-		return model
-	}
-
-	switch normalized {
-	case "opus":
-		return "antigravity-claude-opus-4-5-thinking"
-	case "sonnet":
-		return "antigravity-claude-sonnet-4-5-thinking"
-	case "haiku":
-		return "gemini-3-pro-preview"
-	}
-
-	if strings.HasPrefix(normalized, "claude-opus-") || strings.Contains(normalized, "-opus-") {
-		return "antigravity-claude-opus-4-5-thinking"
-	}
-	if strings.HasPrefix(normalized, "claude-sonnet-") || strings.Contains(normalized, "-sonnet-") {
-		return "antigravity-claude-sonnet-4-5-thinking"
-	}
-	if strings.HasPrefix(normalized, "claude-haiku-") || strings.Contains(normalized, "-haiku-") {
-		return "gemini-3-pro-preview"
-	}
-
-	return model
-}
-
 // ClaudeMessages handles Claude-compatible streaming chat completions.
 // This function implements a sophisticated client rotation and quota management system
 // to ensure high availability and optimal resource utilization across multiple backend clients.
@@ -107,8 +75,6 @@ func (h *ClaudeCodeAPIHandler) ClaudeMessages(c *gin.Context) {
 		})
 		return
 	}
-
-	rawJSON = util.NormalizeClaudeToolResults(rawJSON)
 
 	// Check if the client requested a streaming response.
 	streamResult := gjson.GetBytes(rawJSON, "stream")
@@ -139,20 +105,12 @@ func (h *ClaudeCodeAPIHandler) ClaudeCountTokens(c *gin.Context) {
 		return
 	}
 
-	rawJSON = util.NormalizeClaudeToolResults(rawJSON)
-
 	c.Header("Content-Type", "application/json")
 
 	alt := h.GetAlt(c)
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
 
 	modelName := gjson.GetBytes(rawJSON, "model").String()
-	if mapped := mapClaudeCodeModel(modelName); mapped != "" && mapped != modelName {
-		if updated, errSet := sjson.SetBytes(rawJSON, "model", mapped); errSet == nil {
-			rawJSON = updated
-			modelName = mapped
-		}
-	}
 
 	resp, errMsg := h.ExecuteCountWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, alt)
 	if errMsg != nil {
@@ -190,12 +148,6 @@ func (h *ClaudeCodeAPIHandler) handleNonStreamingResponse(c *gin.Context, rawJSO
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
 
 	modelName := gjson.GetBytes(rawJSON, "model").String()
-	if mapped := mapClaudeCodeModel(modelName); mapped != "" && mapped != modelName {
-		if updated, errSet := sjson.SetBytes(rawJSON, "model", mapped); errSet == nil {
-			rawJSON = updated
-			modelName = mapped
-		}
-	}
 
 	resp, errMsg := h.ExecuteWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, alt)
 	if errMsg != nil {
@@ -232,14 +184,6 @@ func (h *ClaudeCodeAPIHandler) handleNonStreamingResponse(c *gin.Context, rawJSO
 //   - c: The Gin context for the request.
 //   - rawJSON: The raw JSON request body.
 func (h *ClaudeCodeAPIHandler) handleStreamingResponse(c *gin.Context, rawJSON []byte) {
-	// Set up Server-Sent Events (SSE) headers for streaming response
-	// These headers are essential for maintaining a persistent connection
-	// and enabling real-time streaming of chat completions
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("Access-Control-Allow-Origin", "*")
-
 	// Get the http.Flusher interface to manually flush the response.
 	// This is crucial for streaming as it allows immediate sending of data chunks
 	flusher, ok := c.Writer.(http.Flusher)
@@ -254,68 +198,86 @@ func (h *ClaudeCodeAPIHandler) handleStreamingResponse(c *gin.Context, rawJSON [
 	}
 
 	modelName := gjson.GetBytes(rawJSON, "model").String()
-	if mapped := mapClaudeCodeModel(modelName); mapped != "" && mapped != modelName {
-		if updated, errSet := sjson.SetBytes(rawJSON, "model", mapped); errSet == nil {
-			rawJSON = updated
-			modelName = mapped
-		}
-	}
 
 	// Create a cancellable context for the backend client request
 	// This allows proper cleanup and cancellation of ongoing requests
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
 
 	dataChan, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, "")
-	h.forwardClaudeStream(c, flusher, func(err error) { cliCancel(err) }, dataChan, errChan)
-	return
-}
+	setSSEHeaders := func() {
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("Access-Control-Allow-Origin", "*")
+	}
 
-func (h *ClaudeCodeAPIHandler) forwardClaudeStream(c *gin.Context, flusher http.Flusher, cancel func(error), data <-chan []byte, errs <-chan *interfaces.ErrorMessage) {
-	// OpenAI-style stream forwarding: write each SSE chunk and flush immediately.
-	// This guarantees clients see incremental output even for small responses.
+	// Peek at the first chunk to determine success or failure before setting headers
 	for {
 		select {
 		case <-c.Request.Context().Done():
-			cancel(c.Request.Context().Err())
+			cliCancel(c.Request.Context().Err())
 			return
-
-		case chunk, ok := <-data:
+		case errMsg, ok := <-errChan:
 			if !ok {
+				// Err channel closed cleanly; wait for data channel.
+				errChan = nil
+				continue
+			}
+			// Upstream failed immediately. Return proper error status and JSON.
+			h.WriteErrorResponse(c, errMsg)
+			if errMsg != nil {
+				cliCancel(errMsg.Error)
+			} else {
+				cliCancel(nil)
+			}
+			return
+		case chunk, ok := <-dataChan:
+			if !ok {
+				// Stream closed without data? Send DONE or just headers.
+				setSSEHeaders()
 				flusher.Flush()
-				cancel(nil)
+				cliCancel(nil)
 				return
 			}
+
+			// Success! Set headers now.
+			setSSEHeaders()
+
+			// Write the first chunk
 			if len(chunk) > 0 {
 				_, _ = c.Writer.Write(chunk)
 				flusher.Flush()
 			}
 
-		case errMsg, ok := <-errs:
-			if !ok {
-				continue
-			}
-			if errMsg != nil {
-				status := http.StatusInternalServerError
-				if errMsg.StatusCode > 0 {
-					status = errMsg.StatusCode
-				}
-				c.Status(status)
-
-				// An error occurred: emit as a proper SSE error event
-				errorBytes, _ := json.Marshal(h.toClaudeError(errMsg))
-				_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", errorBytes)
-				flusher.Flush()
-			}
-
-			var execErr error
-			if errMsg != nil {
-				execErr = errMsg.Error
-			}
-			cancel(execErr)
+			// Continue streaming the rest
+			h.forwardClaudeStream(c, flusher, func(err error) { cliCancel(err) }, dataChan, errChan)
 			return
-		case <-time.After(500 * time.Millisecond):
 		}
 	}
+}
+
+func (h *ClaudeCodeAPIHandler) forwardClaudeStream(c *gin.Context, flusher http.Flusher, cancel func(error), data <-chan []byte, errs <-chan *interfaces.ErrorMessage) {
+	h.ForwardStream(c, flusher, cancel, data, errs, handlers.StreamForwardOptions{
+		WriteChunk: func(chunk []byte) {
+			if len(chunk) == 0 {
+				return
+			}
+			_, _ = c.Writer.Write(chunk)
+		},
+		WriteTerminalError: func(errMsg *interfaces.ErrorMessage) {
+			if errMsg == nil {
+				return
+			}
+			status := http.StatusInternalServerError
+			if errMsg.StatusCode > 0 {
+				status = errMsg.StatusCode
+			}
+			c.Status(status)
+
+			errorBytes, _ := json.Marshal(h.toClaudeError(errMsg))
+			_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", errorBytes)
+		},
+	})
 }
 
 type claudeErrorDetail struct {
