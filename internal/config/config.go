@@ -99,6 +99,10 @@ type Config struct {
 	// OAuthExcludedModels defines per-provider global model exclusions applied to OAuth/file-backed auth entries.
 	OAuthExcludedModels map[string][]string `yaml:"oauth-excluded-models,omitempty" json:"oauth-excluded-models,omitempty"`
 
+	// GlobalModelMappings defines model aliases that apply across all providers.
+	// These are checked before per-credential model mappings.
+	GlobalModelMappings []GlobalModelMapping `yaml:"global-model-mappings,omitempty" json:"global-model-mappings,omitempty"`
+
 	// Payload defines default and override rules for provider payload parameters.
 	Payload PayloadConfig `yaml:"payload" json:"payload"`
 
@@ -148,6 +152,28 @@ type RoutingConfig struct {
 	// Strategy selects the credential selection strategy.
 	// Supported values: "round-robin" (default), "fill-first".
 	Strategy string `yaml:"strategy,omitempty" json:"strategy,omitempty"`
+}
+
+// GlobalModelMapping defines a model alias that applies globally across all providers.
+// This allows routing friendly names like "smart" to specific models like "claude-opus-4-5-20251101".
+type GlobalModelMapping struct {
+	// From is the client-requested model name (e.g., "smart", "rush", "opus")
+	From string `yaml:"from" json:"from"`
+	// To is the actual upstream model name (e.g., "claude-opus-4-5-20251101")
+	To string `yaml:"to" json:"to"`
+	// Provider optionally restricts this mapping to a specific provider (e.g., "claude", "codex")
+	// If empty, the mapping applies to all providers.
+	Provider string `yaml:"provider,omitempty" json:"provider,omitempty"`
+	// Enabled allows disabling a mapping without removing it
+	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+}
+
+// IsEnabled returns whether the mapping is enabled (defaults to true)
+func (m *GlobalModelMapping) IsEnabled() bool {
+	if m.Enabled == nil {
+		return true
+	}
+	return *m.Enabled
 }
 
 // PayloadConfig defines default and override parameter rules applied to provider payloads.
@@ -692,6 +718,28 @@ func NormalizeOAuthExcludedModels(entries map[string][]string) map[string][]stri
 		return nil
 	}
 	return out
+}
+
+// LookupGlobalModelMapping returns the mapped model name if a global mapping exists for the given model.
+// Returns empty string if no mapping found.
+func (cfg *Config) LookupGlobalModelMapping(model string, provider string) string {
+	if cfg == nil {
+		return ""
+	}
+	modelLower := strings.ToLower(model)
+	for _, m := range cfg.GlobalModelMappings {
+		if !m.IsEnabled() {
+			continue
+		}
+		if strings.EqualFold(m.From, modelLower) {
+			// Check provider restriction if set
+			if m.Provider != "" && !strings.EqualFold(m.Provider, provider) {
+				continue
+			}
+			return m.To
+		}
+	}
+	return ""
 }
 
 // hashSecret hashes the given secret using bcrypt.
