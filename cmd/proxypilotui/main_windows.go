@@ -129,10 +129,12 @@ func main() {
 	_ = w.Bind("pp_status", func() (map[string]any, error) {
 		cur, _ := desktopctl.StatusFor(configPath)
 		return map[string]any{
-			"running":    cur.Running,
-			"port":       cur.Port,
-			"base_url":   cur.BaseURL,
-			"last_error": cur.LastError,
+			"running":          cur.Running,
+			"port":             cur.Port,
+			"thinking_port":    cur.ThinkingPort,
+			"thinking_running": cur.ThinkingRunning,
+			"base_url":         cur.BaseURL,
+			"last_error":       cur.LastError,
 		}, nil
 	})
 	_ = w.Bind("pp_start", func() error {
@@ -190,6 +192,51 @@ func main() {
 	})
 	_ = w.Bind("pp_copy_diagnostics", func() error { return copyDiagnosticsToClipboard(configPath) })
 	_ = w.Bind("pp_get_management_key", func() (string, error) { return desktopctl.GetManagementPassword() })
+
+	// Integration bindings
+	_ = w.Bind("pp_get_integrations", func() ([]map[string]any, error) {
+		st, _ := desktopctl.StatusFor(configPath)
+		if !st.Running {
+			return nil, fmt.Errorf("proxy not running")
+		}
+		key, _ := desktopctl.GetManagementPassword()
+		client := &http.Client{Timeout: 5 * time.Second}
+		req, _ := http.NewRequest("GET", st.BaseURL+"/v0/management/integrations", nil)
+		req.Header.Set("X-Management-Key", key)
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		var res struct {
+			Integrations []map[string]any `json:"integrations"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+			return nil, err
+		}
+		return res.Integrations, nil
+	})
+
+	_ = w.Bind("pp_configure_integration", func(id string) error {
+		st, _ := desktopctl.StatusFor(configPath)
+		if !st.Running {
+			return fmt.Errorf("proxy not running")
+		}
+		key, _ := desktopctl.GetManagementPassword()
+		client := &http.Client{Timeout: 10 * time.Second}
+		req, _ := http.NewRequest("POST", st.BaseURL+"/v0/management/integrations/"+id, nil)
+		req.Header.Set("X-Management-Key", key)
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			b, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("failed: %s", string(b))
+		}
+		return nil
+	})
 
 	if target != "" {
 		w.Navigate(target)
@@ -502,6 +549,7 @@ func controlCenterHTML() string {
         <div class="kv">
           <div class="k">Base URL</div><div class="v" id="baseUrl">-</div>
           <div class="k">Port</div><div class="v" id="port">-</div>
+          <div class="k">Thinking Port</div><div class="v" id="thinkingPort">-</div>
           <div class="k">Last error</div><div class="v" id="lastErr">-</div>
         </div>
         <div class="row" style="margin-top:12px">
@@ -530,12 +578,32 @@ func controlCenterHTML() string {
         </div>
         <div class="hint">These open the provider login flow in your browser and save auth files for ProxyPilot.</div>
       </div>
+
+      <div class="card" style="grid-column: 1 / -1">
+        <div class="sectionTitle">Integrations</div>
+        <div class="row" id="integrationsList">
+          <div style="color:var(--muted);font-size:13px">Loading integrations...</div>
+        </div>
+        <div class="note">
+          Automatically configure local tools to use ProxyPilot.
+        </div>
+      </div>
+
+      <div class="card" style="grid-column: 1 / -1">
+        <div class="sectionTitle">Live Logs</div>
+        <div id="logContent" style="height:240px;overflow-y:auto;background:rgba(0,0,0,.3);padding:10px;font-family:monospace;font-size:12px;border-radius:8px;border:1px solid var(--line);white-space:pre-wrap;color:var(--muted)">Waiting for logs...</div>
+        <div class="row" style="margin-top:10px">
+           <button id="toggleLogsBtn">Pause Updates</button>
+           <button id="clearLogsBtn">Clear View</button>
+        </div>
+      </div>
     </div>
   </div>
 
   <div class="toast" id="toast"></div>
   <script>
     const $ = (id) => document.getElementById(id);
+    let logPaused = false;
     const toast = (msg) => {
       const el = $('toast');
       el.textContent = msg;
@@ -552,6 +620,7 @@ func controlCenterHTML() string {
       $('legacyBtn').disabled = !running;
       const dot = $('statusDot');
       dot.style.background = running ? 'var(--good)' : 'var(--warn)';
+      if(running) refreshIntegrations();
     };
 
     async function refreshStatus() {
@@ -559,13 +628,72 @@ func controlCenterHTML() string {
         const s = await window.pp_status();
         $('baseUrl').textContent = s.base_url || '-';
         $('port').textContent = s.port ? String(s.port) : '-';
+        
+        const tp = $('thinkingPort');
+        if (s.thinking_port) {
+          tp.textContent = s.thinking_port + (s.thinking_running ? ' (Active)' : ' (Inactive)');
+          tp.style.color = s.thinking_running ? 'var(--good)' : 'var(--muted)';
+        } else {
+          tp.textContent = '-';
+          tp.style.color = 'var(--muted)';
+        }
+
         $('lastErr').textContent = (s.last_error && s.last_error.trim()) ? s.last_error : '-';
         $('statusText').textContent = s.running ? ('Running (:' + s.port + ')') : 'Stopped';
         setRunningUI(!!s.running);
+        if(!logPaused && s.running) refreshLogs();
       }catch(e){
         $('statusText').textContent = 'Error';
         $('lastErr').textContent = (e && e.message) ? e.message : String(e);
         setRunningUI(false);
+      }
+    }
+
+    async function refreshLogs() {
+      const logEl = $('logContent');
+      const key = await window.pp_get_management_key();
+      const s = await window.pp_status();
+      if(!s.base_url) return;
+      try {
+        const resp = await fetch(s.base_url + '/v0/management/proxypilot/logs/tail?file=stdout&lines=50', {
+          headers: { 'X-Management-Key': key }
+        });
+        const data = await resp.json();
+        if(data.lines) {
+          logEl.textContent = data.lines.join('\n');
+          logEl.scrollTop = logEl.scrollHeight;
+        }
+      } catch(e) {}
+    }
+
+    async function refreshIntegrations() {
+      const list = $('integrationsList');
+      try {
+        const items = await window.pp_get_integrations();
+        if(!items || items.length === 0) {
+          list.innerHTML = '<div style="color:var(--muted);font-size:13px">No integrations available</div>';
+          return;
+        }
+        list.innerHTML = '';
+        items.forEach(i => {
+          const btn = document.createElement('button');
+          btn.className = i.configured ? 'btnGood' : 'btn';
+          btn.textContent = i.name + (i.configured ? ' (Active)' : '');
+          btn.onclick = async () => {
+            try {
+              await window.pp_configure_integration(i.id);
+              toast('Configured ' + i.name);
+              refreshIntegrations();
+            } catch(e) { toast(e.message||String(e)); }
+          };
+          if(!i.installed) {
+             btn.disabled = true;
+             btn.textContent += ' (Not Installed)';
+          }
+          list.appendChild(btn);
+        });
+      } catch(e) {
+        // quiet fail if proxy not ready
       }
     }
 
@@ -586,6 +714,12 @@ func controlCenterHTML() string {
     $('copyDiagBtn').addEventListener('click', async () => { try{ await window.pp_copy_diagnostics(); toast('Copied'); }catch(e){ toast(e.message||String(e)); } });
     $('diagBtn').addEventListener('click', async () => { try{ await window.pp_open_diagnostics(); }catch(e){ toast(e.message||String(e)); } });
     $('legacyBtn').addEventListener('click', async () => { try{ await window.pp_open_legacy_ui(); }catch(e){ toast(e.message||String(e)); } });
+
+    $('toggleLogsBtn').addEventListener('click', () => {
+      logPaused = !logPaused;
+      $('toggleLogsBtn').textContent = logPaused ? 'Resume Updates' : 'Pause Updates';
+    });
+    $('clearLogsBtn').addEventListener('click', () => { $('logContent').textContent = ''; });
 
     $('privateOAuth').addEventListener('change', async (ev) => {
       try{ await window.pp_set_oauth_private(!!ev.target.checked); toast('Saved'); }catch(e){ toast(e.message||String(e)); }

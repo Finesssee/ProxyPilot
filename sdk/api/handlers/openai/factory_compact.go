@@ -24,49 +24,99 @@ func maybeCompactFactoryInput(c *gin.Context, rawJSON []byte) []byte {
 		return rawJSON
 	}
 
-	input := gjson.GetBytes(rawJSON, "input")
-	if !input.Exists() || !input.IsArray() {
-		return rawJSON
+	out := rawJSON
+
+	// 1. Try "input" array (Factory native / Responses API)
+	if input := gjson.GetBytes(rawJSON, "input"); input.Exists() && input.IsArray() {
+		messages := input.Array()
+		for mi := range messages {
+			content := gjson.GetBytes(out, "input."+itoa(mi)+".content")
+			if !content.Exists() || !content.IsArray() {
+				continue
+			}
+			parts := content.Array()
+			for pi, part := range parts {
+				partType := part.Get("type").String()
+				if partType == "" && part.Get("text").Exists() {
+					partType = "input_text"
+				}
+				if partType != "input_text" {
+					continue
+				}
+				text := part.Get("text").String()
+				newText, changed := processFactoryText(text)
+				if changed {
+					updated, err := sjson.SetBytes(out, "input."+itoa(mi)+".content."+itoa(pi)+".text", newText)
+					if err == nil {
+						out = updated
+					}
+				}
+			}
+		}
+		return out
 	}
 
-	out := rawJSON
-	messages := input.Array()
-	for mi := range messages {
-		content := gjson.GetBytes(out, "input."+itoa(mi)+".content")
-		if !content.Exists() || !content.IsArray() {
-			continue
-		}
-		parts := content.Array()
-		for pi, part := range parts {
-			partType := part.Get("type").String()
-			if partType == "" && part.Get("text").Exists() {
-				// Some Factory/Droid payloads omit the "type" field and just send {text:"..."} items.
-				partType = "input_text"
-			}
-			if partType != "input_text" {
-				continue
-			}
-			text := part.Get("text").String()
-			text = stripToolCallTags(text)
-			// Special case: Droid /compact dumps a huge "previous instance summary" into a single input_text.
-			// Keeping the head is counterproductive (it's mostly stale); keep only the tail which contains
-			// the latest user intent and near-term steps.
-			if strings.Contains(text, "A previous instance of Droid") && strings.Contains(text, "<summary>") {
-				if len(text) > factoryKeepTailChars {
-					text = compactText(text, 0, factoryKeepTailChars)
+	// 2. Try "messages" array (OpenAI Chat Completions)
+	if messages := gjson.GetBytes(rawJSON, "messages"); messages.Exists() && messages.IsArray() {
+		msgs := messages.Array()
+		for mi, msg := range msgs {
+			content := msg.Get("content")
+
+			// Case A: content is a simple string
+			if content.Type == gjson.String {
+				text := content.String()
+				newText, changed := processFactoryText(text)
+				if changed {
+					updated, err := sjson.SetBytes(out, "messages."+itoa(mi)+".content", newText)
+					if err == nil {
+						out = updated
+					}
 				}
-			} else if len(text) > factoryMaxInputTextChars {
-				text = compactText(text, factoryKeepHeadChars, factoryKeepTailChars)
-			} else {
 				continue
 			}
-			updated, err := sjson.SetBytes(out, "input."+itoa(mi)+".content."+itoa(pi)+".text", text)
-			if err == nil {
-				out = updated
+
+			// Case B: content is an array of parts
+			if content.IsArray() {
+				parts := content.Array()
+				for pi, part := range parts {
+					partType := part.Get("type").String()
+					// OpenAI uses "text", Factory sometimes uses "input_text"
+					if partType != "text" && partType != "input_text" {
+						continue
+					}
+					if !part.Get("text").Exists() {
+						continue
+					}
+					text := part.Get("text").String()
+					newText, changed := processFactoryText(text)
+					if changed {
+						updated, err := sjson.SetBytes(out, "messages."+itoa(mi)+".content."+itoa(pi)+".text", newText)
+						if err == nil {
+							out = updated
+						}
+					}
+				}
 			}
 		}
+		return out
 	}
-	return out
+
+	return rawJSON
+}
+
+func processFactoryText(text string) (string, bool) {
+	text = stripToolCallTags(text)
+	// Special case: Droid /compact dumps a huge "previous instance summary" into a single input_text.
+	// Keeping the head is counterproductive (it's mostly stale); keep only the tail which contains
+	// the latest user intent and near-term steps.
+	if strings.Contains(text, "A previous instance of Droid") && strings.Contains(text, "<summary>") {
+		if len(text) > factoryKeepTailChars {
+			return compactText(text, 0, factoryKeepTailChars), true
+		}
+	} else if len(text) > factoryMaxInputTextChars {
+		return compactText(text, factoryKeepHeadChars, factoryKeepTailChars), true
+	}
+	return text, false
 }
 
 func compactText(text string, keepHead int, keepTail int) string {

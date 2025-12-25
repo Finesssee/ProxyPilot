@@ -11,7 +11,7 @@ import (
 
 func TestOpenAIToClaude_GroupsToolResultsInSingleMessage(t *testing.T) {
 	raw := []byte(`{
-  "model":"gpt-5",
+  "model":"gpt-5.2",
   "messages":[
     {"role":"user","content":"hi"},
     {"role":"assistant","tool_calls":[
@@ -27,7 +27,7 @@ func TestOpenAIToClaude_GroupsToolResultsInSingleMessage(t *testing.T) {
 	out := sdktranslator.TranslateRequest(
 		sdktranslator.FromString("openai"),
 		sdktranslator.FromString("claude"),
-		"claude-3-7-sonnet-20250219",
+		"claude-sonnet-4-5-20250929",
 		raw,
 		false,
 	)
@@ -57,7 +57,7 @@ func TestOpenAIToClaude_GroupsToolResultsInSingleMessage(t *testing.T) {
 
 func TestOpenAIResponsesToClaude_GroupsCallOutputsInSingleMessage(t *testing.T) {
 	raw := []byte(`{
-  "model":"gpt-5",
+  "model":"gpt-5.2",
   "input":[
     {"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]},
     {"type":"function_call","call_id":"call_a","name":"a","arguments":"{}"},
@@ -71,7 +71,7 @@ func TestOpenAIResponsesToClaude_GroupsCallOutputsInSingleMessage(t *testing.T) 
 	out := sdktranslator.TranslateRequest(
 		sdktranslator.FromString("openai-response"),
 		sdktranslator.FromString("claude"),
-		"claude-3-7-sonnet-20250219",
+		"claude-sonnet-4-5-20250929",
 		raw,
 		false,
 	)

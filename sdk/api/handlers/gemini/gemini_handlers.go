@@ -169,53 +169,12 @@ func (h *GeminiAPIHandler) GeminiGetHandler(c *gin.Context) {
 			"thinking":       false,
 		},
 		)
-	case "gemini-2.5-pro":
+	case "gpt-5.2":
 		c.JSON(http.StatusOK, gin.H{
-			"name":             "models/gemini-2.5-pro",
-			"version":          "2.5",
-			"displayName":      "Gemini 2.5 Pro",
-			"description":      "Stable release (June 17th, 2025) of Gemini 2.5 Pro",
-			"inputTokenLimit":  1048576,
-			"outputTokenLimit": 65536,
-			"supportedGenerationMethods": []string{
-				"generateContent",
-				"countTokens",
-				"createCachedContent",
-				"batchGenerateContent",
-			},
-			"temperature":    1,
-			"topP":           0.95,
-			"topK":           64,
-			"maxTemperature": 2,
-			"thinking":       true,
-		},
-		)
-	case "gemini-2.5-flash":
-		c.JSON(http.StatusOK, gin.H{
-			"name":             "models/gemini-2.5-flash",
-			"version":          "001",
-			"displayName":      "Gemini 2.5 Flash",
-			"description":      "Stable version of Gemini 2.5 Flash, our mid-size multimodal model that supports up to 1 million tokens, released in June of 2025.",
-			"inputTokenLimit":  1048576,
-			"outputTokenLimit": 65536,
-			"supportedGenerationMethods": []string{
-				"generateContent",
-				"countTokens",
-				"createCachedContent",
-				"batchGenerateContent",
-			},
-			"temperature":    1,
-			"topP":           0.95,
-			"topK":           64,
-			"maxTemperature": 2,
-			"thinking":       true,
-		})
-	case "gpt-5":
-		c.JSON(http.StatusOK, gin.H{
-			"name":             "gpt-5",
-			"version":          "001",
-			"displayName":      "GPT 5",
-			"description":      "Stable version of GPT 5, The best model for coding and agentic tasks across domains.",
+			"name":             "gpt-5.2",
+			"version":          "5.2",
+			"displayName":      "GPT 5.2",
+			"description":      "Stable version of GPT 5.2",
 			"inputTokenLimit":  400000,
 			"outputTokenLimit": 128000,
 			"supportedGenerationMethods": []string{

@@ -21,8 +21,8 @@ const (
 //
 // Examples:
 //   - "claude-sonnet-4-5-20250929(16384)" → budget=16384
-//   - "gpt-5.1(high)" → reasoning_effort="high"
-//   - "gemini-2.5-pro(32768)" → budget=32768
+//   - "gpt-5.2(high)" → reasoning_effort="high"
+//   - "gemini-3-pro-preview(32768)" → budget=32768
 //
 // Note: Empty parentheses "()" are not supported and will be ignored.
 func NormalizeThinkingModel(modelName string) (string, map[string]any) {
@@ -64,6 +64,23 @@ func NormalizeThinkingModel(modelName string) (string, map[string]any) {
 			baseModel = candidateBase
 			raw := strings.ToLower(strings.TrimSpace(value))
 			if raw != "" {
+				reasoningEffort = &raw
+				matched = true
+			}
+		}
+	} else if idx := strings.LastIndex(modelName, "-thinking-"); idx != -1 {
+		// Match "-thinking-<value>" pattern
+		value := modelName[idx+len("-thinking-"):]
+		candidateBase := modelName[:idx]
+
+		if parsed, ok := parseIntPrefix(value); ok {
+			baseModel = candidateBase
+			budgetOverride = &parsed
+			matched = true
+		} else {
+			raw := strings.ToLower(strings.TrimSpace(value))
+			if raw != "" {
+				baseModel = candidateBase
 				reasoningEffort = &raw
 				matched = true
 			}

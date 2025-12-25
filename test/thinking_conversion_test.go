@@ -524,8 +524,30 @@ func TestThinkingConversionsAcrossProtocolsAndModels(t *testing.T) {
 }
 
 func TestOpenAIThinkingBudgetToEffortRanges(t *testing.T) {
-	cleanup := registerCoreModels(t)
-	defer cleanup()
+	reg := registry.GetGlobalRegistry()
+	uid := fmt.Sprintf("thinking-test-%d", time.Now().UnixNano())
+	
+	// Register mock models with specific level support
+	mockHigh := []*registry.ModelInfo{{
+		ID:       "mock-high",
+		OwnedBy:  "openai",
+		Type:     "openai",
+		Thinking: &registry.ThinkingSupport{Levels: []string{"none", "low", "medium", "high"}},
+	}}
+	mockXHigh := []*registry.ModelInfo{{
+		ID:       "mock-xhigh",
+		OwnedBy:  "openai",
+		Type:     "openai",
+		Thinking: &registry.ThinkingSupport{Levels: []string{"none", "low", "medium", "high", "xhigh"}},
+	}}
+	
+	reg.RegisterClient(uid+"-high", "openai", mockHigh)
+	reg.RegisterClient(uid+"-xhigh", "openai", mockXHigh)
+	
+	defer func() {
+		reg.UnregisterClient(uid + "-high")
+		reg.UnregisterClient(uid + "-xhigh")
+	}()
 
 	cases := []struct {
 		name   string
@@ -534,16 +556,16 @@ func TestOpenAIThinkingBudgetToEffortRanges(t *testing.T) {
 		want   string
 		ok     bool
 	}{
-		{name: "zero-none", model: "gpt-5", budget: 0, want: "none", ok: true},
-		{name: "low-min", model: "gpt-5", budget: 1, want: "low", ok: true},
-		{name: "low-max", model: "gpt-5", budget: 1024, want: "low", ok: true},
-		{name: "medium-min", model: "gpt-5", budget: 1025, want: "medium", ok: true},
-		{name: "medium-max", model: "gpt-5", budget: 8192, want: "medium", ok: true},
-		{name: "high-min", model: "gpt-5", budget: 8193, want: "high", ok: true},
-		{name: "high-max", model: "gpt-5", budget: 24576, want: "high", ok: true},
-		{name: "over-max-clamps-to-highest", model: "gpt-5", budget: 24577, want: "high", ok: true},
-		{name: "over-max-xhigh-model", model: "gpt-5.2", budget: 50000, want: "xhigh", ok: true},
-		{name: "negative-unsupported", model: "gpt-5", budget: -5, want: "", ok: false},
+		{name: "zero-none", model: "mock-high", budget: 0, want: "none", ok: true},
+		{name: "low-min", model: "mock-high", budget: 1, want: "low", ok: true},
+		{name: "low-max", model: "mock-high", budget: 1024, want: "low", ok: true},
+		{name: "medium-min", model: "mock-high", budget: 1025, want: "medium", ok: true},
+		{name: "medium-max", model: "mock-high", budget: 8192, want: "medium", ok: true},
+		{name: "high-min", model: "mock-high", budget: 8193, want: "high", ok: true},
+		{name: "high-max", model: "mock-high", budget: 24576, want: "high", ok: true},
+		{name: "over-max-clamps-to-highest", model: "mock-high", budget: 24577, want: "high", ok: true},
+		{name: "over-max-xhigh-model", model: "mock-xhigh", budget: 50000, want: "xhigh", ok: true},
+		{name: "negative-unsupported", model: "mock-high", budget: -5, want: "", ok: false},
 	}
 
 	for _, cs := range cases {

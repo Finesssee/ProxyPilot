@@ -69,7 +69,7 @@ ws-auth: false
 #       X-Custom-Header: "custom-value"
 #     proxy-url: "socks5://proxy.example.com:1080" # optional: per-key proxy override
 #     excluded-models:
-#       - "gpt-5.1"         # exclude specific models (exact match)
+#       - "gpt-5.2"         # exclude specific models (exact match)
 #       - "gpt-5-*"         # wildcard matching prefix (e.g. gpt-5-medium, gpt-5-codex)
 #       - "*-mini"          # wildcard matching suffix (e.g. gpt-5-codex-mini)
 #       - "*codex*"         # wildcard matching substring (e.g. gpt-5-codex-low)
@@ -83,13 +83,13 @@ ws-auth: false
 #       X-Custom-Header: "custom-value"
 #     proxy-url: "socks5://proxy.example.com:1080" # optional: per-key proxy override
 #     models:
-#       - name: "claude-3-5-sonnet-20241022" # upstream model name
+#       - name: "claude-sonnet-4-5-20250929" # upstream model name
 #         alias: "claude-sonnet-latest" # client alias mapped to the upstream model
 #     excluded-models:
 #       - "claude-opus-4-5-20251101" # exclude specific models (exact match)
-#       - "claude-3-*"               # wildcard matching prefix (e.g. claude-3-7-sonnet-20250219)
+#       - "claude-4-*"               # wildcard matching prefix (e.g. claude-sonnet-4-5-20250929)
 #       - "*-thinking"               # wildcard matching suffix (e.g. claude-opus-4-5-thinking)
-#       - "*haiku*"                  # wildcard matching substring (e.g. claude-3-5-haiku-20241022)
+#       - "*haiku*"                  # wildcard matching substring (e.g. claude-haiku-4-5-20251001)
 
 # Kiro (AWS CodeWhisperer) configuration
 # kiro-key:
@@ -122,7 +122,7 @@ ws-auth: false
 #     headers:
 #       X-Custom-Header: "custom-value"
 #     models:                                     # optional: map aliases to upstream model names
-#       - name: "gemini-2.0-flash"                # upstream model name
+#       - name: "gemini-2.5-flash"                # upstream model name
 #         alias: "vertex-flash"                   # client-visible alias
 #       - name: "gemini-1.5-pro"
 #         alias: "vertex-pro"

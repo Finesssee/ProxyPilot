@@ -21,7 +21,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/claude"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/codex"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/copilot"
 	geminiAuth "github.com/router-for-me/CLIProxyAPI/v6/internal/auth/gemini"
 	iflowauth "github.com/router-for-me/CLIProxyAPI/v6/internal/auth/iflow"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/kiro"
@@ -47,7 +46,7 @@ const (
 	anthropicCallbackPort   = 54545
 	geminiCallbackPort      = 8085
 	codexCallbackPort       = 1455
-	kiroCallbackPort        = 8086
+	kiroCallbackPort        = 1456
 	geminiCLIEndpoint       = "https://cloudcode-pa.googleapis.com"
 	geminiCLIVersion        = "v1internal"
 	geminiCLIUserAgent      = "google-api-nodejs-client/9.15.1"
@@ -760,34 +759,64 @@ func (h *Handler) RequestAnthropicToken(c *gin.Context) {
 			defer stopCallbackForwarder(anthropicCallbackPort)
 		}
 
-		// Helper: wait for callback file
-		waitFile := filepath.Join(h.cfg.AuthDir, fmt.Sprintf(".oauth-anthropic-%s.oauth", state))
-		waitForFile := func(path string, timeout time.Duration) (map[string]string, error) {
-			deadline := time.Now().Add(timeout)
-			for {
-				if time.Now().After(deadline) {
-					oauthStatus[state] = "Timeout waiting for OAuth callback"
-					return nil, fmt.Errorf("timeout waiting for OAuth callback")
+		// Helper: parse callback params from URL or JSON
+		parseCallbackParams := func(raw string) (string, string, error) {
+			// Try parsing as URL first
+			if u, err := url.Parse(raw); err == nil && (u.Scheme != "" || strings.Contains(raw, "?")) {
+				q := u.Query()
+				return q.Get("code"), q.Get("state"), nil
+			}
+			// Try parsing as JSON
+			var m map[string]string
+			if err := json.Unmarshal([]byte(raw), &m); err == nil {
+				return m["code"], m["state"], nil
+			}
+			return "", "", fmt.Errorf("invalid callback format")
+		}
+
+		var resultMap map[string]string
+		callbackURL := c.Query("callback_url")
+
+		if callbackURL != "" {
+			// Manual callback URL provided
+			code, cbState, err := parseCallbackParams(callbackURL)
+			if err != nil {
+				oauthStatus[state] = "Invalid callback URL"
+				return
+			}
+			resultMap = map[string]string{"code": code, "state": cbState}
+		} else {
+			// Helper: wait for callback file
+			waitFile := filepath.Join(h.cfg.AuthDir, fmt.Sprintf(".oauth-anthropic-%s.oauth", state))
+			waitForFile := func(path string, timeout time.Duration) (map[string]string, error) {
+				deadline := time.Now().Add(timeout)
+				for {
+					if time.Now().After(deadline) {
+						oauthStatus[state] = "Timeout waiting for OAuth callback"
+						return nil, fmt.Errorf("timeout waiting for OAuth callback")
+					}
+					data, errRead := os.ReadFile(path)
+					if errRead == nil {
+						var m map[string]string
+						_ = json.Unmarshal(data, &m)
+						_ = os.Remove(path)
+						return m, nil
+					}
+					time.Sleep(500 * time.Millisecond)
 				}
-				data, errRead := os.ReadFile(path)
-				if errRead == nil {
-					var m map[string]string
-					_ = json.Unmarshal(data, &m)
-					_ = os.Remove(path)
-					return m, nil
-				}
-				time.Sleep(500 * time.Millisecond)
+			}
+
+			fmt.Println("Waiting for authentication callback...")
+			// Wait up to 5 minutes
+			var errWait error
+			resultMap, errWait = waitForFile(waitFile, 5*time.Minute)
+			if errWait != nil {
+				authErr := claude.NewAuthenticationError(claude.ErrCallbackTimeout, errWait)
+				log.Error(claude.GetUserFriendlyMessage(authErr))
+				return
 			}
 		}
 
-		fmt.Println("Waiting for authentication callback...")
-		// Wait up to 5 minutes
-		resultMap, errWait := waitForFile(waitFile, 5*time.Minute)
-		if errWait != nil {
-			authErr := claude.NewAuthenticationError(claude.ErrCallbackTimeout, errWait)
-			log.Error(claude.GetUserFriendlyMessage(authErr))
-			return
-		}
 		if errStr := resultMap["error"]; errStr != "" {
 			oauthErr := claude.NewOAuthError(errStr, "", http.StatusBadRequest)
 			log.Error(claude.GetUserFriendlyMessage(oauthErr))
@@ -942,35 +971,67 @@ func (h *Handler) RequestGeminiCLIToken(c *gin.Context) {
 			defer stopCallbackForwarder(geminiCallbackPort)
 		}
 
-		// Wait for callback file written by server route
-		waitFile := filepath.Join(h.cfg.AuthDir, fmt.Sprintf(".oauth-gemini-%s.oauth", state))
-		fmt.Println("Waiting for authentication callback...")
-		deadline := time.Now().Add(5 * time.Minute)
+		// Helper: parse callback params from URL or JSON
+		parseCallbackParams := func(raw string) (string, string, error) {
+			// Try parsing as URL first
+			if u, err := url.Parse(raw); err == nil && (u.Scheme != "" || strings.Contains(raw, "?")) {
+				q := u.Query()
+				return q.Get("code"), q.Get("state"), nil
+			}
+			// Try parsing as JSON
+			var m map[string]string
+			if err := json.Unmarshal([]byte(raw), &m); err == nil {
+				return m["code"], m["state"], nil
+			}
+			return "", "", fmt.Errorf("invalid callback format")
+		}
+
 		var authCode string
-		for {
-			if time.Now().After(deadline) {
-				log.Error("oauth flow timed out")
-				oauthStatus[state] = "OAuth flow timed out"
+		callbackURL := c.Query("callback_url")
+
+		if callbackURL != "" {
+			var cbState string
+			var err error
+			authCode, cbState, err = parseCallbackParams(callbackURL)
+			if err != nil {
+				oauthStatus[state] = "Invalid callback URL"
 				return
 			}
-			if data, errR := os.ReadFile(waitFile); errR == nil {
-				var m map[string]string
-				_ = json.Unmarshal(data, &m)
-				_ = os.Remove(waitFile)
-				if errStr := m["error"]; errStr != "" {
-					log.Errorf("Authentication failed: %s", errStr)
-					oauthStatus[state] = "Authentication failed"
-					return
-				}
-				authCode = m["code"]
-				if authCode == "" {
-					log.Errorf("Authentication failed: code not found")
-					oauthStatus[state] = "Authentication failed: code not found"
-					return
-				}
-				break
+			if cbState != state {
+				log.Errorf("State mismatch: expected %s, got %s", state, cbState)
+				oauthStatus[state] = "State code error"
+				return
 			}
-			time.Sleep(500 * time.Millisecond)
+		} else {
+			// Wait for callback file written by server route
+			waitFile := filepath.Join(h.cfg.AuthDir, fmt.Sprintf(".oauth-gemini-%s.oauth", state))
+			fmt.Println("Waiting for authentication callback...")
+			deadline := time.Now().Add(5 * time.Minute)
+			for {
+				if time.Now().After(deadline) {
+					log.Error("oauth flow timed out")
+					oauthStatus[state] = "OAuth flow timed out"
+					return
+				}
+				if data, errR := os.ReadFile(waitFile); errR == nil {
+					var m map[string]string
+					_ = json.Unmarshal(data, &m)
+					_ = os.Remove(waitFile)
+					if errStr := m["error"]; errStr != "" {
+						log.Errorf("Authentication failed: %s", errStr)
+						oauthStatus[state] = "Authentication failed"
+						return
+					}
+					authCode = m["code"]
+					if authCode == "" {
+						log.Errorf("Authentication failed: code not found")
+						oauthStatus[state] = "Authentication failed: code not found"
+						return
+					}
+					break
+				}
+				time.Sleep(500 * time.Millisecond)
+			}
 		}
 
 		// Exchange authorization code for token
@@ -1181,37 +1242,70 @@ func (h *Handler) RequestCodexToken(c *gin.Context) {
 			defer stopCallbackForwarder(codexCallbackPort)
 		}
 
-		// Wait for callback file
-		waitFile := filepath.Join(h.cfg.AuthDir, fmt.Sprintf(".oauth-codex-%s.oauth", state))
-		deadline := time.Now().Add(5 * time.Minute)
+		// Helper: parse callback params from URL or JSON
+		parseCallbackParams := func(raw string) (string, string, error) {
+			// Try parsing as URL first
+			if u, err := url.Parse(raw); err == nil && (u.Scheme != "" || strings.Contains(raw, "?")) {
+				q := u.Query()
+				return q.Get("code"), q.Get("state"), nil
+			}
+			// Try parsing as JSON
+			var m map[string]string
+			if err := json.Unmarshal([]byte(raw), &m); err == nil {
+				return m["code"], m["state"], nil
+			}
+			return "", "", fmt.Errorf("invalid callback format")
+		}
+
 		var code string
-		for {
-			if time.Now().After(deadline) {
-				authErr := codex.NewAuthenticationError(codex.ErrCallbackTimeout, fmt.Errorf("timeout waiting for OAuth callback"))
-				log.Error(codex.GetUserFriendlyMessage(authErr))
-				oauthStatus[state] = "Timeout waiting for OAuth callback"
+		callbackURL := c.Query("callback_url")
+
+		if callbackURL != "" {
+			var cbState string
+			var err error
+			code, cbState, err = parseCallbackParams(callbackURL)
+			if err != nil {
+				oauthStatus[state] = "Invalid callback URL"
 				return
 			}
-			if data, errR := os.ReadFile(waitFile); errR == nil {
-				var m map[string]string
-				_ = json.Unmarshal(data, &m)
-				_ = os.Remove(waitFile)
-				if errStr := m["error"]; errStr != "" {
-					oauthErr := codex.NewOAuthError(errStr, "", http.StatusBadRequest)
-					log.Error(codex.GetUserFriendlyMessage(oauthErr))
-					oauthStatus[state] = "Bad Request"
-					return
-				}
-				if m["state"] != state {
-					authErr := codex.NewAuthenticationError(codex.ErrInvalidState, fmt.Errorf("expected %s, got %s", state, m["state"]))
-					oauthStatus[state] = "State code error"
-					log.Error(codex.GetUserFriendlyMessage(authErr))
-					return
-				}
-				code = m["code"]
-				break
+			if cbState != state {
+				authErr := codex.NewAuthenticationError(codex.ErrInvalidState, fmt.Errorf("expected %s, got %s", state, cbState))
+				oauthStatus[state] = "State code error"
+				log.Error(codex.GetUserFriendlyMessage(authErr))
+				return
 			}
-			time.Sleep(500 * time.Millisecond)
+		} else {
+			// Wait for callback file
+			waitFile := filepath.Join(h.cfg.AuthDir, fmt.Sprintf(".oauth-codex-%s.oauth", state))
+			deadline := time.Now().Add(5 * time.Minute)
+			for {
+				if time.Now().After(deadline) {
+					authErr := codex.NewAuthenticationError(codex.ErrCallbackTimeout, fmt.Errorf("timeout waiting for OAuth callback"))
+					log.Error(codex.GetUserFriendlyMessage(authErr))
+					oauthStatus[state] = "Timeout waiting for OAuth callback"
+					return
+				}
+				if data, errR := os.ReadFile(waitFile); errR == nil {
+					var m map[string]string
+					_ = json.Unmarshal(data, &m)
+					_ = os.Remove(waitFile)
+					if errStr := m["error"]; errStr != "" {
+						oauthErr := codex.NewOAuthError(errStr, "", http.StatusBadRequest)
+						log.Error(codex.GetUserFriendlyMessage(oauthErr))
+						oauthStatus[state] = "Bad Request"
+						return
+					}
+					if m["state"] != state {
+						authErr := codex.NewAuthenticationError(codex.ErrInvalidState, fmt.Errorf("expected %s, got %s", state, m["state"]))
+						oauthStatus[state] = "State code error"
+						log.Error(codex.GetUserFriendlyMessage(authErr))
+						return
+					}
+					code = m["code"]
+					break
+				}
+				time.Sleep(500 * time.Millisecond)
+			}
 		}
 
 		log.Debug("Authorization code received, exchanging for tokens...")
@@ -2258,51 +2352,3 @@ func (h *Handler) RequestKiroToken(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "url": authURL, "state": state})
 }
 
-func (h *Handler) RequestCopilotToken(c *gin.Context) {
-	ctx := context.Background()
-	fmt.Println("Initializing Copilot authentication...")
-
-	state := fmt.Sprintf("cop-%d", time.Now().UnixNano())
-	copilotAuth := copilot.NewCopilotAuth(h.cfg)
-
-	deviceFlow, err := copilotAuth.InitiateDeviceFlow(ctx)
-	if err != nil {
-		log.Errorf("Failed to initiate device flow: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to initiate device flow"})
-		return
-	}
-	authURL := deviceFlow.VerificationURI
-
-	go func() {
-		fmt.Println("Waiting for Copilot authentication...")
-		tokenData, errPoll := copilotAuth.PollForToken(deviceFlow.DeviceCode)
-		if errPoll != nil {
-			oauthStatus[state] = "Authentication failed: " + errPoll.Error()
-			return
-		}
-
-		tokenStorage := copilotAuth.CreateTokenStorage(tokenData)
-		identifier := fmt.Sprintf("copilot-%d", time.Now().UnixMilli())
-
-		record := &coreauth.Auth{
-			ID:       fmt.Sprintf("copilot-%s.json", identifier),
-			Provider: "copilot",
-			FileName: fmt.Sprintf("copilot-%s.json", identifier),
-			Storage:  tokenStorage,
-			Metadata: map[string]any{"email": identifier},
-		}
-
-		savedPath, errSave := h.saveTokenRecord(ctx, record)
-		if errSave != nil {
-			log.Errorf("Failed to save Copilot token: %v", errSave)
-			oauthStatus[state] = "Failed to save token"
-			return
-		}
-
-		fmt.Printf("Copilot authentication successful! Token saved to %s\n", savedPath)
-		delete(oauthStatus, state)
-	}()
-
-	oauthStatus[state] = ""
-	c.JSON(http.StatusOK, gin.H{"status": "ok", "url": authURL, "state": state})
-}

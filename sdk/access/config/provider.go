@@ -1,4 +1,4 @@
-package configaccess
+package config
 
 import (
 	"context"

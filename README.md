@@ -38,6 +38,8 @@ Get 10% OFF GLM CODING PLAN: https://z.ai/subscribe?ic=8JVLJQFSKB
 - iFlow multi-account load balancing
 - OpenAI Codex multi-account load balancing
 - OpenAI-compatible upstream providers via config (e.g., OpenRouter)
+- **Auto-configuration** for local tools: Codex CLI, Continue, Claude Code, and Factory Droid
+- **Live Logs** dashboard for real-time request monitoring
 - Reusable Go SDK for embedding the proxy (see `docs/sdk-usage.md`)
 
 ## Getting Started (Engine)

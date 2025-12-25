@@ -101,8 +101,6 @@ This repo produces multiple Go binaries:
 - `cmd/server` (engine): HTTP proxy server exposing OpenAI/Gemini/Claude-compatible endpoints; also hosts OAuth callback endpoints.
 - `cmd/cliproxytray` (Windows tray app): starts/stops the engine, opens UI, toggles autostart, checks for updates.
 - `cmd/proxypilotui` (Windows desktop UI): WebView2 desktop window for the Control Center; talks to the running engine and uses management endpoints.
-- `cmd/cliproxyctl`: small CLI to start/stop/status/open UI via `internal/desktopctl`.
-- `cmd/cliproxymgr`: local web manager UI that wraps `internal/desktopctl`.
 - `cmd/proxypilotpack`: build/packaging orchestrator (build binaries into `bin/`, create `dist/` artifacts).
 
 ### Engine request path (big picture)

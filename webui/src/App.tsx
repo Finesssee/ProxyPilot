@@ -976,7 +976,7 @@ export default function App() {
                   <CardContent className="space-y-3">
                     <input
                       className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
-                      placeholder="model name (auto, gpt-5, provider://model)"
+                      placeholder="model name (auto, gpt-5.2, provider://model)"
                       value={routingModel}
                       onChange={(e) => setRoutingModel(e.target.value)}
                     />
@@ -985,7 +985,7 @@ export default function App() {
                     </Button>
                     <textarea
                       className="h-24 w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
-                      placeholder={'{ "model": "gpt-5" }'}
+                      placeholder={'{ "model": "gpt-5.2" }'}
                       value={routingJSON}
                       onChange={(e) => setRoutingJSON(e.target.value)}
                     />

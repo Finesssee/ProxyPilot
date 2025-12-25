@@ -110,6 +110,10 @@ func (h *OpenAIAPIHandler) ChatCompletions(c *gin.Context) {
 
 	rawJSON = tightenToolSchemas(rawJSON, false)
 
+	// Factory/Droid compatibility: compact huge histories and inject defaults if missing
+	rawJSON = maybeCompactFactoryInput(c, rawJSON)
+	rawJSON = maybeInjectFactoryTools(c, rawJSON)
+
 	// Check if the client requested a streaming response.
 	streamResult := gjson.GetBytes(rawJSON, "stream")
 	wantsStream := streamResult.Type == gjson.True

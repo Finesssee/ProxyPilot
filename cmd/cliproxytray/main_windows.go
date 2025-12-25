@@ -66,6 +66,11 @@ func run(repoRoot, configPath, exePath string) {
 		stopItem := engineMenu.AddSubMenuItem("Stop", "Stop the ProxyPilot engine")
 		restartItem := engineMenu.AddSubMenuItem("Restart", "Restart the ProxyPilot engine")
 
+		// Connect submenu (VibeProxy-style easy setup)
+		connectMenu := systray.AddMenuItem("Connect", "Environment variables")
+		copyAnthropicEnv := connectMenu.AddSubMenuItem("Copy ANTHROPIC_BASE_URL", "Copy export ANTHROPIC_BASE_URL=http://127.0.0.1:8317/v1")
+		copyOpenAIEnv := connectMenu.AddSubMenuItem("Copy OPENAI_BASE_URL", "Copy export OPENAI_BASE_URL=http://127.0.0.1:8317/v1")
+		
 		// Settings submenu
 		settingsMenu := systray.AddMenuItem("Settings", "ProxyPilot settings")
 		autoOn, _, _ := desktopctl.IsWindowsRunAutostartEnabled(autostartAppName)
@@ -177,6 +182,10 @@ func run(repoRoot, configPath, exePath string) {
 					}
 					lastErr = ""
 					refresh()
+				case <-copyAnthropicEnv.ClickedCh:
+					_ = copyToClipboard(fmt.Sprintf("http://127.0.0.1:%d/v1", thinkingProxyPort))
+				case <-copyOpenAIEnv.ClickedCh:
+					_ = copyToClipboard(fmt.Sprintf("http://127.0.0.1:%d/v1", thinkingProxyPort))
 				case <-autoStartItem.ClickedCh:
 					if autoStartItem.Checked() {
 						_ = desktopctl.DisableWindowsRunAutostart(autostartAppName)

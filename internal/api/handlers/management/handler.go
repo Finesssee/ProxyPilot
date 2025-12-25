@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/buildinfo"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/integrations"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
@@ -41,6 +42,7 @@ type Handler struct {
 	allowRemoteOverride bool
 	envSecret           string
 	logDir              string
+	integrationManager  *integrations.Manager
 }
 
 // openAICompatProviderNames returns the configured OpenAI-compat provider names from the current config.
@@ -64,7 +66,7 @@ func NewHandler(cfg *config.Config, configFilePath string, manager *coreauth.Man
 	envSecret, _ := os.LookupEnv("MANAGEMENT_PASSWORD")
 	envSecret = strings.TrimSpace(envSecret)
 
-	return &Handler{
+	h := &Handler{
 		cfg:                 cfg,
 		configFilePath:      configFilePath,
 		failedAttempts:      make(map[string]*attemptInfo),
@@ -74,6 +76,30 @@ func NewHandler(cfg *config.Config, configFilePath string, manager *coreauth.Man
 		allowRemoteOverride: envSecret != "",
 		envSecret:           envSecret,
 	}
+
+	// Initialize Integration Manager
+	// We need the proxy URL. If not in config, assume localhost default.
+	proxyURL := cfg.ProxyURL
+	if proxyURL == "" {
+		host := cfg.Host
+		if host == "" {
+			host = "http://127.0.0.1"
+		} else {
+			if !strings.HasPrefix(host, "http") {
+				host = "http://" + host
+			}
+		}
+		proxyURL = fmt.Sprintf("%s:%d", host, cfg.Port)
+	}
+	
+	h.integrationManager = integrations.NewManager(proxyURL)
+	h.integrationManager.Register(&integrations.CodexIntegration{})
+	h.integrationManager.Register(&integrations.ContinueIntegration{})
+	h.integrationManager.Register(&integrations.ClaudeIntegration{})
+	h.integrationManager.Register(&integrations.DroidIntegration{})
+	h.integrationManager.Register(&integrations.GeminiIntegration{})
+	
+	return h
 }
 
 // SetConfig updates the in-memory config reference when the server hot-reloads.

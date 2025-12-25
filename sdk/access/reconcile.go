@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
-	sdkaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access"
 	sdkConfig "github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 	log "github.com/sirupsen/logrus"
 )
@@ -16,12 +14,12 @@ import (
 // and creating or removing providers only when their configuration changed. It returns the final
 // ordered provider slice along with the identifiers of providers that were added, updated, or
 // removed compared to the previous configuration.
-func ReconcileProviders(oldCfg, newCfg *config.Config, existing []sdkaccess.Provider) (result []sdkaccess.Provider, added, updated, removed []string, err error) {
+func ReconcileProviders(oldCfg, newCfg *sdkConfig.SDKConfig, existing []Provider) (result []Provider, added, updated, removed []string, err error) {
 	if newCfg == nil {
 		return nil, nil, nil, nil, nil
 	}
 
-	existingMap := make(map[string]sdkaccess.Provider, len(existing))
+	existingMap := make(map[string]Provider, len(existing))
 	for _, provider := range existing {
 		if provider == nil {
 			continue
@@ -32,7 +30,7 @@ func ReconcileProviders(oldCfg, newCfg *config.Config, existing []sdkaccess.Prov
 	oldCfgMap := accessProviderMap(oldCfg)
 	newEntries := collectProviderEntries(newCfg)
 
-	result = make([]sdkaccess.Provider, 0, len(newEntries))
+	result = make([]Provider, 0, len(newEntries))
 	finalIDs := make(map[string]struct{}, len(newEntries))
 
 	isInlineProvider := func(id string) bool {
@@ -63,7 +61,7 @@ func ReconcileProviders(oldCfg, newCfg *config.Config, existing []sdkaccess.Prov
 			}
 		}
 
-		provider, buildErr := sdkaccess.BuildProvider(providerCfg, &newCfg.SDKConfig)
+		provider, buildErr := BuildProvider(providerCfg, newCfg)
 		if buildErr != nil {
 			return nil, nil, nil, nil, buildErr
 		}
@@ -93,7 +91,7 @@ func ReconcileProviders(oldCfg, newCfg *config.Config, existing []sdkaccess.Prov
 						}
 					}
 				}
-				provider, buildErr := sdkaccess.BuildProvider(inline, &newCfg.SDKConfig)
+				provider, buildErr := BuildProvider(inline, newCfg)
 				if buildErr != nil {
 					return nil, nil, nil, nil, buildErr
 				}
@@ -136,7 +134,7 @@ func ReconcileProviders(oldCfg, newCfg *config.Config, existing []sdkaccess.Prov
 // ApplyAccessProviders reconciles the configured access providers against the
 // currently registered providers and updates the manager. It logs a concise
 // summary of the detected changes and returns whether any provider changed.
-func ApplyAccessProviders(manager *sdkaccess.Manager, oldCfg, newCfg *config.Config) (bool, error) {
+func ApplyAccessProviders(manager *Manager, oldCfg, newCfg *sdkConfig.SDKConfig) (bool, error) {
 	if manager == nil || newCfg == nil {
 		return false, nil
 	}
@@ -160,7 +158,7 @@ func ApplyAccessProviders(manager *sdkaccess.Manager, oldCfg, newCfg *config.Con
 	return false, nil
 }
 
-func accessProviderMap(cfg *config.Config) map[string]*sdkConfig.AccessProvider {
+func accessProviderMap(cfg *sdkConfig.SDKConfig) map[string]*sdkConfig.AccessProvider {
 	result := make(map[string]*sdkConfig.AccessProvider)
 	if cfg == nil {
 		return result
@@ -186,7 +184,7 @@ func accessProviderMap(cfg *config.Config) map[string]*sdkConfig.AccessProvider 
 	return result
 }
 
-func collectProviderEntries(cfg *config.Config) []*sdkConfig.AccessProvider {
+func collectProviderEntries(cfg *sdkConfig.SDKConfig) []*sdkConfig.AccessProvider {
 	entries := make([]*sdkConfig.AccessProvider, 0, len(cfg.Access.Providers))
 	for i := range cfg.Access.Providers {
 		providerCfg := &cfg.Access.Providers[i]

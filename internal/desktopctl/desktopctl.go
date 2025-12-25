@@ -47,15 +47,19 @@ func StatusFor(configPath string) (Status, error) {
 	}
 
 	out := Status{
-		Running:        running,
-		Managed:        managed,
-		AutoStartProxy: s != nil && s.AutoStartProxy,
-		PID:            pidOrZero(s),
-		Port:           port,
-		BaseURL:        baseURL,
-		ConfigPath:     resolvedConfig,
-		ExePath:        exeOrEmpty(s),
-		StartedAt:      startedAtOrZero(s),
+		Running:         running,
+		Managed:         managed,
+		AutoStartProxy:  s != nil && s.AutoStartProxy,
+		PID:             pidOrZero(s),
+		Port:            port,
+		ThinkingPort:    8317,
+		BaseURL:         baseURL,
+		ConfigPath:      resolvedConfig,
+		ExePath:         exeOrEmpty(s),
+		StartedAt:       startedAtOrZero(s),
+	}
+	if inUse, _ := isLocalPortInUse(8317); inUse {
+		out.ThinkingRunning = true
 	}
 	if healthErr != nil {
 		out.LastError = healthErr.Error()

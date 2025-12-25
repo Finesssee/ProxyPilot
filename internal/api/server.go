@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/access"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/agentdebug"
 	managementHandlers "github.com/router-for-me/CLIProxyAPI/v6/internal/api/handlers/management"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/api/middleware"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
@@ -26,12 +26,14 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/managementasset"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
+	"github.com/router-for-me/CLIProxyAPI/v6/sdk/access"
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers/claude"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers/gemini"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers/openai"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
+	sdkConfig "github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
@@ -329,6 +331,7 @@ func (s *Server) setupRoutes() {
 		middleware.AgenticHarnessMiddlewareWithRootDir(s.cfg.HarnessRootDir),
 		middleware.CodexPromptBudgetMiddlewareWithRootDir(s.cfg.HarnessRootDir),
 	)
+	v1.Use(droidOOMDebugMiddleware())
 	{
 		v1.GET("/models", s.unifiedModelsHandler(openaiHandlers, claudeCodeHandlers))
 		v1.POST("/chat/completions", openaiHandlers.ChatCompletions)
@@ -343,6 +346,7 @@ func (s *Server) setupRoutes() {
 	// Example: baseURL=http://localhost:8318/v1 -> client calls /models, /chat/completions, etc.
 	openaiAlias := s.engine.Group("")
 	openaiAlias.Use(AuthMiddleware(s.accessManager))
+	openaiAlias.Use(droidOOMDebugMiddleware())
 	{
 		openaiAlias.GET("/models", s.unifiedModelsHandler(openaiHandlers, claudeCodeHandlers))
 		openaiAlias.POST("/chat/completions", openaiHandlers.ChatCompletions)
@@ -439,19 +443,50 @@ func (s *Server) setupRoutes() {
 		c.String(http.StatusOK, oauthCallbackSuccessHTML)
 	})
 
-	s.engine.GET("/kiro/callback", func(c *gin.Context) {
-		code := c.Query("code")
-		state := c.Query("state")
-		errStr := c.Query("error")
-		if state != "" {
-			file := fmt.Sprintf("%s/.oauth-kiro-%s.oauth", s.cfg.AuthDir, state)
-			_ = os.WriteFile(file, []byte(fmt.Sprintf(`{"code":"%s","state":"%s","error":"%s"}`, code, state, errStr)), 0o600)
-		}
-		c.Header("Content-Type", "text/html; charset=utf-8")
-		c.String(http.StatusOK, oauthCallbackSuccessHTML)
-	})
-
 	// Management routes are registered lazily by registerManagementRoutes when a secret is configured.
+}
+
+func droidOOMDebugMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+		if !strings.Contains(path, "/chat/completions") && !strings.Contains(path, "/models") && !strings.Contains(path, "/responses") {
+			c.Next()
+			return
+		}
+
+		// #region agent log
+		agentdebug.Log(
+			"H4",
+			"internal/api/server.go:droidOOMDebugMiddleware:request_in",
+			"http_request_in",
+			map[string]any{
+				"method":        c.Request.Method,
+				"path":          path,
+				"contentLength": c.Request.ContentLength,
+				"contentType":   c.Request.Header.Get("Content-Type"),
+				"accept":        c.Request.Header.Get("Accept"),
+			},
+		)
+		// #endregion agent log
+
+		c.Next()
+
+		// #region agent log
+		agentdebug.Log(
+			"H1",
+			"internal/api/server.go:droidOOMDebugMiddleware:request_out",
+			"http_request_out",
+			map[string]any{
+				"method":        c.Request.Method,
+				"path":          path,
+				"status":        c.Writer.Status(),
+				"bytesWritten":  c.Writer.Size(),
+				"responseType":  c.Writer.Header().Get("Content-Type"),
+				"isEventStream": strings.Contains(strings.ToLower(c.Writer.Header().Get("Content-Type")), "text/event-stream"),
+			},
+		)
+		// #endregion agent log
+	}
 }
 
 // AttachWebsocketRoute registers a websocket upgrade handler on the primary Gin engine.
@@ -599,8 +634,6 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/gemini-cli-auth-url", s.mgmt.RequestGeminiCLIToken)
 		mgmt.GET("/antigravity-auth-url", s.mgmt.RequestAntigravityToken)
 		mgmt.GET("/qwen-auth-url", s.mgmt.RequestQwenToken)
-		mgmt.GET("/kiro-auth-url", s.mgmt.RequestKiroToken)
-		mgmt.GET("/copilot-auth-url", s.mgmt.RequestCopilotToken)
 		mgmt.GET("/iflow-auth-url", s.mgmt.RequestIFlowToken)
 		mgmt.POST("/iflow-auth-url", s.mgmt.RequestIFlowCookieToken)
 		mgmt.GET("/get-auth-status", s.mgmt.GetAuthStatus)
@@ -630,6 +663,10 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/memory/export-all", s.mgmt.ExportAllMemory)
 		mgmt.POST("/memory/import", s.mgmt.ImportMemorySession)
 		mgmt.POST("/memory/delete-all", s.mgmt.DeleteAllMemory)
+
+		// Tool Integrations (Auto-configuration)
+		mgmt.GET("/integrations", s.mgmt.GetIntegrationsStatus)
+		mgmt.POST("/integrations/:id", s.mgmt.PostIntegrationConfigure)
 	}
 }
 
@@ -882,7 +919,11 @@ func (s *Server) applyAccessConfig(oldCfg, newCfg *config.Config) {
 	if s == nil || s.accessManager == nil || newCfg == nil {
 		return
 	}
-	if _, err := access.ApplyAccessProviders(s.accessManager, oldCfg, newCfg); err != nil {
+	var oldSDKCfg *sdkConfig.SDKConfig
+	if oldCfg != nil {
+		oldSDKCfg = &oldCfg.SDKConfig
+	}
+	if _, err := access.ApplyAccessProviders(s.accessManager, oldSDKCfg, &newCfg.SDKConfig); err != nil {
 		return
 	}
 }
