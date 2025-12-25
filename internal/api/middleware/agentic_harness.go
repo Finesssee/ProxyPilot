@@ -8,11 +8,32 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
+
+var (
+	harnessEnabledOnce sync.Once
+	harnessEnabled     bool
+)
+
+// isHarnessEnabled checks if the agentic harness is enabled via environment variable.
+// Defaults to true if CLIPROXY_HARNESS_ENABLED is not set or is "true"/"1".
+func isHarnessEnabled() bool {
+	harnessEnabledOnce.Do(func() {
+		val := os.Getenv("CLIPROXY_HARNESS_ENABLED")
+		if val == "" {
+			harnessEnabled = true
+			return
+		}
+		val = strings.ToLower(strings.TrimSpace(val))
+		harnessEnabled = val == "true" || val == "1" || val == "yes"
+	})
+	return harnessEnabled
+}
 
 const (
 	// Initializer prompt: forces the agent to set up the environment.
@@ -21,28 +42,85 @@ const (
 You are the **Initializer Agent** in a Long-Running Agent Harness.
 Your ONLY goal is to set up the project environment for future Coding Agents.
 
-**CRITICAL INSTRUCTIONS**:
-1.  **Analyze the User's Request**: Understand what feature or app needs to be built.
-2.  **Create 'feature_list.json'**:
-    -   Write a JSON file listing ALL features/requirements as separate items.
-    -   Mark them all as "passes": false.
-    -   Format:
-        Request: "Build a todo app"
-        File Content:
-        [
-          { "category": "core", "description": "User can add a todo", "steps": ["Open app", "Enter text", "Press enter", "See new item"], "passes": false },
-          { "category": "core", "description": "User can delete a todo", "steps": ["Open app", "Click delete", "Item removed"], "passes": false }
-        ]
-3.  **Create 'claude-progress.txt'**:
-    -   Create this file with a header "## Progress Log".
-    -   Add an initial entry: "- [Initializer] Environment setup started."
-4.  **Create 'init.sh' (Optional)**:
-    -   If a dev server is needed, create a script to start it (e.g., 'npm run dev').
-5.  **Initial Commit**:
-    -   Initialize git if not present.
-    -   Commit these foundational files.
+## CRITICAL: YOU DO NOT IMPLEMENT FEATURES
+Your job is ONLY to scaffold the harness files. Do NOT write any application code.
+Do NOT create components, pages, or business logic. Only create the harness metadata files.
 
-**DO NOT** start implementing features yourself. Your job is ONLY to scaffold the harness.
+## INSTRUCTIONS
+
+### 1. Analyze the User's Request
+Understand what feature or app needs to be built. Break it down into discrete, testable features.
+
+### 2. Create 'feature_list.json'
+Write a JSON file listing ALL features/requirements as separate items.
+
+**Required Format:**
+{
+  "features": [
+    {
+      "id": "feat-001",
+      "category": "core",
+      "description": "User can add a todo item",
+      "steps": [
+        "Open the application",
+        "Enter text in the input field",
+        "Press Enter or click Add button",
+        "Verify new item appears in the list"
+      ],
+      "passes": false,
+      "priority": 1
+    },
+    {
+      "id": "feat-002",
+      "category": "core",
+      "description": "User can delete a todo item",
+      "steps": [
+        "Open the application with existing items",
+        "Click the delete button on an item",
+        "Verify item is removed from the list"
+      ],
+      "passes": false,
+      "priority": 2
+    }
+  ]
+}
+
+**Field Descriptions:**
+- id: Unique identifier (feat-XXX format)
+- category: "core", "enhancement", "ui", "integration", etc.
+- description: Clear, testable user-facing behavior
+- steps: Exact steps to verify this feature works
+- passes: Always false initially
+- priority: Lower number = higher priority (implement first)
+
+### 3. Create 'claude-progress.txt'
+Create this file with structured session logging:
+
+## Progress Log
+
+### Session: YYYY-MM-DD HH:MM
+- [Initializer] Environment setup started.
+- [Initializer] Created feature_list.json with N features.
+- [Initializer] Created init.sh for development server.
+
+### 4. Create 'init.sh' (REQUIRED for web apps)
+For ANY web application, you MUST create init.sh:
+#!/bin/bash
+# Start the development server
+npm install
+npm run dev &
+sleep 5
+echo "Dev server started at http://localhost:3000"
+
+Make it executable and ensure it handles common setup tasks.
+
+### 5. Initial Commit
+- Initialize git if not present.
+- Commit these foundational files with message: "chore: initialize agent harness"
+
+## REMINDER
+You are ONLY scaffolding. The Coding Agent will implement features in future turns.
+Do NOT write application code. Do NOT create UI components. ONLY create the harness files.
 `
 
 	// Coding prompt: forces the agent to work incrementally.
@@ -51,30 +129,80 @@ Your ONLY goal is to set up the project environment for future Coding Agents.
 You are a **Coding Agent** in a Long-Running Agent Harness.
 Your goal is to make **incremental progress** on the project.
 
-**WORKFLOW**:
-1.  **Read Context**:
-    -   Read 'claude-progress.txt' to see what was done last.
-    -   Read 'feature_list.json' to see what is missing.
-    -   Read recent git log to understand recent changes.
-    -   If 'init.sh' exists, run it to start the dev server.
-    -   Run a basic end-to-end sanity check before new work.
-2.  **Pick ONE Task**:
-    -   Choose the highest-priority failing feature from 'feature_list.json'.
-    -   Announce your plan.
-3.  **Implement & Verify**:
-    -   Write code for that ONE feature.
-    -   Verify it works end-to-end (tests or browser check).
-4.  **Update State**:
-    -   Update 'feature_list.json': set "passes": true for the completed feature.
-    -   Append to 'claude-progress.txt': "- [Coding] Implemented <feature>."
-5.  **Commit**:
-    -   Git commit your changes.
+## STEP 1: GET BEARINGS (MANDATORY - DO THIS FIRST)
+Before ANY coding, you MUST execute these commands in order:
 
-**RESTRICTIONS**:
--   Do NOT try to finish the whole project in one turn.
--   Do NOT leave the code in a broken state.
--   Always update the harness files ('feature_list.json', 'claude-progress.txt') before stopping.
--   Do NOT edit 'feature_list.json' except toggling a feature's "passes" field after verified testing.
+1. pwd                              # Know where you are
+2. git log --oneline -5             # See recent changes
+3. cat claude-progress.txt          # Read what was done before
+4. cat feature_list.json            # See all features and their status
+5. ./init.sh                        # Start dev server if it exists
+
+Do NOT skip this step. Do NOT assume you know the project state.
+
+## STEP 2: SANITY CHECK (MANDATORY)
+Before implementing anything new:
+- Verify existing features still work
+- Check for any regressions from previous changes
+- If using Puppeteer MCP, run a quick browser test on the current state
+- If something is broken, FIX IT FIRST before new work
+
+## STEP 3: PICK ONE TASK
+- Find the highest-priority feature where "passes": false
+- Announce: "I will implement: [feature description]"
+- Do NOT pick multiple features
+
+## STEP 4: IMPLEMENT & VERIFY
+- Write code for that ONE feature only
+- You MUST verify it works before marking complete
+- Verification methods (in order of preference):
+  1. **Puppeteer MCP**: Use browser automation to test UI features (STRONGLY PREFERRED)
+  2. **Unit/Integration tests**: Run existing test suites
+  3. **Manual verification**: Only if automated testing unavailable
+
+**VERIFICATION IS NOT OPTIONAL.** You must ACTUALLY TEST the feature.
+Do NOT mark a feature as passing based on "the code looks correct."
+
+## STEP 5: UPDATE STATE
+After VERIFIED implementation:
+
+1. Update feature_list.json:
+   - Set "passes": true ONLY for features you have ACTUALLY VERIFIED
+
+2. Append to claude-progress.txt:
+   - [Coding] Implemented <feature id>: <description>. Verified via <method>.
+
+   Example:
+   - [Coding] Implemented feat-003: User can mark todo complete. Verified via Puppeteer browser test.
+
+## STEP 6: COMMIT
+- Git commit with descriptive message
+- Include feature ID in commit message
+
+## RESTRICTIONS
+- Do NOT try to finish the whole project in one turn
+- Do NOT leave the code in a broken state
+- Do NOT mark features as "passes": true without ACTUAL verification
+- Do NOT edit feature_list.json except to toggle "passes" after verified testing
+- ALWAYS update harness files before stopping
+`
+
+	// harnessTestingReminder is injected when Puppeteer MCP is detected
+	harnessTestingReminder = `
+## PUPPETEER MCP DETECTED
+You have access to Puppeteer MCP for browser automation testing.
+
+**YOU MUST USE IT** to verify features. This is not optional.
+
+Testing workflow:
+1. Navigate to the application URL (usually http://localhost:3000 or similar)
+2. Take a screenshot to verify the page loaded
+3. Interact with UI elements to test the feature
+4. Take a screenshot after interaction to verify the result
+5. Only mark "passes": true if the browser test confirms it works
+
+Do NOT rely on "the code looks correct." Run the actual browser test.
+If Puppeteer tests fail, the feature does NOT pass. Fix it before moving on.
 `
 )
 
@@ -87,6 +215,12 @@ func AgenticHarnessMiddleware() gin.HandlerFunc {
 // If rootDir is empty, the current working directory is used.
 func AgenticHarnessMiddlewareWithRootDir(rootDir string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Check if harness is enabled via environment variable
+		if !isHarnessEnabled() {
+			c.Next()
+			return
+		}
+
 		req := c.Request
 		if req == nil || req.Method != http.MethodPost {
 			c.Next()
@@ -116,8 +250,8 @@ func AgenticHarnessMiddlewareWithRootDir(rootDir string) gin.HandlerFunc {
 
 		// 3. Detect State
 		// We look for evidence that the harness is already active (features/progress files).
-		// We also check conversation length.
-		state := detectHarnessState(body, rootDir)
+		// We also check conversation length and session-based storage.
+		state := detectHarnessState(body, c, rootDir)
 
 		// 4. Inject Prompt
 		var promptToInject string
@@ -126,6 +260,10 @@ func AgenticHarnessMiddlewareWithRootDir(rootDir string) gin.HandlerFunc {
 			promptToInject = harnessInitializerPrompt
 		case "CODING":
 			promptToInject = harnessCodingPrompt
+			// Append Puppeteer testing reminder if MCP is detected
+			if detectPuppeteerMCP(body) {
+				promptToInject += harnessTestingReminder
+			}
 		default:
 			// "PASSIVE" - do nothing, let the user drive.
 			c.Next()
@@ -146,7 +284,108 @@ func AgenticHarnessMiddlewareWithRootDir(rootDir string) gin.HandlerFunc {
 	}
 }
 
-func detectHarnessState(body []byte, rootDir string) string {
+// detectPuppeteerMCP checks if Puppeteer MCP is available in the conversation or tools array.
+func detectPuppeteerMCP(body []byte) bool {
+	raw := strings.ToLower(string(body))
+
+	// Check for common Puppeteer MCP indicators
+	puppeteerIndicators := []string{
+		"puppeteer",
+		"mcp_puppeteer",
+		"mcp-puppeteer",
+		"puppeteer_navigate",
+		"puppeteer_screenshot",
+		"puppeteer_click",
+		"browser_action",
+	}
+
+	for _, indicator := range puppeteerIndicators {
+		if strings.Contains(raw, indicator) {
+			return true
+		}
+	}
+
+	// Check tools array specifically for more precise detection
+	tools := gjson.GetBytes(body, "tools")
+	if tools.Exists() && tools.IsArray() {
+		for _, tool := range tools.Array() {
+			toolName := strings.ToLower(tool.Get("name").String())
+			toolDesc := strings.ToLower(tool.Get("description").String())
+			if strings.Contains(toolName, "puppeteer") || strings.Contains(toolDesc, "puppeteer") {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// extractSessionKeyFromContext extracts session key from request headers.
+func extractSessionKeyFromContext(c *gin.Context) string {
+	if v := c.GetHeader("X-CLIProxyAPI-Session"); v != "" {
+		return v
+	}
+	if v := c.GetHeader("X-Session-Id"); v != "" {
+		return v
+	}
+	return ""
+}
+
+// extractSessionKeyFromBody extracts session key from request body JSON fields.
+func extractSessionKeyFromBody(body []byte) string {
+	if v := gjson.GetBytes(body, "prompt_cache_key"); v.Exists() && v.Type == gjson.String {
+		return v.String()
+	}
+	if v := gjson.GetBytes(body, "metadata.session_id"); v.Exists() && v.Type == gjson.String {
+		return v.String()
+	}
+	if v := gjson.GetBytes(body, "session_id"); v.Exists() && v.Type == gjson.String {
+		return v.String()
+	}
+	return ""
+}
+
+// memoryBaseDirForHarness returns the base directory for memory/session storage.
+func memoryBaseDirForHarness() string {
+	if v := os.Getenv("CLIPROXY_MEMORY_DIR"); v != "" {
+		return v
+	}
+	// Try default locations
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".proxypilot", "memory")
+	}
+	return filepath.Join(".", ".proxypilot", "memory")
+}
+
+// harnessFileVariations lists possible file name variations for harness files.
+var harnessProgressFileVariations = []string{
+	"claude-progress.txt",
+	"claude-progress",
+	"progress.txt",
+}
+
+var harnessFeatureFileVariations = []string{
+	"feature_list.json",
+	"feature_list",
+	"features.json",
+}
+
+// checkHarnessFilesExist checks if any harness files exist in the given directory.
+func checkHarnessFilesExist(dir string) bool {
+	for _, f := range harnessProgressFileVariations {
+		if fileExists(dir, f) {
+			return true
+		}
+	}
+	for _, f := range harnessFeatureFileVariations {
+		if fileExists(dir, f) {
+			return true
+		}
+	}
+	return false
+}
+
+func detectHarnessState(body []byte, c *gin.Context, rootDir string) string {
 	// Simple heuristic:
 	// If the conversation contains references to "claude-progress.txt" or "feature_list.json",
 	// it's likely already in the harness flow -> CODING.
@@ -157,8 +396,23 @@ func detectHarnessState(body []byte, rootDir string) string {
 		return "CODING"
 	}
 
-	// Prefer filesystem truth when available.
-	if fileExists(rootDir, "claude-progress.txt") || fileExists(rootDir, "feature_list.json") {
+	// Try to get session key from context headers first, then from body
+	sessionKey := extractSessionKeyFromContext(c)
+	if sessionKey == "" {
+		sessionKey = extractSessionKeyFromBody(body)
+	}
+
+	// Check session-based storage for harness files
+	if sessionKey != "" {
+		memoryDir := memoryBaseDirForHarness()
+		sessionHarnessDir := filepath.Join(memoryDir, "sessions", sessionKey, "harness")
+		if checkHarnessFilesExist(sessionHarnessDir) {
+			return "CODING"
+		}
+	}
+
+	// Prefer filesystem truth when available (check rootDir with file variations).
+	if checkHarnessFilesExist(rootDir) {
 		return "CODING"
 	}
 
