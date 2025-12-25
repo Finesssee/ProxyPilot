@@ -239,7 +239,9 @@ func (s *ObjectTokenStore) List(_ context.Context) ([]*cliproxyauth.Auth, error)
 		if d.IsDir() {
 			return nil
 		}
-		if !strings.HasSuffix(strings.ToLower(d.Name()), ".json") {
+		name := d.Name()
+		// Optimization: Check suffix without allocating a new lowercased string
+		if len(name) < 5 || !strings.EqualFold(name[len(name)-5:], ".json") {
 			return nil
 		}
 		auth, err := s.readAuthFile(path, dir)
@@ -524,7 +526,7 @@ func (s *ObjectTokenStore) resolveAuthPath(auth *cliproxyauth.Auth) (string, err
 	if fileName == "" {
 		return "", fmt.Errorf("object store: auth %s missing filename", auth.ID)
 	}
-	if !strings.HasSuffix(strings.ToLower(fileName), ".json") {
+	if len(fileName) < 5 || !strings.EqualFold(fileName[len(fileName)-5:], ".json") {
 		fileName += ".json"
 	}
 	return filepath.Join(s.authDir, fileName), nil
@@ -546,7 +548,7 @@ func (s *ObjectTokenStore) resolveDeletePath(id string) (string, error) {
 		return "", fmt.Errorf("object store: invalid auth identifier %s", id)
 	}
 	// Ensure .json suffix.
-	if !strings.HasSuffix(strings.ToLower(clean), ".json") {
+	if len(clean) < 5 || !strings.EqualFold(clean[len(clean)-5:], ".json") {
 		clean += ".json"
 	}
 	return filepath.Join(s.authDir, clean), nil

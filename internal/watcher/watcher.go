@@ -994,11 +994,17 @@ func (w *Watcher) reloadClients(rescanAuth bool, affectedOAuthProviders []string
 		if resolvedAuthDir, errResolveAuthDir := util.ResolveAuthDir(cfg.AuthDir); errResolveAuthDir != nil {
 			log.Errorf("failed to resolve auth directory for hash cache: %v", errResolveAuthDir)
 		} else if resolvedAuthDir != "" {
-			_ = filepath.Walk(resolvedAuthDir, func(path string, info fs.FileInfo, err error) error {
+			// Optimization: Use WalkDir instead of Walk to avoid lstat calls on every file
+			_ = filepath.WalkDir(resolvedAuthDir, func(path string, d fs.DirEntry, err error) error {
 				if err != nil {
 					return nil
 				}
-				if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".json") {
+				if d.IsDir() {
+					return nil
+				}
+				name := d.Name()
+				// Optimization: Check suffix without allocating a new lowercased string
+				if len(name) >= 5 && strings.EqualFold(name[len(name)-5:], ".json") {
 					if data, errReadFile := os.ReadFile(path); errReadFile == nil && len(data) > 0 {
 						sum := sha256.Sum256(data)
 						normalizedPath := w.normalizeAuthPath(path)
@@ -1505,14 +1511,20 @@ func (w *Watcher) loadFileClients(cfg *config.Config) int {
 		return 0
 	}
 
-	errWalk := filepath.Walk(authDir, func(path string, info fs.FileInfo, err error) error {
+	// Optimization: Use WalkDir instead of Walk to avoid lstat calls on every file
+	errWalk := filepath.WalkDir(authDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			log.Debugf("error accessing path %s: %v", path, err)
 			return err
 		}
-		if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".json") {
+		if d.IsDir() {
+			return nil
+		}
+		name := d.Name()
+		// Optimization: Check suffix without allocating a new lowercased string
+		if len(name) >= 5 && strings.EqualFold(name[len(name)-5:], ".json") {
 			authFileCount++
-			log.Debugf("processing auth file %d: %s", authFileCount, filepath.Base(path))
+			log.Debugf("processing auth file %d: %s", authFileCount, name)
 			// Count readable JSON files as successful auth entries
 			if data, errCreate := os.ReadFile(path); errCreate == nil && len(data) > 0 {
 				successfulAuthCount++

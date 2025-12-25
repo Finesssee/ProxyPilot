@@ -115,7 +115,9 @@ func (s *FileTokenStore) List(ctx context.Context) ([]*cliproxyauth.Auth, error)
 		if d.IsDir() {
 			return nil
 		}
-		if !strings.HasSuffix(strings.ToLower(d.Name()), ".json") {
+		name := d.Name()
+		// Optimization: Check suffix without allocating a new lowercased string
+		if len(name) < 5 || !strings.EqualFold(name[len(name)-5:], ".json") {
 			return nil
 		}
 		auth, err := s.readAuthFile(path, dir)
