@@ -26,8 +26,15 @@ remote-management:
 # Authentication directory (supports ~ for home directory)
 auth-dir: "~/.cli-proxy-api"
 # Long-running agent harness files root directory (feature_list.json, claude-progress.txt).
-# Defaults to the server working directory when empty.
+# The harness guides AI agents through structured, incremental development workflows.
+# - INITIALIZER mode: Creates feature list, progress log, and init.sh for new sessions
+# - CODING mode: Forces one-feature-at-a-time workflow with verification
+# Leave empty to use session-based memory storage (recommended).
+# Set to a specific directory to share harness files across sessions.
 # harness-root-dir: ""
+#
+# Environment variables:
+#   CLIPROXY_HARNESS_ENABLED=true/false  # Enable/disable harness injection (default: true)
 
 # API keys for authentication
 api-keys:
@@ -71,13 +78,49 @@ quota-exceeded:
 routing:
   strategy: "round-robin" # round-robin (default), fill-first
 
+# Global model mappings - route friendly names to actual models across all providers.
+# These mappings are checked before per-credential model mappings.
+# global-model-mappings:
+#   - from: "smart"                    # Client requests "smart"
+#     to: "claude-opus-4-5-20251101"   # Routes to Claude Opus
+#   - from: "rush"
+#     to: "claude-haiku-4-5-20251001"  # Routes to Claude Haiku (fast)
+#   - from: "think"
+#     to: "claude-opus-4-5-thinking"   # Routes to thinking model
+#   - from: "gemini-pro"
+#     to: "gemini-2.5-pro-preview"
+#     provider: "gemini"               # Only applies to Gemini provider
+#   - from: "cheap"
+#     to: "gpt-4o-mini"
+#     provider: "codex"
+#     enabled: false                   # Disabled mapping (kept for reference)
+
 # When true, enable authentication for the WebSocket API (/v1/ws).
 ws-auth: false
 
-# Streaming behavior (SSE keep-alives + safe bootstrap retries).
+# Streaming behavior (SSE keep-alives, bootstrap retries, chunk sizing).
 # streaming:
 #   keepalive-seconds: 15   # Default: 0 (disabled). <= 0 disables keep-alives.
 #   bootstrap-retries: 1    # Default: 0 (disabled). Retries before first byte is sent.
+#   max-chunk-size: 65536   # Default: 65536 (64KB). Max bytes per response chunk. 0 disables limiting.
+
+# Context compression behavior (Factory.ai-style structured summarization).
+# Uses LLM to generate intelligent summaries with structured sections when context
+# exceeds the threshold. Summaries include: session intent, file modifications,
+# decisions made, next steps, and technical details.
+# compression:
+#   enabled: true                       # Default: true. Enable LLM-based structured summarization.
+#   threshold-percent: 0.75             # Default: 0.75. Trigger compression at 75% of context window.
+#   max-summary-tokens: 2000            # Default: 2000. Maximum tokens for generated summaries.
+#   summarization-timeout-seconds: 30   # Default: 30. Timeout for LLM summarization calls.
+#   fallback-to-regex: true             # Default: true. Use regex-based summary when LLM fails.
+
+# Token-aware compression (proactive trimming based on model context window).
+# Prevents "prompt too long" errors by trimming before hitting model limits.
+# Environment variables:
+#   CLIPROXY_TOKEN_AWARE_ENABLED=true   # Default: true. Enable token-based compression.
+#   CLIPROXY_COMPRESSION_THRESHOLD=0.75 # Default: 0.75. Trim at 75% of context window.
+#   CLIPROXY_RESERVE_TOKENS=8192        # Default: 8192. Tokens reserved for model output.
 
 # Gemini API keys
 # gemini-api-key:
