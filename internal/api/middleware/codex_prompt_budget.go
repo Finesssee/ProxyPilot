@@ -18,6 +18,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/embeddings"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/memory"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/runtime/executor"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -134,8 +135,43 @@ func agenticMemoryStore() memory.Store {
 			}
 		}
 		memStore = memory.NewFileStore(base)
+
+		// Initialize summarizer with default config (uses regex fallback until executor is set)
+		if agenticLLMSummaryEnabled() {
+			if fs, ok := memStore.(*memory.FileStore); ok {
+				config := memory.DefaultSummarizerConfig()
+				// Start with NoOp executor - will fall back to regex
+				// Call SetSummarizerExecutor() later with a real executor to enable LLM summarization
+				summarizer := memory.NewSummarizer(config, memory.NewNoOpSummarizerExecutor())
+				fs.SetSummarizer(summarizer)
+			}
+		}
 	})
 	return memStore
+}
+
+// SetSummarizerExecutor configures the LLM executor for context summarization.
+// Call this from server initialization with the auth manager to enable full LLM summarization.
+// Example: middleware.SetSummarizerExecutor(memory.NewPipelineSummarizerExecutor(authManager, providers))
+func SetSummarizerExecutor(executor memory.SummarizerExecutor) {
+	store := agenticMemoryStore()
+	if store == nil {
+		return
+	}
+	fs, ok := store.(*memory.FileStore)
+	if !ok || fs == nil {
+		return
+	}
+	summarizer := fs.GetSummarizer()
+	if summarizer == nil {
+		config := memory.DefaultSummarizerConfig()
+		summarizer = memory.NewSummarizer(config, executor)
+		fs.SetSummarizer(summarizer)
+	} else {
+		// Replace the existing summarizer with one that has the real executor
+		config := memory.DefaultSummarizerConfig()
+		fs.SetSummarizer(memory.NewSummarizer(config, executor))
+	}
 }
 
 func agenticSemanticEnabled() bool {
@@ -400,6 +436,176 @@ func agenticAnchorSummaryMaxChars() int {
 	return 14_000
 }
 
+// agenticCompressionThreshold returns the context usage ratio at which to trigger LLM compression.
+// Default: 0.75 (75% of context window)
+func agenticCompressionThreshold() float64 {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_COMPRESSION_THRESHOLD")); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 && f < 1 {
+			return f
+		}
+	}
+	return 0.75
+}
+
+// agenticLLMSummaryEnabled returns whether LLM-based summarization is enabled.
+// Default: true
+func agenticLLMSummaryEnabled() bool {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_LLM_SUMMARY_ENABLED")); v != "" {
+		return strings.EqualFold(v, "1") || strings.EqualFold(v, "true") || strings.EqualFold(v, "on")
+	}
+	return true
+}
+
+// getModelContextWindow returns the context window size for a model.
+func getModelContextWindow(model string) int {
+	// Try registry first
+	info := registry.GetGlobalRegistry().GetModelInfo(model)
+	if info != nil && info.ContextLength > 0 {
+		return info.ContextLength
+	}
+	// Fallback based on model name patterns
+	lowerModel := strings.ToLower(model)
+	switch {
+	case strings.Contains(lowerModel, "claude-3.5"), strings.Contains(lowerModel, "claude-3-5"):
+		return 200000
+	case strings.Contains(lowerModel, "claude-3"):
+		return 200000
+	case strings.Contains(lowerModel, "claude"):
+		return 100000
+	case strings.Contains(lowerModel, "gpt-4-turbo"), strings.Contains(lowerModel, "gpt-4o"):
+		return 128000
+	case strings.Contains(lowerModel, "gpt-4"):
+		return 8192
+	case strings.Contains(lowerModel, "gpt-3.5"):
+		return 16384
+	case strings.Contains(lowerModel, "gemini"):
+		return 1000000
+	case strings.Contains(lowerModel, "o1"), strings.Contains(lowerModel, "o3"):
+		return 200000
+	default:
+		return 100000
+	}
+}
+
+// agenticTokenAwareEnabled returns whether token-aware compression is enabled.
+// Default: true
+func agenticTokenAwareEnabled() bool {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_TOKEN_AWARE_ENABLED")); v != "" {
+		return strings.EqualFold(v, "1") || strings.EqualFold(v, "true") || strings.EqualFold(v, "on")
+	}
+	return true
+}
+
+// agenticReserveTokens returns the number of tokens to reserve for model output.
+// Default: 8192 (reasonable output buffer)
+func agenticReserveTokens() int {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_RESERVE_TOKENS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 8192
+}
+
+// tokenAwareCompressionResult contains the result of token-aware analysis
+type tokenAwareCompressionResult struct {
+	ShouldTrim     bool   // Whether trimming is needed
+	CurrentTokens  int64  // Estimated current token count
+	ContextWindow  int    // Model's context window
+	TargetTokens   int64  // Target token count after trimming
+	TargetMaxBytes int    // Approximate bytes to achieve target tokens
+	Model          string // The model name
+}
+
+// analyzeTokenBudget checks if the request exceeds the token threshold and calculates trimming targets.
+// Returns whether trimming is needed and the target byte limit.
+func analyzeTokenBudget(body []byte) *tokenAwareCompressionResult {
+	result := &tokenAwareCompressionResult{
+		ShouldTrim:     false,
+		TargetMaxBytes: agenticMaxBodyBytes(), // Default fallback
+	}
+
+	if !agenticTokenAwareEnabled() {
+		return result
+	}
+
+	model := gjson.GetBytes(body, "model").String()
+	if model == "" {
+		return result
+	}
+	result.Model = model
+
+	// Get context window for this model
+	contextWindow := getModelContextWindow(model)
+	result.ContextWindow = contextWindow
+
+	// Estimate current token count
+	currentTokens, err := executor.EstimateRequestTokens(model, body)
+	if err != nil {
+		// Fallback to byte-based heuristic: ~4 chars per token
+		currentTokens = int64(len(body) / 4)
+	}
+	result.CurrentTokens = currentTokens
+
+	// Reserve tokens for output
+	reserveTokens := agenticReserveTokens()
+	availableContext := contextWindow - reserveTokens
+	if availableContext < 1000 {
+		availableContext = contextWindow / 2 // At least half for input
+	}
+
+	// Check against threshold
+	threshold := agenticCompressionThreshold()
+	maxInputTokens := int64(float64(availableContext) * threshold)
+
+	if currentTokens <= maxInputTokens {
+		// Under threshold, no trimming needed
+		result.ShouldTrim = false
+		return result
+	}
+
+	// Calculate target tokens (aim for 70% of threshold to give buffer)
+	targetRatio := threshold * 0.9 // Slightly under threshold
+	targetTokens := int64(float64(availableContext) * targetRatio)
+	result.TargetTokens = targetTokens
+	result.ShouldTrim = true
+
+	// Convert target tokens to approximate byte limit
+	// Use ~4 bytes per token as heuristic, but be conservative
+	targetBytes := int(targetTokens * 4)
+
+	// Clamp to reasonable bounds
+	minBytes := 32 * 1024 // 32KB minimum
+	if targetBytes < minBytes {
+		targetBytes = minBytes
+	}
+
+	// Don't exceed the configured max
+	maxBytes := agenticMaxBodyBytes()
+	if targetBytes > maxBytes {
+		targetBytes = maxBytes
+	}
+
+	result.TargetMaxBytes = targetBytes
+	return result
+}
+
+// getTokenAwareMaxBytes returns the maximum body size based on token analysis.
+// This is more accurate than the byte-based heuristic in agenticMaxBodyBytesForModel.
+func getTokenAwareMaxBytes(body []byte) int {
+	if !agenticTokenAwareEnabled() {
+		return agenticMaxBodyBytesForModel(body)
+	}
+
+	result := analyzeTokenBudget(body)
+	if result.ShouldTrim {
+		return result.TargetMaxBytes
+	}
+
+	// Not over threshold, but still apply model-specific limits
+	return agenticMaxBodyBytesForModel(body)
+}
+
 func allowMemoryWrite(session string) bool {
 	limit := agenticMemoryMaxWritesPerMin()
 	if limit <= 0 || session == "" {
@@ -523,7 +729,31 @@ func CodexPromptBudgetMiddlewareWithRootDir(rootDir string) gin.HandlerFunc {
 		}
 
 		originalLen := len(body)
-		maxBytes := agenticMaxBodyBytesForModel(body)
+
+		// Token-aware compression: analyze token budget before byte-based check
+		tokenAnalysis := analyzeTokenBudget(body)
+		maxBytes := tokenAnalysis.TargetMaxBytes
+
+		// If token analysis didn't trigger, fall back to byte-based model limit
+		if !tokenAnalysis.ShouldTrim {
+			maxBytes = agenticMaxBodyBytesForModel(body)
+		}
+
+		// Add diagnostic headers for localhost debugging
+		if c != nil {
+			ip := c.ClientIP()
+			if ip == "127.0.0.1" || ip == "::1" {
+				if tokenAnalysis.Model != "" {
+					c.Header("X-ProxyPilot-Model", tokenAnalysis.Model)
+					c.Header("X-ProxyPilot-Context-Window", strconv.Itoa(tokenAnalysis.ContextWindow))
+					c.Header("X-ProxyPilot-Current-Tokens", strconv.FormatInt(tokenAnalysis.CurrentTokens, 10))
+					if tokenAnalysis.ShouldTrim {
+						c.Header("X-ProxyPilot-Token-Triggered", "true")
+						c.Header("X-ProxyPilot-Target-Tokens", strconv.FormatInt(tokenAnalysis.TargetTokens, 10))
+					}
+				}
+			}
+		}
 
 		// Session-scoped state (pinned + anchor + TODO + spec) is injected as append-only
 		// scaffolding when enabled. This preserves prompt-cache friendliness.
@@ -533,7 +763,9 @@ func CodexPromptBudgetMiddlewareWithRootDir(rootDir string) gin.HandlerFunc {
 			originalLen = len(body)
 		}
 
-		if originalLen <= maxBytes {
+		// Proactive compression: trim if over token threshold OR over byte limit
+		needsTrim := tokenAnalysis.ShouldTrim || originalLen > maxBytes
+		if !needsTrim {
 			req.Body = io.NopCloser(bytes.NewReader(body))
 			req.ContentLength = int64(originalLen)
 			req.Header.Set("Content-Length", strconv.Itoa(originalLen))
@@ -1349,7 +1581,13 @@ func agenticStoreAndInjectMemory(c *gin.Context, req *http.Request, session stri
 			_ = fs.WritePinned(session, pinned, 8000)
 		}
 		if len(res.Dropped) > 0 {
-			_ = agenticUpdateAnchoredSummary(fs, session, res.Dropped, pinned, res.Query)
+			if agenticLLMSummaryEnabled() {
+				model := gjson.GetBytes(res.Body, "model").String()
+				ctx := c.Request.Context()
+				_ = agenticUpdateAnchoredSummaryWithLLM(ctx, model, fs, session, res.Dropped, pinned, res.Query)
+			} else {
+				_ = agenticUpdateAnchoredSummary(fs, session, res.Dropped, pinned, res.Query)
+			}
 		}
 		if agenticSemanticEnabled() && len(res.Dropped) > 0 && !fs.IsSemanticDisabled(session) {
 			ns := semanticNamespace(req, res.Body, session)
@@ -1401,6 +1639,28 @@ func agenticUpdateAnchoredSummary(fs *memory.FileStore, session string, dropped 
 	}
 	prev := fs.ReadSummary(session, agenticAnchorSummaryMaxChars())
 	next := memory.BuildAnchoredSummary(prev, dropped, latestIntent)
+	if strings.TrimSpace(next) == "" {
+		return nil
+	}
+	if agenticAnchorAppendOnly() {
+		return fs.SetAnchorSummary(session, next, agenticAnchorSummaryMaxChars())
+	}
+	return fs.WriteSummary(session, next, agenticAnchorSummaryMaxChars())
+}
+
+// agenticUpdateAnchoredSummaryWithLLM updates the anchored summary using LLM.
+func agenticUpdateAnchoredSummaryWithLLM(ctx context.Context, model string, fs *memory.FileStore, session string, dropped []memory.Event, pinned string, latestIntent string) error {
+	if fs == nil || session == "" {
+		return nil
+	}
+	summarizer := fs.GetSummarizer()
+	if summarizer == nil {
+		// Fall back to regex-based
+		return agenticUpdateAnchoredSummary(fs, session, dropped, pinned, latestIntent)
+	}
+
+	prev := fs.ReadSummary(session, agenticAnchorSummaryMaxChars())
+	next := memory.BuildAnchoredSummaryWithLLM(ctx, model, prev, dropped, latestIntent, summarizer)
 	if strings.TrimSpace(next) == "" {
 		return nil
 	}
