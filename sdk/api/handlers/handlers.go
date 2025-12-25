@@ -48,6 +48,7 @@ const idempotencyKeyMetadataKey = "idempotency_key"
 const (
 	defaultStreamingKeepAliveSeconds = 0
 	defaultStreamingBootstrapRetries = 0
+	defaultStreamingMaxChunkSize     = 65536 // 64KB like vibeproxy
 )
 
 // BuildErrorResponseBody builds an OpenAI-compatible JSON error response body.
@@ -123,6 +124,19 @@ func StreamingBootstrapRetries(cfg *config.SDKConfig) int {
 		retries = 0
 	}
 	return retries
+}
+
+// StreamingMaxChunkSize returns the maximum size (in bytes) for individual response chunks.
+// Returns 0 when chunk size limiting is disabled. Default is 64KB.
+func StreamingMaxChunkSize(cfg *config.SDKConfig) int {
+	chunkSize := defaultStreamingMaxChunkSize
+	if cfg != nil && cfg.Streaming.MaxChunkSize != nil {
+		chunkSize = *cfg.Streaming.MaxChunkSize
+	}
+	if chunkSize < 0 {
+		chunkSize = 0
+	}
+	return chunkSize
 }
 
 func requestExecutionMetadata(ctx context.Context) map[string]any {
