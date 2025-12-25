@@ -176,3 +176,11 @@ Management endpoints (local only):
 - `GET /v0/management/memory/export-all`
 - `POST /v0/management/memory/import?session=...`
 - `POST /v0/management/memory/delete-all`
+
+## LLM-Based Context Compression
+
+For advanced context compression using LLM-generated structured summaries and token-aware proactive trimming, see [Context Compression](context-compression.md).
+
+## Agentic Harness
+
+For structured incremental development workflows (INITIALIZER/CODING modes, feature tracking, progress logging), see [Agentic Harness](agentic-harness.md).
