@@ -1,14 +1,714 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>webui</title>
-    <script type="module" crossorigin src="/assets/index.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index.css">
-  </head>
-  <body>
-    <div id="root"></div>
-  </body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ProxyPilot</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --bg-secondary: #f9fafb;
+      --text: #111827;
+      --text-muted: #6b7280;
+      --border: #e5e7eb;
+      --brand: #3b82f6;
+      --green: #22c55e;
+      --green-bg: #f0fdf4;
+      --green-border: #bbf7d0;
+      --blue: #3b82f6;
+      --blue-bg: #eff6ff;
+      --blue-border: #bfdbfe;
+      --purple: #8b5cf6;
+      --purple-bg: #f5f3ff;
+      --purple-border: #ddd6fe;
+      --amber: #f59e0b;
+      --amber-bg: #fffbeb;
+      --amber-border: #fde68a;
+      --red: #ef4444;
+    }
+    .dark {
+      --bg: #111827;
+      --bg-secondary: #1f2937;
+      --text: #f9fafb;
+      --text-muted: #9ca3af;
+      --border: #374151;
+      --green-bg: rgba(34,197,94,0.1);
+      --green-border: rgba(34,197,94,0.3);
+      --blue-bg: rgba(59,130,246,0.1);
+      --blue-border: rgba(59,130,246,0.3);
+      --purple-bg: rgba(139,92,246,0.1);
+      --purple-border: rgba(139,92,246,0.3);
+      --amber-bg: rgba(245,158,11,0.1);
+      --amber-border: rgba(245,158,11,0.3);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .header {
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .header-inner {
+      max-width: 800px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 20px;
+      font-weight: bold;
+    }
+    .brand-text h1 {
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .brand-text p {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .theme-toggle {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      border-radius: 20px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--amber);
+    }
+    .status-dot.running {
+      background: var(--green);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    /* Main Content */
+    .main {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    /* KPI Grid */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    @media (max-width: 640px) {
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    .kpi-tile {
+      padding: 16px;
+      border-radius: 12px;
+      border: 1px solid;
+      text-align: left;
+      cursor: default;
+    }
+    .kpi-tile.green { background: var(--green-bg); border-color: var(--green-border); color: var(--green); }
+    .kpi-tile.blue { background: var(--blue-bg); border-color: var(--blue-border); color: var(--blue); }
+    .kpi-tile.purple { background: var(--purple-bg); border-color: var(--purple-border); color: var(--purple); }
+    .kpi-tile.amber { background: var(--amber-bg); border-color: var(--amber-border); color: var(--amber); }
+    .kpi-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      opacity: 0.8;
+      margin-bottom: 4px;
+    }
+    .kpi-value {
+      font-size: 24px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .kpi-sub {
+      font-size: 10px;
+      opacity: 0.7;
+      margin-top: 2px;
+    }
+
+    /* Cards */
+    .card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Buttons */
+    .btn {
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn:hover { background: var(--bg-secondary); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: var(--brand); color: white; border-color: var(--brand); }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-success { background: var(--green); color: white; border-color: var(--green); }
+    .btn-danger { background: var(--red); color: white; border-color: var(--red); }
+    .btn-sm { padding: 6px 10px; font-size: 12px; }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    /* Provider Grid */
+    .provider-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+    @media (max-width: 500px) {
+      .provider-grid { grid-template-columns: 1fr; }
+    }
+    .provider-card {
+      padding: 16px;
+      border-radius: 10px;
+      border: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .provider-card:hover { border-color: var(--brand); }
+    .provider-card.connected { border-color: var(--green); background: var(--green-bg); }
+    .provider-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--bg-secondary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+    .provider-info { flex: 1; }
+    .provider-name { font-size: 14px; font-weight: 600; }
+    .provider-status { font-size: 11px; color: var(--text-muted); }
+    .provider-badge {
+      font-size: 10px;
+      padding: 4px 8px;
+      border-radius: 10px;
+      font-weight: 500;
+    }
+    .provider-badge.connected { background: var(--green); color: white; }
+    .provider-badge.disconnected { background: var(--bg-secondary); color: var(--text-muted); }
+
+    /* Agent List */
+    .agent-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      border-radius: 10px;
+      background: var(--bg-secondary);
+      margin-bottom: 8px;
+    }
+    .agent-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      border: 1px solid var(--border);
+    }
+    .agent-info { flex: 1; }
+    .agent-name { font-size: 14px; font-weight: 600; }
+    .agent-path { font-size: 11px; color: var(--text-muted); }
+    .agent-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .agent-status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+    .agent-status.configured .agent-status-dot { background: var(--green); }
+    .agent-status.installed .agent-status-dot { background: var(--amber); }
+    .agent-status.missing .agent-status-dot { background: var(--text-muted); }
+
+    /* Mappings */
+    .mapping-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+    .mapping-from { color: var(--brand); font-family: monospace; font-weight: 500; }
+    .mapping-arrow { color: var(--text-muted); }
+    .mapping-to { color: var(--green); font-family: monospace; }
+    .mapping-delete {
+      margin-left: auto;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px;
+    }
+    .mapping-delete:hover { color: var(--red); }
+
+    /* Form */
+    .form-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    input[type="text"] {
+      flex: 1;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 13px;
+      background: var(--bg);
+      color: var(--text);
+    }
+    input[type="text"]:focus {
+      outline: none;
+      border-color: var(--brand);
+    }
+    input[type="text"]::placeholder {
+      color: var(--text-muted);
+    }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      padding: 12px 20px;
+      background: var(--text);
+      color: var(--bg);
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      display: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .toast.show { display: block; animation: slideIn 0.2s; }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(10px); }
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 24px;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <div class="brand">
+        <div class="logo">⚡</div>
+        <div class="brand-text">
+          <h1>ProxyPilot</h1>
+          <p>AI Proxy Manager</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="theme-toggle" id="themeToggle" title="Toggle theme">🌙</button>
+        <button class="status-pill" id="statusPill" onclick="toggleProxy()">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">Checking...</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+    <!-- KPI Tiles -->
+    <div class="kpi-grid">
+      <div class="kpi-tile green">
+        <div class="kpi-label">💰 Saved</div>
+        <div class="kpi-value" id="kpiSaved">$0</div>
+        <div class="kpi-sub">estimated</div>
+      </div>
+      <div class="kpi-tile blue">
+        <div class="kpi-label">📊 Requests</div>
+        <div class="kpi-value" id="kpiRequests">0</div>
+        <div class="kpi-sub" id="kpiRequestsSub">0 today</div>
+      </div>
+      <div class="kpi-tile purple">
+        <div class="kpi-label">🔤 Tokens</div>
+        <div class="kpi-value" id="kpiTokens">0</div>
+        <div class="kpi-sub">total</div>
+      </div>
+      <div class="kpi-tile amber">
+        <div class="kpi-label">✓ Success</div>
+        <div class="kpi-value" id="kpiSuccess">100%</div>
+        <div class="kpi-sub" id="kpiSuccessSub">0 failed</div>
+      </div>
+    </div>
+
+    <!-- Providers -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">🔐 AI Providers</div>
+          <div class="card-subtitle">Click to authenticate</div>
+        </div>
+      </div>
+      <div class="provider-grid">
+        <div class="provider-card" onclick="oauth('antigravity')">
+          <div class="provider-icon">🚀</div>
+          <div class="provider-info">
+            <div class="provider-name">Antigravity</div>
+            <div class="provider-status">Claude, GPT, Gemini</div>
+          </div>
+          <span class="provider-badge disconnected">Connect</span>
+        </div>
+        <div class="provider-card" onclick="oauth('claude')">
+          <div class="provider-icon">🤖</div>
+          <div class="provider-info">
+            <div class="provider-name">Claude</div>
+            <div class="provider-status">Anthropic API</div>
+          </div>
+          <span class="provider-badge disconnected">Connect</span>
+        </div>
+        <div class="provider-card" onclick="oauth('codex')">
+          <div class="provider-icon">📘</div>
+          <div class="provider-info">
+            <div class="provider-name">Codex</div>
+            <div class="provider-status">OpenAI API</div>
+          </div>
+          <span class="provider-badge disconnected">Connect</span>
+        </div>
+        <div class="provider-card" onclick="oauth('gemini-cli')">
+          <div class="provider-icon">✨</div>
+          <div class="provider-info">
+            <div class="provider-name">Gemini</div>
+            <div class="provider-status">Google AI</div>
+          </div>
+          <span class="provider-badge disconnected">Connect</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- CLI Agents -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">🛠️ CLI Agents</div>
+          <div class="card-subtitle">Detected coding assistants</div>
+        </div>
+        <button class="btn btn-sm" onclick="refreshAgents()">Refresh</button>
+      </div>
+      <div id="agentsList">
+        <div class="empty-state">Loading agents...</div>
+      </div>
+    </div>
+
+    <!-- Model Mappings -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">🔀 Model Mappings</div>
+          <div class="card-subtitle">Route aliases to models</div>
+        </div>
+      </div>
+      <div id="mappingsList">
+        <div class="empty-state">No mappings configured</div>
+      </div>
+      <div class="form-row">
+        <input type="text" id="mapFrom" placeholder="Alias (e.g. smart)">
+        <input type="text" id="mapTo" placeholder="Model (e.g. claude-opus-4-5)">
+        <button class="btn btn-primary" onclick="addMapping()">+ Add</button>
+      </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">⚡ Quick Actions</div>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-success" id="startBtn" onclick="startProxy()">▶ Start</button>
+        <button class="btn btn-danger" id="stopBtn" onclick="stopProxy()">■ Stop</button>
+        <button class="btn" id="restartBtn" onclick="restartProxy()">↻ Restart</button>
+        <button class="btn" onclick="openLogs()">📁 Logs</button>
+        <button class="btn" onclick="openAuth()">🔑 Auth</button>
+      </div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    const hasBindings = typeof window.pp_status === 'function';
+    let isDark = localStorage.getItem('theme') === 'dark';
+
+    // Theme
+    function applyTheme() {
+      document.documentElement.classList.toggle('dark', isDark);
+      $('themeToggle').textContent = isDark ? '☀️' : '🌙';
+    }
+    $('themeToggle').onclick = () => {
+      isDark = !isDark;
+      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+      applyTheme();
+    };
+    applyTheme();
+
+    // Toast
+    function toast(msg) {
+      const t = $('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2500);
+    }
+
+    // Status
+    async function refreshStatus() {
+      if (!hasBindings) {
+        $('statusText').textContent = 'Standalone';
+        return;
+      }
+      try {
+        const s = await window.pp_status();
+        $('statusText').textContent = s.running ? `Running :${s.port}` : 'Stopped';
+        $('statusDot').classList.toggle('running', s.running);
+        $('startBtn').disabled = s.running;
+        $('stopBtn').disabled = !s.running;
+        $('restartBtn').disabled = !s.running;
+      } catch (e) {
+        $('statusText').textContent = 'Error';
+      }
+    }
+
+    // Agents
+    async function refreshAgents() {
+      const list = $('agentsList');
+      if (!hasBindings || typeof window.pp_detect_agents !== 'function') {
+        list.innerHTML = '<div class="empty-state">Agent detection requires desktop app</div>';
+        return;
+      }
+      try {
+        const agents = await window.pp_detect_agents();
+        if (!agents.length) {
+          list.innerHTML = '<div class="empty-state">No agents found</div>';
+          return;
+        }
+        list.innerHTML = agents.map(a => {
+          const icons = { claude: '💻', codex: '📘', droid: '🤖', gemini: '✨' };
+          const statusClass = !a.detected ? 'missing' : a.configured ? 'configured' : 'installed';
+          const statusText = !a.detected ? 'Not found' : a.configured ? 'Configured' : 'Installed';
+          return `
+            <div class="agent-item">
+              <div class="agent-icon">${icons[a.id] || '📦'}</div>
+              <div class="agent-info">
+                <div class="agent-name">${a.name}</div>
+                <div class="agent-path">${a.binary_path || a.config_path || '-'}</div>
+              </div>
+              <div class="agent-status ${statusClass}">
+                <span class="agent-status-dot"></span>
+                ${statusText}
+              </div>
+              ${a.detected && !a.configured ? `<button class="btn btn-primary btn-sm" onclick="configureAgent('${a.id}')">Configure</button>` : ''}
+            </div>
+          `;
+        }).join('');
+      } catch (e) {
+        list.innerHTML = '<div class="empty-state">Error loading agents</div>';
+      }
+    }
+
+    async function configureAgent(id) {
+      try {
+        await window.pp_configure_agent(id);
+        toast('Agent configured!');
+        refreshAgents();
+      } catch (e) {
+        toast('Error: ' + (e.message || e));
+      }
+    }
+
+    // Mappings
+    async function refreshMappings() {
+      const list = $('mappingsList');
+      if (!hasBindings || typeof window.pp_get_model_mappings !== 'function') {
+        list.innerHTML = '<div class="empty-state">Mappings require desktop app</div>';
+        return;
+      }
+      try {
+        const mappings = await window.pp_get_model_mappings();
+        if (!mappings.length) {
+          list.innerHTML = '<div class="empty-state">No mappings configured</div>';
+          return;
+        }
+        list.innerHTML = mappings.map((m, i) => `
+          <div class="mapping-item">
+            <span class="mapping-from">${m.from}</span>
+            <span class="mapping-arrow">→</span>
+            <span class="mapping-to">${m.to}</span>
+            <button class="mapping-delete" onclick="deleteMapping(${i})">✕</button>
+          </div>
+        `).join('');
+      } catch (e) {
+        list.innerHTML = '<div class="empty-state">Error loading mappings</div>';
+      }
+    }
+
+    async function deleteMapping(idx) {
+      const mappings = await window.pp_get_model_mappings();
+      mappings.splice(idx, 1);
+      await window.pp_save_model_mappings(mappings);
+      toast('Removed');
+      refreshMappings();
+    }
+
+    async function addMapping() {
+      const from = $('mapFrom').value.trim();
+      const to = $('mapTo').value.trim();
+      if (!from || !to) { toast('Both fields required'); return; }
+      const mappings = await window.pp_get_model_mappings() || [];
+      mappings.push({ from, to, enabled: true });
+      await window.pp_save_model_mappings(mappings);
+      $('mapFrom').value = '';
+      $('mapTo').value = '';
+      toast('Added');
+      refreshMappings();
+    }
+
+    // Actions
+    async function oauth(provider) {
+      if (!hasBindings) { toast('Requires desktop app'); return; }
+      try {
+        await window.pp_oauth(provider);
+        toast('Opening login...');
+      } catch (e) {
+        toast('Error: ' + (e.message || e));
+      }
+    }
+
+    async function toggleProxy() {
+      if (!hasBindings) return;
+      const s = await window.pp_status();
+      s.running ? await stopProxy() : await startProxy();
+    }
+
+    async function startProxy() {
+      if (!hasBindings) return;
+      try { await window.pp_start(); toast('Started'); refreshStatus(); }
+      catch (e) { toast('Error: ' + (e.message || e)); }
+    }
+
+    async function stopProxy() {
+      if (!hasBindings) return;
+      try { await window.pp_stop(); toast('Stopped'); refreshStatus(); }
+      catch (e) { toast('Error: ' + (e.message || e)); }
+    }
+
+    async function restartProxy() {
+      if (!hasBindings) return;
+      try { await window.pp_restart(); toast('Restarted'); refreshStatus(); }
+      catch (e) { toast('Error: ' + (e.message || e)); }
+    }
+
+    function openLogs() {
+      if (hasBindings) window.pp_open_logs();
+    }
+
+    function openAuth() {
+      if (hasBindings) window.pp_open_auth_folder();
+    }
+
+    // Init
+    refreshStatus();
+    refreshAgents();
+    refreshMappings();
+    if (hasBindings) setInterval(refreshStatus, 2000);
+  </script>
+</body>
 </html>
