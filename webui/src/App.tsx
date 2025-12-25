@@ -24,6 +24,12 @@ import {
   Globe,
   Key,
   Info,
+  Terminal,
+  ArrowRight,
+  Plus,
+  Trash2,
+  Pencil,
+  X,
 } from 'lucide-react'
 
 declare global {
@@ -99,6 +105,13 @@ export default function App() {
     maxNamespaces: 200,
     maxBytesPerNamespace: 2000000,
   });
+  const [integrations, setIntegrations] = useState<any[]>([]);
+  const [integrationsLoading, setIntegrationsLoading] = useState(false);
+  const [modelMappings, setModelMappings] = useState<any[]>([]);
+  const [newMapping, setNewMapping] = useState({ from: '', to: '', provider: '' });
+  const [editingMapping, setEditingMapping] = useState<number | null>(null);
+  const [mappingTestInput, setMappingTestInput] = useState('');
+  const [mappingTestResult, setMappingTestResult] = useState('');
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -544,6 +557,97 @@ export default function App() {
     showToast('Prune completed', 'success');
   };
 
+  const fetchIntegrations = async () => {
+    setIntegrationsLoading(true);
+    try {
+      const data = await mgmtFetch('/v0/management/integrations/status');
+      setIntegrations(data.integrations || []);
+    } catch (e) {
+      console.error('Failed to fetch integrations:', e);
+    }
+    setIntegrationsLoading(false);
+  };
+
+  const fetchModelMappings = async () => {
+    try {
+      const data = await mgmtFetch('/v0/management/model-mappings');
+      setModelMappings(data.mappings || []);
+    } catch (e) {
+      console.error('Failed to fetch model mappings:', e);
+    }
+  };
+
+  const addModelMapping = async () => {
+    if (!newMapping.from.trim() || !newMapping.to.trim()) {
+      showToast('Both "from" and "to" fields are required', 'error');
+      return;
+    }
+    try {
+      await mgmtFetch('/v0/management/model-mappings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newMapping),
+      });
+      setNewMapping({ from: '', to: '', provider: '' });
+      await fetchModelMappings();
+      showToast('Mapping added', 'success');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e), 'error');
+    }
+  };
+
+  const updateModelMapping = async (index: number, mapping: { from: string; to: string; provider: string }) => {
+    try {
+      await mgmtFetch(`/v0/management/model-mappings/${index}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mapping),
+      });
+      setEditingMapping(null);
+      await fetchModelMappings();
+      showToast('Mapping updated', 'success');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e), 'error');
+    }
+  };
+
+  const deleteModelMapping = async (index: number) => {
+    try {
+      await mgmtFetch(`/v0/management/model-mappings/${index}`, {
+        method: 'DELETE',
+      });
+      await fetchModelMappings();
+      showToast('Mapping deleted', 'success');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e), 'error');
+    }
+  };
+
+  const testModelMapping = async () => {
+    if (!mappingTestInput.trim()) {
+      setMappingTestResult('Enter a model name to test');
+      return;
+    }
+    try {
+      const data = await mgmtFetch(`/v0/management/model-mappings/test?model=${encodeURIComponent(mappingTestInput.trim())}`);
+      setMappingTestResult(JSON.stringify(data, null, 2));
+    } catch (e) {
+      setMappingTestResult(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const configureIntegration = async (integrationId: string) => {
+    try {
+      await mgmtFetch(`/v0/management/integrations/${integrationId}/configure`, {
+        method: 'POST',
+      });
+      await fetchIntegrations();
+      showToast(`Configured ${integrationId}`, 'success');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e), 'error');
+    }
+  };
+
   useEffect(() => {
     if (!mgmtKey) return;
     setMgmtError(null);
@@ -556,6 +660,8 @@ export default function App() {
         await loadSemanticNamespaces();
         await loadMemorySessions();
         await tailLogs('stdout');
+        await fetchIntegrations();
+        await fetchModelMappings();
       } catch (e) {
         setMgmtError(e instanceof Error ? e.message : String(e));
       }
@@ -853,6 +959,76 @@ export default function App() {
             </Card>
           </div>
 
+          {/* Agent Detection Card */}
+          <Card className="backdrop-blur-sm bg-card/60 border-border/50 shadow-xl">
+            <CardHeader className="pb-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-green-500/10 flex items-center justify-center">
+                  <Terminal className="h-5 w-5 text-green-500" />
+                </div>
+                <div className="flex-1">
+                  <CardTitle className="text-lg">CLI Agent Integrations</CardTitle>
+                  <CardDescription>Detected AI coding assistants</CardDescription>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => fetchIntegrations().catch((e) => showToast(String(e), 'error'))}
+                  disabled={integrationsLoading}
+                >
+                  {integrationsLoading ? 'Loading...' : 'Refresh'}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                {integrations.length === 0 && !integrationsLoading && (
+                  <div className="col-span-full text-center text-sm text-muted-foreground py-4">
+                    No integrations detected. Click Refresh to scan for CLI agents.
+                  </div>
+                )}
+                {integrations.map((integration) => (
+                  <div
+                    key={integration.id}
+                    className="rounded-lg border border-border/50 bg-muted/30 p-4 space-y-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-sm">{integration.name || integration.id}</span>
+                      {integration.detected ? (
+                        <Check className="h-5 w-5 text-green-500" />
+                      ) : (
+                        <X className="h-5 w-5 text-muted-foreground" />
+                      )}
+                    </div>
+                    {integration.detected && (
+                      <>
+                        {integration.binary_path && (
+                          <div className="text-xs text-muted-foreground truncate" title={integration.binary_path}>
+                            <span className="font-mono">Binary:</span> {integration.binary_path}
+                          </div>
+                        )}
+                        {integration.config_path && (
+                          <div className="text-xs text-muted-foreground truncate" title={integration.config_path}>
+                            <span className="font-mono">Config:</span> {integration.config_path}
+                          </div>
+                        )}
+                      </>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full"
+                      disabled={!integration.detected}
+                      onClick={() => configureIntegration(integration.id).catch((e) => showToast(String(e), 'error'))}
+                    >
+                      Configure
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
           {!isDesktop && !mgmtKey && (
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-300">
               Management key missing. Start ProxyPilot from the tray app to inject a local key,
@@ -966,6 +1142,217 @@ export default function App() {
                   </CardContent>
                 </Card>
               </div>
+
+              {/* Global Model Mappings Card */}
+              <Card className="backdrop-blur-sm bg-card/60 border-border/50 shadow-xl">
+                <CardHeader className="pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl bg-orange-500/10 flex items-center justify-center">
+                      <ArrowRight className="h-5 w-5 text-orange-500" />
+                    </div>
+                    <div className="flex-1">
+                      <CardTitle className="text-lg">Global Model Mappings</CardTitle>
+                      <CardDescription>Rewrite model names before routing</CardDescription>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => fetchModelMappings().catch((e) => showToast(String(e), 'error'))}
+                    >
+                      Refresh
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Add new mapping form */}
+                  <div className="flex flex-wrap items-end gap-3 p-3 rounded-lg bg-muted/30 border border-border/50">
+                    <div className="flex-1 min-w-[150px] space-y-1">
+                      <label className="text-xs text-muted-foreground">From model</label>
+                      <input
+                        type="text"
+                        className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
+                        placeholder="gpt-4"
+                        value={newMapping.from}
+                        onChange={(e) => setNewMapping({ ...newMapping, from: e.target.value })}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-[150px] space-y-1">
+                      <label className="text-xs text-muted-foreground">To model</label>
+                      <input
+                        type="text"
+                        className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
+                        placeholder="claude-3-opus"
+                        value={newMapping.to}
+                        onChange={(e) => setNewMapping({ ...newMapping, to: e.target.value })}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-[120px] space-y-1">
+                      <label className="text-xs text-muted-foreground">Provider (optional)</label>
+                      <input
+                        type="text"
+                        className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
+                        placeholder="anthropic"
+                        value={newMapping.provider}
+                        onChange={(e) => setNewMapping({ ...newMapping, provider: e.target.value })}
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="default"
+                      onClick={() => addModelMapping().catch((e) => showToast(String(e), 'error'))}
+                      className="gap-1"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add
+                    </Button>
+                  </div>
+
+                  {/* Mappings list */}
+                  <div className="max-h-64 overflow-auto rounded-md border border-border/50">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/40 sticky top-0">
+                        <tr>
+                          <th className="px-3 py-2 text-left">From</th>
+                          <th className="px-3 py-2 text-left"></th>
+                          <th className="px-3 py-2 text-left">To</th>
+                          <th className="px-3 py-2 text-left">Provider</th>
+                          <th className="px-3 py-2 text-left">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {modelMappings.length === 0 && (
+                          <tr>
+                            <td className="px-3 py-3 text-muted-foreground" colSpan={5}>
+                              No model mappings configured.
+                            </td>
+                          </tr>
+                        )}
+                        {modelMappings.map((mapping, index) => (
+                          <tr key={index} className="border-t border-border/40">
+                            {editingMapping === index ? (
+                              <>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="text"
+                                    className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
+                                    defaultValue={mapping.from}
+                                    id={`edit-from-${index}`}
+                                  />
+                                </td>
+                                <td className="px-3 py-2 text-muted-foreground">
+                                  <ArrowRight className="h-4 w-4" />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="text"
+                                    className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
+                                    defaultValue={mapping.to}
+                                    id={`edit-to-${index}`}
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="text"
+                                    className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
+                                    defaultValue={mapping.provider || ''}
+                                    id={`edit-provider-${index}`}
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <div className="flex gap-1">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 w-7 p-0"
+                                      onClick={() => {
+                                        const fromEl = document.getElementById(`edit-from-${index}`) as HTMLInputElement;
+                                        const toEl = document.getElementById(`edit-to-${index}`) as HTMLInputElement;
+                                        const providerEl = document.getElementById(`edit-provider-${index}`) as HTMLInputElement;
+                                        updateModelMapping(index, {
+                                          from: fromEl?.value || '',
+                                          to: toEl?.value || '',
+                                          provider: providerEl?.value || '',
+                                        }).catch((e) => showToast(String(e), 'error'));
+                                      }}
+                                    >
+                                      <Check className="h-4 w-4 text-green-500" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 w-7 p-0"
+                                      onClick={() => setEditingMapping(null)}
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </>
+                            ) : (
+                              <>
+                                <td className="px-3 py-2 font-mono">{mapping.from}</td>
+                                <td className="px-3 py-2 text-muted-foreground">
+                                  <ArrowRight className="h-4 w-4" />
+                                </td>
+                                <td className="px-3 py-2 font-mono">{mapping.to}</td>
+                                <td className="px-3 py-2 font-mono text-muted-foreground">
+                                  {mapping.provider || '-'}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <div className="flex gap-1">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 w-7 p-0"
+                                      onClick={() => setEditingMapping(index)}
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                      onClick={() => deleteModelMapping(index).catch((e) => showToast(String(e), 'error'))}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Test mapping */}
+                  <div className="flex flex-wrap items-end gap-3 p-3 rounded-lg bg-muted/30 border border-border/50">
+                    <div className="flex-1 min-w-[200px] space-y-1">
+                      <label className="text-xs text-muted-foreground">Test model name</label>
+                      <input
+                        type="text"
+                        className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
+                        placeholder="Enter model to test mapping"
+                        value={mappingTestInput}
+                        onChange={(e) => setMappingTestInput(e.target.value)}
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => testModelMapping().catch((e) => showToast(String(e), 'error'))}
+                    >
+                      Test
+                    </Button>
+                  </div>
+                  {mappingTestResult && (
+                    <pre className="max-h-24 overflow-auto rounded-md border border-border/50 bg-muted/30 p-2 text-xs">
+                      {mappingTestResult}
+                    </pre>
+                  )}
+                </CardContent>
+              </Card>
 
               <div className="grid gap-6 lg:grid-cols-3">
                 <Card className="backdrop-blur-sm bg-card/60 border-border/50 shadow-xl lg:col-span-1">
