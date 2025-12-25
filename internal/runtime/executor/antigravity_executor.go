@@ -531,6 +531,23 @@ func antigravityBuildStaticLimitsIndex() map[string]antigravityStaticLimit {
 	add(registry.GetClaudeModels())
 	add(registry.GetQwenModels())
 
+	// Add explicit limits for antigravity-claude models.
+	// These models route to Claude via Antigravity but use aliases that don't match GetClaudeModels() IDs.
+	// Claude 3.5 Sonnet and Claude 3 Opus both have 200k context but we use a more conservative
+	// limit to account for prompt overhead and ensure successful API calls.
+	claudeAntigravityLimit := antigravityStaticLimit{
+		ContextLength:       180000, // Conservative (200k actual but leave room for overhead)
+		MaxCompletionTokens: 64000,
+		InputTokenLimit:     180000,
+		OutputTokenLimit:    64000,
+	}
+	index["antigravity-claude-sonnet-4-5"] = claudeAntigravityLimit
+	index["antigravity-claude-sonnet-4-5-thinking"] = claudeAntigravityLimit
+	index["antigravity-claude-opus-4-5-thinking"] = claudeAntigravityLimit
+	// Also add the underlying claude model IDs that alias2ModelName() converts to
+	index["claude-3-5-sonnet"] = claudeAntigravityLimit
+	index["claude-3-opus"] = claudeAntigravityLimit
+
 	return index
 }
 
@@ -782,12 +799,20 @@ func truncateConversation(payload []byte, modelID string, metadata map[string]an
 		log.Warnf("Unknown context limit for model %s; defaulting to %d tokens", modelID, limit)
 	}
 
+	// Apply a 0.9 safety factor to the limit to account for system overhead,
+	// tool definitions, and potential token counting differences.
+	limit = int(float64(limit) * 0.9)
+
 	// 2. Estimate Tokens (Rough char count)
 	// OpenAI generic rule of thumb: 1 token ~= 4 chars.
 	// Gemini/Antigravity can be different, but strict safety margin is better.
-	// We'll use 3.5 chars/token to be safe.
+	// Claude models tend to tokenize more aggressively, so use 3.0 chars/token for them.
 	fullJSON := string(payload)
-	estimatedTokens := int(float64(len(fullJSON)) / 3.5)
+	charsPerToken := 3.5
+	if strings.Contains(strings.ToLower(modelID), "claude") {
+		charsPerToken = 3.0 // More conservative for Claude
+	}
+	estimatedTokens := int(float64(len(fullJSON)) / charsPerToken)
 
 	log.Debugf("truncateConversation: model=%s, limit=%d, payloadLen=%d, estimatedTokens=%d", modelID, limit, len(fullJSON), estimatedTokens)
 
