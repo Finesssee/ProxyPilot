@@ -2,5 +2,5 @@ package assets
 
 import "embed"
 
-//go:embed index.html vite.svg assets/*
+//go:embed index.html vite.svg
 var FS embed.FS
