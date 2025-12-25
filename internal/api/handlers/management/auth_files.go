@@ -2229,8 +2229,7 @@ func (h *Handler) RequestKiroToken(c *gin.Context) {
 		ts := &kiro.KiroTokenStorage{
 			AccessToken:  token.AccessToken,
 			RefreshToken: token.RefreshToken,
-			TokenType:    token.TokenType,
-			Expiry:       token.Expiry.Format(time.RFC3339),
+			ExpiresAt:    token.Expiry.Format(time.RFC3339),
 		}
 
 		// Use email from token if available (requires ID token parsing usually, skipping for brevity)
