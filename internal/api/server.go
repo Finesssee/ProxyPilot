@@ -577,6 +577,22 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/kiro-auth-url", s.mgmt.RequestKiroToken)
 		mgmt.POST("/oauth-callback", s.mgmt.PostOAuthCallback)
 		mgmt.GET("/get-auth-status", s.mgmt.GetAuthStatus)
+
+		// Harness management routes
+		mgmt.GET("/harness/files", s.mgmt.GetHarnessFiles)
+		mgmt.GET("/harness/file", s.mgmt.GetHarnessFile)
+		mgmt.PUT("/harness/file", s.mgmt.PutHarnessFile)
+		mgmt.GET("/harness/export", s.mgmt.ExportHarness)
+		mgmt.POST("/harness/import", s.mgmt.ImportHarness)
+
+		// Global model mappings routes
+		mgmt.GET("/model-mappings", s.mgmt.GetModelMappings)
+		mgmt.PUT("/model-mappings", s.mgmt.SetModelMappings)
+		mgmt.GET("/model-mappings/test", s.mgmt.TestModelMapping)
+
+		// Integration detection and setup routes
+		mgmt.GET("/integrations/status", s.mgmt.GetIntegrationsStatus)
+		mgmt.POST("/integrations/:id/configure", s.mgmt.PostIntegrationConfigure)
 	}
 }
 
