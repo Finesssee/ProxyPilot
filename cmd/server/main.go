@@ -81,6 +81,10 @@ func main() {
 	var kiroAWSAuthCode bool
 	var kiroImport bool
 	// var githubCopilotLogin bool // REMOVED - GitHub Copilot excluded
+	var detectAgents bool
+	var setupClaude bool
+	var setupCodex bool
+	var setupDroid bool
 	var projectID string
 	var vertexImport string
 	var configPath string
@@ -105,6 +109,10 @@ func main() {
 	flag.BoolVar(&kiroAWSAuthCode, "kiro-aws-authcode", false, "Login to Kiro using AWS Builder ID (authorization code flow, better UX)")
 	flag.BoolVar(&kiroImport, "kiro-import", false, "Import Kiro token from Kiro IDE (~/.aws/sso/cache/kiro-auth-token.json)")
 	// GitHub Copilot login removed
+	flag.BoolVar(&detectAgents, "detect-agents", false, "Detect installed CLI agents")
+	flag.BoolVar(&setupClaude, "setup-claude", false, "Configure Claude Code to use ProxyPilot")
+	flag.BoolVar(&setupCodex, "setup-codex", false, "Configure Codex CLI to use ProxyPilot")
+	flag.BoolVar(&setupDroid, "setup-droid", false, "Configure Factory Droid to use ProxyPilot")
 	flag.StringVar(&projectID, "project_id", "", "Project ID (Gemini only, not required)")
 	flag.StringVar(&configPath, "config", DefaultConfigPath, "Configure File Path")
 	flag.StringVar(&vertexImport, "vertex-import", "", "Import Vertex service account key JSON file")
@@ -533,6 +541,14 @@ func main() {
 		cmd.DoKiroAWSAuthCodeLogin(cfg, options)
 	} else if kiroImport {
 		cmd.DoKiroImport(cfg, options)
+	} else if detectAgents {
+		cmd.DoDetectAgents()
+	} else if setupClaude {
+		cmd.DoSetupClaude(cfg)
+	} else if setupCodex {
+		cmd.DoSetupCodex(cfg)
+	} else if setupDroid {
+		cmd.DoSetupDroid(cfg)
 	} else {
 		// In cloud deploy mode without config file, just wait for shutdown signals
 		if isCloudDeploy && !configFileExists {
