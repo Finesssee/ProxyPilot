@@ -75,6 +75,9 @@ type Config struct {
 	// ClaudeKey defines a list of Claude API key configurations as specified in the YAML configuration file.
 	ClaudeKey []ClaudeKey `yaml:"claude-api-key" json:"claude-api-key"`
 
+	// KiroKey defines Kiro (AWS CodeWhisperer) configurations
+	KiroKey []KiroKey `yaml:"kiro-key" json:"kiro-key"`
+
 	// OpenAICompatibility defines OpenAI API compatibility configurations for external providers.
 	OpenAICompatibility []OpenAICompatibility `yaml:"openai-compatibility" json:"openai-compatibility"`
 
@@ -194,6 +197,33 @@ type CodexKey struct {
 	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
 
 	// ExcludedModels lists model IDs that should be excluded for this provider.
+	ExcludedModels []string `yaml:"excluded-models,omitempty" json:"excluded-models,omitempty"`
+}
+
+// KiroKey represents the configuration for Kiro (AWS CodeWhisperer) authentication.
+type KiroKey struct {
+	// TokenFile is the path to Kiro token file (e.g., ~/.aws/sso/cache/kiro-auth-token.json)
+	TokenFile string `yaml:"token-file" json:"token-file"`
+
+	// AccessToken is the OAuth access token for direct configuration
+	AccessToken string `yaml:"access-token" json:"access-token"`
+
+	// RefreshToken is the OAuth refresh token for token renewal
+	RefreshToken string `yaml:"refresh-token" json:"refresh-token"`
+
+	// ProfileArn is the AWS CodeWhisperer profile ARN
+	ProfileArn string `yaml:"profile-arn" json:"profile-arn"`
+
+	// Region is the AWS region (default: us-east-1)
+	Region string `yaml:"region" json:"region"`
+
+	// ProxyURL overrides the global proxy setting
+	ProxyURL string `yaml:"proxy-url" json:"proxy-url"`
+
+	// AgentTaskType is the Kiro API task type (e.g., "vibe", "dev", "chat")
+	AgentTaskType string `yaml:"agent-task-type" json:"agent-task-type"`
+
+	// ExcludedModels lists model IDs to exclude
 	ExcludedModels []string `yaml:"excluded-models,omitempty" json:"excluded-models,omitempty"`
 }
 
@@ -343,6 +373,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Sanitize Claude key headers
 	cfg.SanitizeClaudeKeys()
 
+	// Sanitize Kiro keys: normalize fields and excluded models
+	cfg.SanitizeKiroKeys()
+
 	// Sanitize OpenAI compatibility providers: drop entries without base-url
 	cfg.SanitizeOpenAICompatibility()
 
@@ -459,6 +492,24 @@ func (cfg *Config) SanitizeClaudeKeys() {
 	for i := range cfg.ClaudeKey {
 		entry := &cfg.ClaudeKey[i]
 		entry.Headers = NormalizeHeaders(entry.Headers)
+		entry.ExcludedModels = NormalizeExcludedModels(entry.ExcludedModels)
+	}
+}
+
+// SanitizeKiroKeys normalizes Kiro credentials by trimming whitespace and normalizing fields.
+func (cfg *Config) SanitizeKiroKeys() {
+	if cfg == nil || len(cfg.KiroKey) == 0 {
+		return
+	}
+	for i := range cfg.KiroKey {
+		entry := &cfg.KiroKey[i]
+		entry.TokenFile = strings.TrimSpace(entry.TokenFile)
+		entry.AccessToken = strings.TrimSpace(entry.AccessToken)
+		entry.RefreshToken = strings.TrimSpace(entry.RefreshToken)
+		entry.ProfileArn = strings.TrimSpace(entry.ProfileArn)
+		entry.Region = strings.TrimSpace(entry.Region)
+		entry.ProxyURL = strings.TrimSpace(entry.ProxyURL)
+		entry.AgentTaskType = strings.TrimSpace(entry.AgentTaskType)
 		entry.ExcludedModels = NormalizeExcludedModels(entry.ExcludedModels)
 	}
 }
