@@ -238,6 +238,42 @@ func main() {
 		return nil
 	})
 
+	// Agent detection bindings
+	_ = w.Bind("pp_detect_agents", func() ([]map[string]any, error) {
+		agents := detectCLIAgents()
+		return agents, nil
+	})
+
+	_ = w.Bind("pp_configure_agent", func(agentID string) error {
+		st, _ := desktopctl.StatusFor(configPath)
+		if !st.Running {
+			return fmt.Errorf("proxy not running")
+		}
+		key, _ := desktopctl.GetManagementPassword()
+		client := &http.Client{Timeout: 10 * time.Second}
+		req, _ := http.NewRequest("POST", st.BaseURL+"/v0/management/integrations/"+agentID, nil)
+		req.Header.Set("X-Management-Key", key)
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			b, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("failed: %s", string(b))
+		}
+		return nil
+	})
+
+	// Model mappings bindings
+	_ = w.Bind("pp_get_model_mappings", func() ([]map[string]any, error) {
+		return getModelMappings(), nil
+	})
+
+	_ = w.Bind("pp_save_model_mappings", func(mappings []map[string]any) error {
+		return saveModelMappings(mappings)
+	})
+
 	if target != "" {
 		w.Navigate(target)
 		w.Run()
@@ -580,6 +616,29 @@ func controlCenterHTML() string {
       </div>
 
       <div class="card" style="grid-column: 1 / -1">
+        <div class="sectionTitle">CLI Agents</div>
+        <div class="row" id="agentsList">
+          <div style="color:var(--muted);font-size:13px">Detecting agents...</div>
+        </div>
+        <div class="note">
+          Detected CLI agents. Click to configure for ProxyPilot.
+        </div>
+      </div>
+
+      <div class="card" style="grid-column: 1 / -1">
+        <div class="sectionTitle">Model Mappings</div>
+        <div id="mappingsList" style="margin-bottom:12px"></div>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <input type="text" id="mapFrom" placeholder="Alias (e.g. smart)" style="flex:1;min-width:120px;padding:8px 10px;background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:8px;color:var(--text);font-size:13px" />
+          <input type="text" id="mapTo" placeholder="Model (e.g. claude-opus-4-5)" style="flex:2;min-width:180px;padding:8px 10px;background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:8px;color:var(--text);font-size:13px" />
+          <button id="addMappingBtn" class="btnPrimary">Add</button>
+        </div>
+        <div class="note">
+          Route friendly model names to actual models.
+        </div>
+      </div>
+
+      <div class="card" style="grid-column: 1 / -1">
         <div class="sectionTitle">Integrations</div>
         <div class="row" id="integrationsList">
           <div style="color:var(--muted);font-size:13px">Loading integrations...</div>
@@ -697,12 +756,84 @@ func controlCenterHTML() string {
       }
     }
 
+    async function refreshAgents() {
+      const list = $('agentsList');
+      try {
+        const agents = await window.pp_detect_agents();
+        if(!agents || agents.length === 0) {
+          list.innerHTML = '<div style="color:var(--muted);font-size:13px">No agents detected</div>';
+          return;
+        }
+        list.innerHTML = '';
+        agents.forEach(a => {
+          const btn = document.createElement('button');
+          if (!a.detected) {
+            btn.className = 'btn';
+            btn.disabled = true;
+            btn.textContent = a.name + ' (Not Found)';
+          } else if (a.configured) {
+            btn.className = 'btnGood';
+            btn.textContent = a.name + ' (Configured)';
+          } else {
+            btn.className = 'btnPrimary';
+            btn.textContent = a.name + ' (Configure)';
+          }
+          btn.onclick = async () => {
+            if (!a.detected) return;
+            try {
+              await window.pp_configure_agent(a.id);
+              toast('Configured ' + a.name);
+              refreshAgents();
+            } catch(e) { toast(e.message||String(e)); }
+          };
+          list.appendChild(btn);
+        });
+      } catch(e) {
+        list.innerHTML = '<div style="color:var(--muted);font-size:13px">Error: ' + (e.message||e) + '</div>';
+      }
+    }
+
+    async function refreshMappings() {
+      const list = $('mappingsList');
+      try {
+        const mappings = await window.pp_get_model_mappings();
+        if(!mappings || mappings.length === 0) {
+          list.innerHTML = '<div style="color:var(--muted);font-size:13px">No mappings configured</div>';
+          return;
+        }
+        list.innerHTML = '<div style="display:flex;flex-direction:column;gap:6px">' +
+          mappings.map((m, i) =>
+            '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(0,0,0,.25);border-radius:6px;font-size:13px">' +
+              '<code style="color:var(--brand)">' + m.from + '</code>' +
+              '<span style="color:var(--muted)">&rarr;</span>' +
+              '<code style="color:var(--good)">' + m.to + '</code>' +
+              '<button class="btnDanger" style="margin-left:auto;padding:4px 8px;font-size:11px" data-idx="' + i + '">Remove</button>' +
+            '</div>'
+          ).join('') + '</div>';
+        list.querySelectorAll('button[data-idx]').forEach(btn => {
+          btn.onclick = async () => {
+            const idx = parseInt(btn.dataset.idx);
+            const updated = mappings.filter((_, i) => i !== idx);
+            try {
+              await window.pp_save_model_mappings(updated);
+              toast('Mapping removed');
+              refreshMappings();
+            } catch(e) { toast(e.message||String(e)); }
+          };
+        });
+      } catch(e) {
+        list.innerHTML = '<div style="color:var(--muted);font-size:13px">Error loading mappings</div>';
+      }
+    }
+
     async function init() {
       try{
         const priv = await window.pp_get_oauth_private();
         $('privateOAuth').checked = !!priv;
       }catch(e){}
       await refreshStatus();
+      await refreshAgents();
+      await refreshMappings();
       setInterval(refreshStatus, 1200);
     }
 
@@ -733,6 +864,21 @@ func controlCenterHTML() string {
     $('oauthQwen').addEventListener('click', oauth('qwen'));
     $('oauthIflow').addEventListener('click', oauth('iflow'));
 
+    $('addMappingBtn').addEventListener('click', async () => {
+      const from = $('mapFrom').value.trim();
+      const to = $('mapTo').value.trim();
+      if (!from || !to) { toast('Both fields required'); return; }
+      try {
+        const existing = await window.pp_get_model_mappings() || [];
+        existing.push({ from, to, enabled: true });
+        await window.pp_save_model_mappings(existing);
+        $('mapFrom').value = '';
+        $('mapTo').value = '';
+        toast('Mapping added');
+        refreshMappings();
+      } catch(e) { toast(e.message||String(e)); }
+    });
+
     init();
   </script>
 </body>
@@ -750,4 +896,131 @@ func messageBox(title, text string) error {
 		return nil
 	}
 	return err
+}
+
+// detectCLIAgents returns a list of detected CLI agents
+func detectCLIAgents() []map[string]any {
+	agents := []map[string]any{}
+
+	// Claude Code
+	claude := map[string]any{
+		"id":         "claude",
+		"name":       "Claude Code",
+		"detected":   false,
+		"configured": false,
+	}
+	if path, err := exec.LookPath("claude"); err == nil {
+		claude["detected"] = true
+		claude["binary_path"] = path
+	}
+	home, _ := os.UserHomeDir()
+	claudeConfig := filepath.Join(home, ".claude", "settings.json")
+	if _, err := os.Stat(claudeConfig); err == nil {
+		claude["detected"] = true
+		claude["config_path"] = claudeConfig
+		if content, err := os.ReadFile(claudeConfig); err == nil {
+			if strings.Contains(string(content), "127.0.0.1:8317") || strings.Contains(string(content), "127.0.0.1:8318") {
+				claude["configured"] = true
+			}
+		}
+	}
+	agents = append(agents, claude)
+
+	// Codex CLI
+	codex := map[string]any{
+		"id":         "codex",
+		"name":       "Codex CLI",
+		"detected":   false,
+		"configured": false,
+	}
+	if path, err := exec.LookPath("codex"); err == nil {
+		codex["detected"] = true
+		codex["binary_path"] = path
+	}
+	codexDir := filepath.Join(home, ".codex")
+	if info, err := os.Stat(codexDir); err == nil && info.IsDir() {
+		codex["detected"] = true
+		codex["config_path"] = codexDir
+		codexConfig := filepath.Join(codexDir, "config.toml")
+		if content, err := os.ReadFile(codexConfig); err == nil {
+			if strings.Contains(string(content), "127.0.0.1:8317") || strings.Contains(string(content), "127.0.0.1:8318") {
+				codex["configured"] = true
+			}
+		}
+	}
+	agents = append(agents, codex)
+
+	// Factory Droid
+	droid := map[string]any{
+		"id":         "droid",
+		"name":       "Factory Droid",
+		"detected":   false,
+		"configured": false,
+	}
+	if path, err := exec.LookPath("droid"); err == nil {
+		droid["detected"] = true
+		droid["binary_path"] = path
+	} else if path, err := exec.LookPath("factory"); err == nil {
+		droid["detected"] = true
+		droid["binary_path"] = path
+	}
+	droidConfig := filepath.Join(home, ".factory", "config.json")
+	if _, err := os.Stat(droidConfig); err == nil {
+		droid["config_path"] = droidConfig
+		droid["detected"] = true
+		if content, err := os.ReadFile(droidConfig); err == nil {
+			if strings.Contains(string(content), "proxypilot-") || strings.Contains(string(content), "proxypal-") {
+				droid["configured"] = true
+			}
+		}
+	}
+	agents = append(agents, droid)
+
+	// Gemini CLI
+	gemini := map[string]any{
+		"id":         "gemini",
+		"name":       "Gemini CLI",
+		"detected":   false,
+		"configured": false,
+	}
+	if path, err := exec.LookPath("gemini"); err == nil {
+		gemini["detected"] = true
+		gemini["binary_path"] = path
+	}
+	agents = append(agents, gemini)
+
+	return agents
+}
+
+// getModelMappings reads model mappings from the config file
+func getModelMappings() []map[string]any {
+	home, _ := os.UserHomeDir()
+	mappingsPath := filepath.Join(home, ".proxypilot", "model-mappings.json")
+
+	data, err := os.ReadFile(mappingsPath)
+	if err != nil {
+		return []map[string]any{}
+	}
+
+	var mappings []map[string]any
+	if err := json.Unmarshal(data, &mappings); err != nil {
+		return []map[string]any{}
+	}
+	return mappings
+}
+
+// saveModelMappings saves model mappings to the config file
+func saveModelMappings(mappings []map[string]any) error {
+	home, _ := os.UserHomeDir()
+	mappingsDir := filepath.Join(home, ".proxypilot")
+	if err := os.MkdirAll(mappingsDir, 0755); err != nil {
+		return err
+	}
+
+	mappingsPath := filepath.Join(mappingsDir, "model-mappings.json")
+	data, err := json.MarshalIndent(mappings, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(mappingsPath, data, 0644)
 }
