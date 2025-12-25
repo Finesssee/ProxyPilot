@@ -320,6 +320,19 @@ func (s *Server) setupRoutes() {
 		v1beta.GET("/models/*action", geminiHandlers.GeminiGetHandler)
 	}
 
+	// Health check endpoint for Droid CLI and other clients
+	s.engine.GET("/healthz", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	// Root-level API routes (mirrors /v1/* for clients that dont add /v1 prefix)
+	s.engine.GET("/models", AuthMiddleware(s.accessManager), s.unifiedModelsHandler(openaiHandlers, claudeCodeHandlers))
+	s.engine.POST("/chat/completions", AuthMiddleware(s.accessManager), openaiHandlers.ChatCompletions)
+	s.engine.POST("/completions", AuthMiddleware(s.accessManager), openaiHandlers.Completions)
+	s.engine.POST("/messages", AuthMiddleware(s.accessManager), claudeCodeHandlers.ClaudeMessages)
+	s.engine.POST("/responses", AuthMiddleware(s.accessManager), openaiResponsesHandlers.Responses)
+
+
 	// Root endpoint
 	s.engine.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{

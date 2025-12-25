@@ -1,6 +1,7 @@
 package integrations
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,13 +26,14 @@ func (i *DroidIntegration) Detect() (bool, error) {
 }
 
 func (i *DroidIntegration) IsConfigured(proxyURL string) (bool, error) {
-	configPath := filepath.Join(userHomeDir(), ".factory", "config.json")
-	if !fileExists(configPath) {
+	// Droid uses settings.json for runtime config, not config.json
+	settingsPath := filepath.Join(userHomeDir(), ".factory", "settings.json")
+	if !fileExists(settingsPath) {
 		return false, nil
 	}
-	content, _ := os.ReadFile(configPath)
-	// Check if any custom model uses our proxy URL
-	res := gjson.GetBytes(content, "custom_models.#.base_url")
+	content, _ := os.ReadFile(settingsPath)
+	// Check if any custom model uses our proxy URL (note: camelCase "customModels")
+	res := gjson.GetBytes(content, "customModels.#.baseUrl")
 	for _, match := range res.Array() {
 		if strings.Contains(match.String(), proxyURL) {
 			return true, nil
@@ -42,11 +44,12 @@ func (i *DroidIntegration) IsConfigured(proxyURL string) (bool, error) {
 
 func (i *DroidIntegration) Configure(proxyURL string) error {
 	configDir := filepath.Join(userHomeDir(), ".factory")
-	configPath := filepath.Join(configDir, "config.json")
-	
+	// Droid uses settings.json for custom models at runtime
+	settingsPath := filepath.Join(configDir, "settings.json")
+
 	var jsonStr string
-	if fileExists(configPath) {
-		b, _ := os.ReadFile(configPath)
+	if fileExists(settingsPath) {
+		b, _ := os.ReadFile(settingsPath)
 		jsonStr = string(b)
 	} else {
 		if err := os.MkdirAll(configDir, 0755); err != nil {
@@ -55,45 +58,56 @@ func (i *DroidIntegration) Configure(proxyURL string) error {
 		jsonStr = "{}"
 	}
 
-	// Define models to add
-	models := []string{
-		"gpt-5.2",
-		"claude-opus-4-5-thinking",
-		"gemini-3-pro-preview",
+	// Define models to add - must use thinking models for /v1/responses API
+	models := []struct {
+		model       string
+		displayName string
+	}{
+		{"claude-opus-4-5-thinking", "ProxyPilot Opus 4.5 Thinking"},
+		{"claude-sonnet-4-5-thinking", "ProxyPilot Sonnet 4.5 Thinking"},
 	}
 
-	for _, m := range models {
-		// Replicate setup-droid-cliproxy.ps1 logic
+	for idx, m := range models {
+		// Droid settings.json uses camelCase and requires id/index fields
 		newEntry := map[string]interface{}{
-			"model_display_name": "ProxyPilot (local): " + m,
-			"model":              m,
-			"base_url":           proxyURL + "/v1",
-			"api_key":            "local-dev-key", // standard placeholder
-			"provider":           "openai",
+			"model":          m.model,
+			"id":             fmt.Sprintf("custom:ProxyPilot-%d", idx),
+			"index":          idx,
+			"baseUrl":        proxyURL + "/v1",
+			"apiKey":         "local-dev-key",
+			"displayName":    m.displayName,
+			"noImageSupport": true,
+			"provider":       "openai", // Uses OpenAI Responses API (/v1/responses)
 		}
 
-		// Check if exists
-		existing := gjson.Get(jsonStr, "custom_models")
-		idx := -1
+		// Check if model already exists
+		existing := gjson.Get(jsonStr, "customModels")
+		existingIdx := -1
 		if existing.IsArray() {
 			for i, entry := range existing.Array() {
-				if entry.Get("model").String() == m {
-					idx = i
+				if entry.Get("model").String() == m.model {
+					existingIdx = i
 					break
 				}
 			}
 		}
 
 		var errSet error
-		if idx >= 0 {
-			jsonStr, errSet = sjson.Set(jsonStr, "custom_models."+string(rune(idx)), newEntry)
+		if existingIdx >= 0 {
+			jsonStr, errSet = sjson.Set(jsonStr, fmt.Sprintf("customModels.%d", existingIdx), newEntry)
 		} else {
-			jsonStr, errSet = sjson.Set(jsonStr, "custom_models.-1", newEntry)
+			jsonStr, errSet = sjson.Set(jsonStr, "customModels.-1", newEntry)
 		}
 		if errSet != nil {
 			return errSet
 		}
 	}
 
-	return os.WriteFile(configPath, []byte(jsonStr), 0644)
+	// Set default model if not set
+	if !gjson.Get(jsonStr, "sessionDefaultSettings.model").Exists() {
+		jsonStr, _ = sjson.Set(jsonStr, "sessionDefaultSettings.model", "custom:ProxyPilot-1")
+		jsonStr, _ = sjson.Set(jsonStr, "sessionDefaultSettings.reasoningEffort", "none")
+	}
+
+	return os.WriteFile(settingsPath, []byte(jsonStr), 0644)
 }

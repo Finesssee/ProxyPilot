@@ -964,12 +964,14 @@ func detectCLIAgents() []map[string]any {
 		droid["detected"] = true
 		droid["binary_path"] = path
 	}
-	droidConfig := filepath.Join(home, ".factory", "config.json")
-	if _, err := os.Stat(droidConfig); err == nil {
-		droid["config_path"] = droidConfig
+	// Droid uses settings.json for runtime config (not config.json)
+	droidSettings := filepath.Join(home, ".factory", "settings.json")
+	if _, err := os.Stat(droidSettings); err == nil {
+		droid["config_path"] = droidSettings
 		droid["detected"] = true
-		if content, err := os.ReadFile(droidConfig); err == nil {
-			if strings.Contains(string(content), "proxypilot-") || strings.Contains(string(content), "proxypal-") {
+		if content, err := os.ReadFile(droidSettings); err == nil {
+			// Check for ProxyPilot models in customModels array
+			if strings.Contains(string(content), "ProxyPilot") || strings.Contains(string(content), "127.0.0.1:8318") {
 				droid["configured"] = true
 			}
 		}
