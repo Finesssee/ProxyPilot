@@ -25,6 +25,9 @@ type SDKConfig struct {
 
 	// Streaming configures server-side streaming behavior (keep-alives and safe bootstrap retries).
 	Streaming StreamingConfig `yaml:"streaming" json:"streaming"`
+
+	// Compression configures context compression behavior for long conversations.
+	Compression CompressionConfig `yaml:"compression,omitempty" json:"compression,omitempty"`
 }
 
 // StreamingConfig holds server streaming behavior configuration.
@@ -37,6 +40,34 @@ type StreamingConfig struct {
 	// to allow auth rotation / transient recovery.
 	// nil means default (2). 0 disables bootstrap retries.
 	BootstrapRetries *int `yaml:"bootstrap-retries,omitempty" json:"bootstrap-retries,omitempty"`
+
+	// MaxChunkSize limits the maximum size (in bytes) of individual response chunks forwarded to clients.
+	// This can reduce latency for large responses by preventing buffer accumulation.
+	// nil means default (65536 = 64KB). 0 disables chunk size limiting.
+	MaxChunkSize *int `yaml:"max-chunk-size,omitempty" json:"max-chunk-size,omitempty"`
+}
+
+// CompressionConfig holds context compression behavior configuration.
+type CompressionConfig struct {
+	// Enabled toggles LLM-based structured summarization.
+	// nil means default (true).
+	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+
+	// ThresholdPercent triggers compression when context usage exceeds this fraction.
+	// nil means default (0.75 = 75%).
+	ThresholdPercent *float64 `yaml:"threshold-percent,omitempty" json:"threshold-percent,omitempty"`
+
+	// MaxSummaryTokens limits the output size of generated summaries.
+	// nil means default (2000).
+	MaxSummaryTokens *int `yaml:"max-summary-tokens,omitempty" json:"max-summary-tokens,omitempty"`
+
+	// SummarizationTimeoutSeconds is the timeout for LLM summarization calls.
+	// nil means default (30).
+	SummarizationTimeoutSeconds *int `yaml:"summarization-timeout-seconds,omitempty" json:"summarization-timeout-seconds,omitempty"`
+
+	// FallbackToRegex uses regex-based summarization when LLM fails.
+	// nil means default (true).
+	FallbackToRegex *bool `yaml:"fallback-to-regex,omitempty" json:"fallback-to-regex,omitempty"`
 }
 
 // AccessConfig groups request authentication providers.
@@ -99,4 +130,44 @@ func MakeInlineAPIKeyProvider(keys []string) *AccessProvider {
 		APIKeys: append([]string(nil), keys...),
 	}
 	return provider
+}
+
+// IsEnabled returns whether LLM compression is enabled, defaulting to true.
+func (c *CompressionConfig) IsEnabled() bool {
+	if c == nil || c.Enabled == nil {
+		return true
+	}
+	return *c.Enabled
+}
+
+// GetThresholdPercent returns the compression threshold, defaulting to 0.75.
+func (c *CompressionConfig) GetThresholdPercent() float64 {
+	if c == nil || c.ThresholdPercent == nil {
+		return 0.75
+	}
+	return *c.ThresholdPercent
+}
+
+// GetMaxSummaryTokens returns the max summary tokens, defaulting to 2000.
+func (c *CompressionConfig) GetMaxSummaryTokens() int {
+	if c == nil || c.MaxSummaryTokens == nil {
+		return 2000
+	}
+	return *c.MaxSummaryTokens
+}
+
+// GetSummarizationTimeout returns the summarization timeout, defaulting to 30 seconds.
+func (c *CompressionConfig) GetSummarizationTimeout() int {
+	if c == nil || c.SummarizationTimeoutSeconds == nil {
+		return 30
+	}
+	return *c.SummarizationTimeoutSeconds
+}
+
+// ShouldFallbackToRegex returns whether to fall back to regex, defaulting to true.
+func (c *CompressionConfig) ShouldFallbackToRegex() bool {
+	if c == nil || c.FallbackToRegex == nil {
+		return true
+	}
+	return *c.FallbackToRegex
 }
