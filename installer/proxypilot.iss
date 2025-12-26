@@ -25,7 +25,8 @@ WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir={#OutDir}
 OutputBaseFilename=ProxyPilot-{#AppVersion}-Setup
-UninstallDisplayIcon={app}\ProxyPilot.exe
+SetupIconFile={#RepoRoot}\static\icon.ico
+UninstallDisplayIcon={app}\icon.ico
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -41,12 +42,13 @@ Source: "{#OutDir}\ProxyPilot.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#OutDir}\proxypilot-engine.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; Config
 Source: "{#RepoRoot}\config.example.yaml"; DestDir: "{app}"; Flags: ignoreversion
-; Icon
+; Icons
+Source: "{#RepoRoot}\static\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\static\icon.png"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\ProxyPilot.exe"; WorkingDir: "{app}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\ProxyPilot.exe"; Tasks: desktopicon; WorkingDir: "{app}"
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\ProxyPilot.exe"; WorkingDir: "{app}"; IconFilename: "{app}\icon.ico"
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\ProxyPilot.exe"; Tasks: desktopicon; WorkingDir: "{app}"; IconFilename: "{app}\icon.ico"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "ProxyPilot"; ValueData: """{app}\ProxyPilot.exe"""; Flags: uninsdeletevalue; Tasks: startupicon
