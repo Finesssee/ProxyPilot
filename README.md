@@ -179,6 +179,17 @@ Works with these AI coding tools:
 
 ---
 
+## Credits
+
+ProxyPilot's long-context features are inspired by research from the AI community:
+
+- **[Factory.ai](https://www.factory.ai/news/context-compression)** - Context compression techniques for long-running coding agents
+- **[Anthropic](https://www.anthropic.com/research/building-effective-agents)** - "Building Effective Agents" research for agentic harness design
+
+Special thanks to these teams for sharing their insights on building better AI coding tools.
+
+---
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
