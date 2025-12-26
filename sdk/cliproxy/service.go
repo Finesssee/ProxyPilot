@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/api"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/api/middleware"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/memory"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/runtime/executor"
 	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
@@ -21,10 +23,56 @@ import (
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 	log "github.com/sirupsen/logrus"
 )
+
+// coreManagerWrapper adapts coreauth.Manager to memory.CoreManagerExecutor interface.
+// This allows the summarization executor to route requests through the auth manager
+// without importing the cliproxyexecutor package directly in the memory package.
+type coreManagerWrapper struct {
+	manager *coreauth.Manager
+}
+
+// Execute implements memory.CoreManagerExecutor by converting interface{} parameters
+// to/from cliproxyexecutor types.
+func (w *coreManagerWrapper) Execute(ctx context.Context, providers []string, req interface{}, opts interface{}) (interface{}, error) {
+	if w.manager == nil {
+		return nil, errors.New("coreManagerWrapper: manager not configured")
+	}
+
+	// Convert request from memory.ExecutorRequest to cliproxyexecutor.Request
+	memReq, ok := req.(memory.ExecutorRequest)
+	if !ok {
+		return nil, fmt.Errorf("coreManagerWrapper: expected memory.ExecutorRequest, got %T", req)
+	}
+
+	coreReq := cliproxyexecutor.Request{
+		Model:    memReq.Model,
+		Payload:  memReq.Payload,
+		Metadata: memReq.Metadata,
+	}
+
+	// Convert options from memory.ExecutorOptions to cliproxyexecutor.Options
+	var coreOpts cliproxyexecutor.Options
+	if memOpts, ok := opts.(memory.ExecutorOptions); ok {
+		coreOpts = cliproxyexecutor.Options{
+			Stream:  memOpts.Stream,
+			Headers: memOpts.Headers,
+		}
+	}
+
+	// Execute through the real manager
+	resp, err := w.manager.Execute(ctx, providers, coreReq, coreOpts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return response as interface{} - the adapter will extract Payload
+	return resp, nil
+}
 
 // Service wraps the proxy server lifecycle so external programs can embed the CLI proxy.
 // It manages the complete lifecycle including authentication, file watching, HTTP server,
@@ -460,6 +508,13 @@ func (s *Service) Run(ctx context.Context) error {
 
 	// handlers no longer depend on legacy clients; pass nil slice initially
 	s.server = api.NewServer(s.cfg, s.coreManager, s.accessManager, s.configPath, s.serverOptions...)
+
+	// Wire up LLM summarization for Factory.ai-style context compression
+	if s.coreManager != nil {
+		providers := []string{"claude", "codex", "gemini"}
+		wrapper := &coreManagerWrapper{manager: s.coreManager}
+		middleware.InitSummarizerWithAuthManager(wrapper, providers)
+	}
 
 	if s.authManager == nil {
 		s.authManager = newDefaultAuthManager()
