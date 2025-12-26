@@ -181,12 +181,17 @@ Works with these AI coding tools:
 
 ## Credits
 
-ProxyPilot's long-context features are inspired by research from the AI community:
+ProxyPilot builds upon excellent work from the open-source community:
+
+- **[CLIProxyAPI](https://github.com/anthropics/claude-code)** - The original unified proxy server that inspired this project
+- **[VibeProxy](https://github.com/automazeio/vibeproxy)** - Native macOS menu bar app showcasing clean proxy UX
+
+Long-context features are inspired by research from the AI community:
 
 - **[Factory.ai](https://www.factory.ai/news/context-compression)** - Context compression techniques for long-running coding agents
 - **[Anthropic](https://www.anthropic.com/research/building-effective-agents)** - "Building Effective Agents" research for agentic harness design
 
-Special thanks to these teams for sharing their insights on building better AI coding tools.
+Special thanks to these teams for sharing their work and insights.
 
 ---
 
