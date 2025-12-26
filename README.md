@@ -5,72 +5,47 @@
 <h1 align="center">ProxyPilot</h1>
 
 <p align="center">
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-28a745" alt="MIT License"></a>
   <a href="https://golang.org/"><img src="https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go" alt="Go Version"></a>
-  <a href="https://x.com/Finessse377721"><img src="https://img.shields.io/badge/Follow-x%2F%40Finessse377721-1DA1F2?logo=x&logoColor=white" alt="Follow on X"></a>
+  <a href="https://x.com/Finessse377721"><img src="https://img.shields.io/badge/Follow-%F0%9D%95%8F%2F%40Finessse377721-1c9bf0" alt="Follow on 𝕏"></a>
+  <a href="https://github.com/Finesssee/ProxyPilot"><img src="https://img.shields.io/github/stars/Finesssee/ProxyPilot.svg?style=social&label=Star%20this%20repo" alt="Star this repo"></a>
 </p>
 
 <p align="center">
-  <strong>Stop juggling API keys.</strong> ProxyPilot is a powerful API proxy that lets you use your existing Claude Code, Codex, Gemini, Kiro, and Qwen subscriptions with any AI coding tool – one unified endpoint for all your AI providers.
+  <strong>Stop juggling API keys.</strong> ProxyPilot is a powerful local API proxy that lets you use your existing Claude Code, Codex, Gemini, Kiro, and Qwen subscriptions with any AI coding tool – no separate API keys required.
 </p>
+
+<p align="center">
+  Built in Go, it handles OAuth authentication, token management, and API translation automatically. One server to route them all.
+</p>
+
+---
+
+> [!TIP]
+> 📣 **Latest models supported:**
+> Claude Opus 4.5 / Sonnet 4.5 with extended thinking, GPT-5.1 / GPT-5.1 Codex, Gemini 2.5 Pro/Flash, and Kiro (AWS CodeWhisperer)! 🚀
+
+**Setup Guides:**
+- [Claude Code Setup →](docs/claude-code-local-proxy.md)
+- [Cursor IDE Setup →](docs/cursor-ide.md)
 
 ---
 
 ## Features
 
-### Core Proxy
-
-- **7 Auth Providers** - Claude, Codex (OpenAI), Gemini, Gemini CLI, Kiro (AWS CodeWhisperer), Qwen, iFlow
-- **Universal API Translation** - Auto-converts between OpenAI, Anthropic, and Gemini formats
-- **Tool Calling Repair** - Fixes tool/function call format mismatches between providers automatically
-- **Extended Thinking** - Full support for Claude and Gemini thinking models with budget configuration
-- **OAuth Integration** - Browser-based login with automatic token refresh
-- **Multi-Account Support** - Round-robin distribution across credentials
-- **Smart Routing** - Per-credential model exclusions, automatic failover
-- **Quota Auto-Switch** - Automatically switches to backup project or model when quota exceeded
-- **Streaming Support** - Full SSE with configurable keep-alives
-- **Usage Statistics** - Track requests, tokens, and errors per provider/model
-
-### Long-Context Features
-
-- **Context Compression** - LLM-based summarization when approaching context limits (Factory.ai research)
-- **Agentic Harness** - Guided workflow for long-running coding sessions (Anthropic research)
-- **Session Memory** - Persistent event storage across conversation turns
-- **Semantic Search** - Ollama-powered embeddings for memory retrieval
-
-### Desktop App (Windows)
-
-- **Control Center** - Native WebView2 app with start/stop, live logs, diagnostics
-- **One-Click OAuth** - Login buttons for all providers
-- **Agent Detection** - Auto-detects and configures Claude Code, Codex CLI, Factory Droid, Gemini CLI
-- **Model Mappings** - Visual UI for custom aliases
-- **System Tray** - Quick access from taskbar
-
-### CLI Tools
-
-| Binary | Description |
-|--------|-------------|
-| `proxypilot` | Main API proxy server |
-| `proxypilotui` | Desktop control center (Windows) |
-| `cliproxytray` | System tray application (Windows) |
-| `proxypilotpack` | Build and packaging tool |
-
-### Tool Integrations
-
-Works with these AI coding tools out of the box:
-
-- **Claude Code** - Auto-configure via settings.json
-- **Codex CLI** - Auto-configure via config.toml
-- **Factory Droid** - Auto-configure via settings.json
-- **Cursor IDE** - Manual endpoint configuration
-- **Continue** - Manual endpoint configuration
-
-### Management API
-
-- 60+ REST endpoints for configuration, credentials, routing, memory, and diagnostics
-- Built-in web dashboard at `/proxypilot.html`
-- Real-time log streaming
-- Usage statistics and quota monitoring
+- 🎯 **7 Auth Providers** - Claude, Codex (OpenAI), Gemini, Gemini CLI, Kiro (AWS), Qwen, iFlow
+- 🔄 **Universal API Translation** - Auto-converts between OpenAI, Anthropic, and Gemini formats
+- 🔧 **Tool Calling Repair** - Fixes tool/function call mismatches between providers automatically
+- 🧠 **Extended Thinking** - Full support for Claude and Gemini thinking models
+- 🔐 **OAuth Integration** - Browser-based login with automatic token refresh
+- 👥 **Multi-Account Support** - Round-robin distribution with automatic failover
+- ⚡ **Quota Auto-Switch** - Automatically switches to backup project/model when quota exceeded
+- 📊 **Usage Statistics** - Track requests, tokens, and errors per provider/model
+- 🧩 **Context Compression** - LLM-based summarization for long sessions (Factory.ai research)
+- 🤖 **Agentic Harness** - Guided workflow for coding agents (Anthropic research)
+- 💾 **Session Memory** - Persistent storage across conversation turns
+- 🎨 **Desktop App** - Native Windows control center with system tray
+- 📡 **60+ Management APIs** - Full control via REST endpoints
 
 ---
 
@@ -89,26 +64,12 @@ Works with these AI coding tools out of the box:
 
 ---
 
-## API Endpoints
-
-```
-POST /v1/chat/completions     # OpenAI Chat Completions
-POST /v1/responses            # OpenAI Responses API
-POST /v1/messages             # Anthropic Messages API
-GET  /v1/models               # List available models
-GET  /healthz                 # Health check
-```
-
-All endpoints auto-translate between formats based on the target provider.
-
----
-
 ## Installation
 
-### Download Release
+### Download Pre-built Release (Recommended)
 
-1. Go to [Releases](https://github.com/Finesssee/ProxyPilot/releases)
-2. Download binary for your platform
+1. Go to the [**Releases**](https://github.com/Finesssee/ProxyPilot/releases) page
+2. Download the latest binary for your platform
 3. Run `./proxypilot`
 
 ### Build from Source
@@ -122,14 +83,18 @@ go build -o proxypilot ./cmd/server
 
 ---
 
-## Quick Start
+## Usage
+
+### First Launch
 
 1. Copy config: `cp config.example.yaml config.yaml`
 2. Run: `./proxypilot`
 3. Server starts on `http://localhost:8317`
 4. Open dashboard: `http://localhost:8317/proxypilot.html`
 
-### OAuth Login
+### Authentication
+
+Run OAuth login for your provider:
 
 ```bash
 ./proxypilot --claude-login    # Claude
@@ -138,7 +103,9 @@ go build -o proxypilot ./cmd/server
 ./proxypilot --kiro-login      # Kiro/AWS
 ```
 
-### Configure Your Tool
+Your browser opens automatically. Tokens are stored and auto-refreshed.
+
+### Configure Your Tools
 
 **Claude Code** (`~/.claude/settings.json`):
 ```json
@@ -168,34 +135,59 @@ api_base_url = "http://127.0.0.1:8317"
 
 ---
 
-## Configuration
+## API Endpoints
 
-See [`config.example.yaml`](config.example.yaml) for full reference.
+```
+POST /v1/chat/completions     # OpenAI Chat Completions
+POST /v1/responses            # OpenAI Responses API
+POST /v1/messages             # Anthropic Messages API
+GET  /v1/models               # List available models
+GET  /healthz                 # Health check
+```
 
-| Section | Description |
-|---------|-------------|
-| `host`, `port`, `tls` | Server binding |
-| `api-keys` | Keys for authenticating requests |
-| `claude-api-key` | Claude credentials |
-| `codex-api-key` | OpenAI/Codex credentials |
-| `gemini-api-key` | Gemini credentials |
-| `kiro` | AWS CodeWhisperer credentials |
-| `openai-compatibility` | Custom providers |
-| `routing` | Credential selection strategy |
-| `global-model-mappings` | Model aliases |
+All endpoints auto-translate between formats based on the target provider.
+
+---
+
+## CLI Tools
+
+| Binary | Description |
+|--------|-------------|
+| `proxypilot` | Main API proxy server |
+| `proxypilotui` | Desktop control center (Windows) |
+| `cliproxytray` | System tray application (Windows) |
+| `proxypilotpack` | Build and packaging tool |
+
+---
+
+## Tool Integrations
+
+Works with these AI coding tools:
+
+- **Claude Code** - Auto-configure via settings.json
+- **Codex CLI** - Auto-configure via config.toml
+- **Factory Droid** - Auto-configure via settings.json
+- **Cursor IDE** - Manual endpoint configuration
+- **Continue** - Manual endpoint configuration
 
 ---
 
 ## Requirements
 
-- Go 1.24+ (build from source)
-- Windows, macOS, or Linux
+- macOS, Linux, or Windows
+- Go 1.24+ (for building from source)
 
 ---
 
 ## License
 
-MIT License - see [LICENSE](LICENSE)
+MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+## Support
+
+- **Report Issues**: [GitHub Issues](https://github.com/Finesssee/ProxyPilot/issues)
 
 ---
 
