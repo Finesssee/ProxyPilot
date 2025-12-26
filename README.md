@@ -53,7 +53,7 @@
 
 | Provider | Auth Method | Models |
 |----------|-------------|--------|
-| Claude (Anthropic) | OAuth2 / API Key | Claude Opus 4.5, Sonnet 4.5, Haiku |
+| Claude (Anthropic) | OAuth2 / API Key | Claude Opus 4.5, Sonnet 4.5, Haiku 4.5 |
 | Codex (OpenAI) | OAuth2 / API Key | GPT-5.1, GPT-5.1 Codex, GPT-4.5 |
 | Gemini | OAuth2 / API Key | Gemini 3 Pro, Gemini 3 Flash |
 | Gemini CLI | OAuth2 | Cloud Code Assist models |
