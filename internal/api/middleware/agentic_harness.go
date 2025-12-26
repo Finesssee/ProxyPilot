@@ -144,7 +144,6 @@ Do NOT skip this step. Do NOT assume you know the project state.
 Before implementing anything new:
 - Verify existing features still work
 - Check for any regressions from previous changes
-- If using Puppeteer MCP, run a quick browser test on the current state
 - If something is broken, FIX IT FIRST before new work
 
 ## STEP 3: PICK ONE TASK
@@ -156,9 +155,9 @@ Before implementing anything new:
 - Write code for that ONE feature only
 - You MUST verify it works before marking complete
 - Verification methods (in order of preference):
-  1. **Puppeteer MCP**: Use browser automation to test UI features (STRONGLY PREFERRED)
-  2. **Unit/Integration tests**: Run existing test suites
-  3. **Manual verification**: Only if automated testing unavailable
+  1. **Run tests**: Execute unit/integration test suites
+  2. **Build check**: Ensure the project compiles without errors
+  3. **Manual verification**: Test the feature manually if automated tests unavailable
 
 **VERIFICATION IS NOT OPTIONAL.** You must ACTUALLY TEST the feature.
 Do NOT mark a feature as passing based on "the code looks correct."
@@ -173,7 +172,7 @@ After VERIFIED implementation:
    - [Coding] Implemented <feature id>: <description>. Verified via <method>.
 
    Example:
-   - [Coding] Implemented feat-003: User can mark todo complete. Verified via Puppeteer browser test.
+   - [Coding] Implemented feat-003: User can mark todo complete. Verified via unit tests.
 
 ## STEP 6: COMMIT
 - Git commit with descriptive message
@@ -185,24 +184,6 @@ After VERIFIED implementation:
 - Do NOT mark features as "passes": true without ACTUAL verification
 - Do NOT edit feature_list.json except to toggle "passes" after verified testing
 - ALWAYS update harness files before stopping
-`
-
-	// harnessTestingReminder is injected when Puppeteer MCP is detected
-	harnessTestingReminder = `
-## PUPPETEER MCP DETECTED
-You have access to Puppeteer MCP for browser automation testing.
-
-**YOU MUST USE IT** to verify features. This is not optional.
-
-Testing workflow:
-1. Navigate to the application URL (usually http://localhost:3000 or similar)
-2. Take a screenshot to verify the page loaded
-3. Interact with UI elements to test the feature
-4. Take a screenshot after interaction to verify the result
-5. Only mark "passes": true if the browser test confirms it works
-
-Do NOT rely on "the code looks correct." Run the actual browser test.
-If Puppeteer tests fail, the feature does NOT pass. Fix it before moving on.
 `
 )
 
@@ -260,10 +241,6 @@ func AgenticHarnessMiddlewareWithRootDir(rootDir string) gin.HandlerFunc {
 			promptToInject = harnessInitializerPrompt
 		case "CODING":
 			promptToInject = harnessCodingPrompt
-			// Append Puppeteer testing reminder if MCP is detected
-			if detectPuppeteerMCP(body) {
-				promptToInject += harnessTestingReminder
-			}
 		default:
 			// "PASSIVE" - do nothing, let the user drive.
 			c.Next()
@@ -282,42 +259,6 @@ func AgenticHarnessMiddlewareWithRootDir(rootDir string) gin.HandlerFunc {
 
 		c.Next()
 	}
-}
-
-// detectPuppeteerMCP checks if Puppeteer MCP is available in the conversation or tools array.
-func detectPuppeteerMCP(body []byte) bool {
-	raw := strings.ToLower(string(body))
-
-	// Check for common Puppeteer MCP indicators
-	puppeteerIndicators := []string{
-		"puppeteer",
-		"mcp_puppeteer",
-		"mcp-puppeteer",
-		"puppeteer_navigate",
-		"puppeteer_screenshot",
-		"puppeteer_click",
-		"browser_action",
-	}
-
-	for _, indicator := range puppeteerIndicators {
-		if strings.Contains(raw, indicator) {
-			return true
-		}
-	}
-
-	// Check tools array specifically for more precise detection
-	tools := gjson.GetBytes(body, "tools")
-	if tools.Exists() && tools.IsArray() {
-		for _, tool := range tools.Array() {
-			toolName := strings.ToLower(tool.Get("name").String())
-			toolDesc := strings.ToLower(tool.Get("description").String())
-			if strings.Contains(toolName, "puppeteer") || strings.Contains(toolDesc, "puppeteer") {
-				return true
-			}
-		}
-	}
-
-	return false
 }
 
 // extractSessionKeyFromContext extracts session key from request headers.
