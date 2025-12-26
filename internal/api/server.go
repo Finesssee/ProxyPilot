@@ -218,6 +218,11 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	}
 
 	engine.Use(corsMiddleware())
+
+	// Add agentic harness middleware for long-running agents (Anthropic-style)
+	// Gated by CLIPROXY_HARNESS_ENABLED env var (default: true)
+	engine.Use(middleware.AgenticHarnessMiddleware())
+
 	wd, err := os.Getwd()
 	if err != nil {
 		wd = configFilePath
