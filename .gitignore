@@ -16,6 +16,7 @@ pgstore/*
 gitstore/*
 objectstore/*
 static/*
+!static/icon.png
 refs/*
 dist/*
 .proxypilot/*
