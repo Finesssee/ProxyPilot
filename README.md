@@ -8,6 +8,7 @@
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
   <a href="https://golang.org/"><img src="https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go" alt="Go Version"></a>
   <a href="https://github.com/Finesssee/ProxyPilot/stargazers"><img src="https://img.shields.io/github/stars/Finesssee/ProxyPilot?style=social" alt="GitHub Stars"></a>
+  <a href="https://x.com/aroussi"><img src="https://img.shields.io/badge/Follow-x%2F%40aroussi-1DA1F2?logo=x&logoColor=white" alt="Follow on X"></a>
 </p>
 
 <p align="center">
