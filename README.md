@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Finesssee/ProxyPilot/main/static/icon.png" width="128" height="128" alt="ProxyPilot Logo">
+  <img src="./static/icon.png" width="128" height="128" alt="ProxyPilot Logo">
 </p>
 
 <h1 align="center">ProxyPilot</h1>
