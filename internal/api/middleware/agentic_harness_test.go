@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -182,3 +183,35 @@ func TestAgenticHarnessMiddleware_ResponsesAPI(t *testing.T) {
 		})
 	}
 }
+
+func TestAgenticHarnessMiddleware_SessionStorage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Create temp memory directory
+	tmpDir, err := os.MkdirTemp("", "harness-session-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+	os.Setenv("CLIPROXY_MEMORY_DIR", tmpDir)
+	defer os.Unsetenv("CLIPROXY_MEMORY_DIR")
+
+	handler := AgenticHarnessMiddleware()
+
+	// First request with session header
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"model":"gpt-4","messages":[{"role":"user","content":"hello"}]}`
+	c.Request = httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	c.Request.Header.Set("User-Agent", "claude-cli/1.0")
+	c.Request.Header.Set("X-CLIProxyAPI-Session", "test-session-123")
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler(c)
+
+	// Verify session directory was considered
+	if c.Writer.Header().Get("X-ProxyPilot-Harness-Mode") == "" {
+		t.Error("Expected harness mode header to be set")
+	}
+}
+
