@@ -11,88 +11,62 @@
 </p>
 
 <p align="center">
-  <strong>Stop juggling API keys.</strong> ProxyPilot is a powerful API proxy server that lets you use your existing Claude Code, Codex, Gemini, Kiro, and Qwen subscriptions with any AI coding tool – one unified endpoint for all your AI providers.
+  <strong>Stop juggling API keys.</strong> ProxyPilot is a powerful API proxy that lets you use your existing Claude Code, Codex, Gemini, Kiro, and Qwen subscriptions with any AI coding tool – one unified endpoint for all your AI providers.
 </p>
-
-<p align="center">
-  Built on Go, it handles OAuth authentication, token management, and API translation automatically. One server to route them all.
-</p>
-
----
-
-> 📣 **Latest models supported:** Claude Opus 4.5 / Sonnet 4.5 with extended thinking, GPT-5.1 / GPT-5.1 Codex, Gemini 2.5 Pro/Flash, and Kiro (AWS CodeWhisperer)! 🚀
 
 ---
 
 ## Features
 
-- 🎯 **Multi-Provider Support** - Claude, OpenAI/Codex, Gemini, Kiro, Qwen, and custom endpoints
-- 🔄 **Protocol Translation** - Auto-converts between OpenAI, Anthropic, and Gemini API formats
-- 🔐 **OAuth Integration** - Browser-based OAuth flows with automatic token refresh
-- 👥 **Multi-Account Support** - Round-robin distribution and automatic failover
-- 📊 **Real-Time Streaming** - Full SSE support with configurable keep-alives
-- ⚡ **Smart Routing** - Per-credential model exclusions and quota handling
-- 🎨 **Management UI** - Built-in control panel for monitoring and configuration
-- 💾 **Self-Contained** - Single binary, no external dependencies
+### Core Proxy
 
-## Installation
+- **7 Auth Providers** - Claude, Codex (OpenAI), Gemini, Gemini CLI, Kiro (AWS CodeWhisperer), Qwen, iFlow
+- **Universal API Translation** - Auto-converts between OpenAI, Anthropic, and Gemini formats
+- **OAuth Integration** - Browser-based login with automatic token refresh
+- **Multi-Account Support** - Round-robin distribution across credentials
+- **Smart Routing** - Per-credential model exclusions, quota handling, automatic failover
+- **Streaming Support** - Full SSE with configurable keep-alives
 
-### Download Pre-built Release (Recommended)
+### Long-Context Features
 
-1. Go to [Releases](https://github.com/Finesssee/ProxyPilot/releases)
-2. Download the latest binary for your platform
-3. Run the server
+- **Context Compression** - LLM-based summarization when approaching context limits (Factory.ai research)
+- **Agentic Harness** - Guided workflow for long-running coding sessions (Anthropic research)
+- **Session Memory** - Persistent event storage across conversation turns
+- **Semantic Search** - Ollama-powered embeddings for memory retrieval
 
-### Build from Source
+### Desktop App (Windows)
 
-```bash
-# Clone the repository
-git clone https://github.com/Finesssee/ProxyPilot.git
-cd ProxyPilot
+- **Control Center** - Native WebView2 app with start/stop, live logs, diagnostics
+- **One-Click OAuth** - Login buttons for all providers
+- **Agent Detection** - Auto-detects Claude Code, Codex CLI, Factory Droid, Gemini CLI
+- **Model Mappings** - Visual UI for custom aliases
+- **System Tray** - Quick access from taskbar
 
-# Build the server
-go build -o proxypilot ./cmd/server
+### Management API
 
-# Run the server
-./proxypilot
-```
+- 60+ REST endpoints for configuration, credentials, routing, memory, and diagnostics
+- Built-in web dashboard at `/proxypilot.html`
+- Real-time log streaming
+- Usage statistics
 
-## Usage
+---
 
-### First Launch
+## Supported Providers
 
-1. Copy the example config: `cp config.example.yaml config.yaml`
-2. Run ProxyPilot: `./proxypilot`
-3. Server starts on `http://localhost:8317`
-4. Configure your AI tool to use the ProxyPilot endpoint
+| Provider | Auth Method | Models |
+|----------|-------------|--------|
+| Claude (Anthropic) | OAuth2 / API Key | Claude Opus 4.5, Sonnet 4.5, Haiku |
+| Codex (OpenAI) | OAuth2 / API Key | GPT-5.1, GPT-5.1 Codex, GPT-4.5 |
+| Gemini | OAuth2 / API Key | Gemini 2.5 Pro, 2.5 Flash |
+| Gemini CLI | OAuth2 | Cloud Code Assist models |
+| Kiro | OAuth2 + AWS SSO | AWS CodeWhisperer |
+| Qwen | OAuth2 | Qwen models |
+| iFlow | Cookie-based | Alibaba models |
+| Custom | API Key | Any OpenAI-compatible endpoint |
 
-### Authentication
+---
 
-**API Keys (Claude, OpenAI, Gemini):**
-```yaml
-claude-api-key:
-  - api-key: "sk-ant-..."
-
-codex-api-key:
-  - api-key: "sk-..."
-
-gemini-api-key:
-  - api-key: "AIzaSy..."
-```
-
-**OAuth Authentication:**
-
-For OAuth providers (Gemini CLI, Claude, Codex, Kiro), run the login command:
-```bash
-./proxypilot --claude-login    # Claude OAuth
-./proxypilot --codex-login     # OpenAI/Codex OAuth
-./proxypilot --login           # Gemini OAuth
-./proxypilot --kiro-login      # Kiro/AWS OAuth
-```
-
-Browser opens automatically. Tokens are stored and auto-refreshed.
-
-### API Endpoints
+## API Endpoints
 
 ```
 POST /v1/chat/completions     # OpenAI Chat Completions
@@ -102,46 +76,100 @@ GET  /v1/models               # List available models
 GET  /healthz                 # Health check
 ```
 
+All endpoints auto-translate between formats based on the target provider.
+
+---
+
+## Installation
+
+### Download Release
+
+1. Go to [Releases](https://github.com/Finesssee/ProxyPilot/releases)
+2. Download binary for your platform
+3. Run `./proxypilot`
+
+### Build from Source
+
+```bash
+git clone https://github.com/Finesssee/ProxyPilot.git
+cd ProxyPilot
+go build -o proxypilot ./cmd/server
+./proxypilot
+```
+
+---
+
+## Quick Start
+
+1. Copy config: `cp config.example.yaml config.yaml`
+2. Run: `./proxypilot`
+3. Server starts on `http://localhost:8317`
+4. Open dashboard: `http://localhost:8317/proxypilot.html`
+
+### OAuth Login
+
+```bash
+./proxypilot --claude-login    # Claude
+./proxypilot --codex-login     # OpenAI/Codex
+./proxypilot --login           # Gemini
+./proxypilot --kiro-login      # Kiro/AWS
+```
+
+### Configure Your Tool
+
+**Claude Code** (`~/.claude/settings.json`):
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8317",
+    "ANTHROPIC_AUTH_TOKEN": "your-api-key"
+  }
+}
+```
+
+**Codex CLI** (`~/.codex/config.toml`):
+```toml
+[openai]
+api_base_url = "http://127.0.0.1:8317"
+```
+
+---
+
 ## Configuration
 
-See [`config.example.yaml`](config.example.yaml) for the complete reference.
+See [`config.example.yaml`](config.example.yaml) for full reference.
 
 | Section | Description |
 |---------|-------------|
-| `host`, `port`, `tls` | Server binding and HTTPS settings |
-| `api-keys` | API keys for authenticating incoming requests |
-| `claude-api-key` | Claude/Anthropic credentials |
+| `host`, `port`, `tls` | Server binding |
+| `api-keys` | Keys for authenticating requests |
+| `claude-api-key` | Claude credentials |
 | `codex-api-key` | OpenAI/Codex credentials |
-| `gemini-api-key` | Google Gemini credentials |
-| `kiro` | Kiro (AWS CodeWhisperer) credentials |
-| `openai-compatibility` | Custom OpenAI-compatible providers |
-| `routing` | Credential selection strategy (round-robin, fill-first) |
-| `global-model-mappings` | Route model aliases across providers |
+| `gemini-api-key` | Gemini credentials |
+| `kiro` | AWS CodeWhisperer credentials |
+| `openai-compatibility` | Custom providers |
+| `routing` | Credential selection strategy |
+| `global-model-mappings` | Model aliases |
+
+---
 
 ## Requirements
 
-- Go 1.24+ (for building from source)
-- macOS, Linux, or Windows
+- Go 1.24+ (build from source)
+- Windows, macOS, or Linux
 
-## Credits
-
-ProxyPilot builds upon the excellent work of the open-source community. Special thanks to all contributors.
+---
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## Support
-
-- **Report Issues:** [GitHub Issues](https://github.com/Finesssee/ProxyPilot/issues)
-- **Contribute:** See [CONTRIBUTING.md](CONTRIBUTING.md)
+MIT License - see [LICENSE](LICENSE)
 
 ---
 
 ## Disclaimer
 
-This project is intended for educational and interoperability research purposes only. It interacts with various internal or undocumented APIs to provide compatibility layers.
+This project is for educational and interoperability research purposes. It interacts with various APIs to provide compatibility layers.
 
-- **Use at your own risk.** The authors are not responsible for any consequences arising from the use of this software, including but not limited to account suspensions or service interruptions.
-- This project is **not** affiliated with, endorsed by, or associated with Google, OpenAI, Anthropic, Amazon, or any other service provider mentioned.
-- Users are expected to comply with the Terms of Service of the respective platforms they connect to.
+- **Use at your own risk.** Authors are not responsible for account suspensions or service interruptions.
+- **Not affiliated** with Google, OpenAI, Anthropic, Amazon, or any other provider.
+- Users must comply with the Terms of Service of connected platforms.
