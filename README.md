@@ -23,7 +23,7 @@
 
 > [!TIP]
 > 📣 **Latest models supported:**
-> Claude Opus 4.5 / Sonnet 4.5 with extended thinking, GPT-5.1 / GPT-5.1 Codex, Gemini 3 Pro/Flash, and Kiro (AWS CodeWhisperer)! 🚀
+> Claude Opus 4.5 / Sonnet 4.5 with extended thinking, GPT-5.2 / GPT-5.2 Codex, Gemini 3 Pro/Flash, and Kiro (AWS CodeWhisperer)! 🚀
 
 **Setup Guides:**
 - [Claude Code Setup →](docs/claude-code-local-proxy.md)
@@ -54,7 +54,7 @@
 | Provider | Auth Method | Models |
 |----------|-------------|--------|
 | Claude (Anthropic) | OAuth2 / API Key | Claude Opus 4.5, Sonnet 4.5, Haiku 4.5 |
-| Codex (OpenAI) | OAuth2 / API Key | GPT-5.1, GPT-5.1 Codex, GPT-4.5 |
+| Codex (OpenAI) | OAuth2 / API Key | GPT-5.2, GPT-5.2 Codex |
 | Gemini | OAuth2 / API Key | Gemini 3 Pro, Gemini 3 Flash |
 | Gemini CLI | OAuth2 | Cloud Code Assist models |
 | Kiro | OAuth2 + AWS SSO | AWS CodeWhisperer |
