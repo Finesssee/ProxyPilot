@@ -22,10 +22,14 @@
 
 - **7 Auth Providers** - Claude, Codex (OpenAI), Gemini, Gemini CLI, Kiro (AWS CodeWhisperer), Qwen, iFlow
 - **Universal API Translation** - Auto-converts between OpenAI, Anthropic, and Gemini formats
+- **Tool Calling Repair** - Fixes tool/function call format mismatches between providers automatically
+- **Extended Thinking** - Full support for Claude and Gemini thinking models with budget configuration
 - **OAuth Integration** - Browser-based login with automatic token refresh
 - **Multi-Account Support** - Round-robin distribution across credentials
-- **Smart Routing** - Per-credential model exclusions, quota handling, automatic failover
+- **Smart Routing** - Per-credential model exclusions, automatic failover
+- **Quota Auto-Switch** - Automatically switches to backup project or model when quota exceeded
 - **Streaming Support** - Full SSE with configurable keep-alives
+- **Usage Statistics** - Track requests, tokens, and errors per provider/model
 
 ### Long-Context Features
 
@@ -38,16 +42,35 @@
 
 - **Control Center** - Native WebView2 app with start/stop, live logs, diagnostics
 - **One-Click OAuth** - Login buttons for all providers
-- **Agent Detection** - Auto-detects Claude Code, Codex CLI, Factory Droid, Gemini CLI
+- **Agent Detection** - Auto-detects and configures Claude Code, Codex CLI, Factory Droid, Gemini CLI
 - **Model Mappings** - Visual UI for custom aliases
 - **System Tray** - Quick access from taskbar
+
+### CLI Tools
+
+| Binary | Description |
+|--------|-------------|
+| `proxypilot` | Main API proxy server |
+| `proxypilotui` | Desktop control center (Windows) |
+| `cliproxytray` | System tray application (Windows) |
+| `proxypilotpack` | Build and packaging tool |
+
+### Tool Integrations
+
+Works with these AI coding tools out of the box:
+
+- **Claude Code** - Auto-configure via settings.json
+- **Codex CLI** - Auto-configure via config.toml
+- **Factory Droid** - Auto-configure via settings.json
+- **Cursor IDE** - Manual endpoint configuration
+- **Continue** - Manual endpoint configuration
 
 ### Management API
 
 - 60+ REST endpoints for configuration, credentials, routing, memory, and diagnostics
 - Built-in web dashboard at `/proxypilot.html`
 - Real-time log streaming
-- Usage statistics
+- Usage statistics and quota monitoring
 
 ---
 
@@ -131,6 +154,16 @@ go build -o proxypilot ./cmd/server
 ```toml
 [openai]
 api_base_url = "http://127.0.0.1:8317"
+```
+
+**Factory Droid** (`~/.factory/settings.json`):
+```json
+{
+  "customModels": [{
+    "name": "ProxyPilot",
+    "baseUrl": "http://127.0.0.1:8317"
+  }]
+}
 ```
 
 ---
