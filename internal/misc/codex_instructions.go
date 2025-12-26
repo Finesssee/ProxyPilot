@@ -5,7 +5,6 @@ package misc
 
 import (
 	"embed"
-	_ "embed"
 	"strings"
 )
 
