@@ -15,8 +15,8 @@ temp/*
 pgstore/*
 gitstore/*
 objectstore/*
-static/*
-!static/icon.png
+static/
+test/
 refs/*
 dist/*
 .proxypilot/*
