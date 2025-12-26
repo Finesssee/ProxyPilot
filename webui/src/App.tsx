@@ -66,6 +66,15 @@ const providers = [
   { id: 'iflow', name: 'iFlow', color: 'from-teal-500 to-cyan-600' },
 ]
 
+const downloadBlob = (blob: Blob, filename: string) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
 export default function App() {
   const [status, setStatus] = useState<ProxyStatus | null>(null);
   const [privateOAuth, setPrivateOAuth] = useState(false);
@@ -110,6 +119,7 @@ export default function App() {
   const [modelMappings, setModelMappings] = useState<any[]>([]);
   const [newMapping, setNewMapping] = useState({ from: '', to: '', provider: '' });
   const [editingMapping, setEditingMapping] = useState<number | null>(null);
+  const [editingMappingValues, setEditingMappingValues] = useState({ from: '', to: '', provider: '' });
   const [mappingTestInput, setMappingTestInput] = useState('');
   const [mappingTestResult, setMappingTestResult] = useState('');
 
@@ -486,12 +496,7 @@ export default function App() {
       throw new Error(msg);
     }
     const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `proxypilot-session-${memorySession}.zip`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, `proxypilot-session-${memorySession}.zip`);
   };
 
   const exportAllMemory = async () => {
@@ -504,12 +509,7 @@ export default function App() {
       throw new Error(msg);
     }
     const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'proxypilot-memory-all.zip';
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, 'proxypilot-memory-all.zip');
   };
 
   const deleteAllMemory = async () => {
@@ -1235,8 +1235,8 @@ export default function App() {
                                   <input
                                     type="text"
                                     className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
-                                    defaultValue={mapping.from}
-                                    id={`edit-from-${index}`}
+                                    value={editingMappingValues.from}
+                                    onChange={(e) => setEditingMappingValues(v => ({ ...v, from: e.target.value }))}
                                   />
                                 </td>
                                 <td className="px-3 py-2 text-muted-foreground">
@@ -1246,16 +1246,16 @@ export default function App() {
                                   <input
                                     type="text"
                                     className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
-                                    defaultValue={mapping.to}
-                                    id={`edit-to-${index}`}
+                                    value={editingMappingValues.to}
+                                    onChange={(e) => setEditingMappingValues(v => ({ ...v, to: e.target.value }))}
                                   />
                                 </td>
                                 <td className="px-3 py-2">
                                   <input
                                     type="text"
                                     className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
-                                    defaultValue={mapping.provider || ''}
-                                    id={`edit-provider-${index}`}
+                                    value={editingMappingValues.provider}
+                                    onChange={(e) => setEditingMappingValues(v => ({ ...v, provider: e.target.value }))}
                                   />
                                 </td>
                                 <td className="px-3 py-2">
@@ -1265,14 +1265,8 @@ export default function App() {
                                       variant="ghost"
                                       className="h-7 w-7 p-0"
                                       onClick={() => {
-                                        const fromEl = document.getElementById(`edit-from-${index}`) as HTMLInputElement;
-                                        const toEl = document.getElementById(`edit-to-${index}`) as HTMLInputElement;
-                                        const providerEl = document.getElementById(`edit-provider-${index}`) as HTMLInputElement;
-                                        updateModelMapping(index, {
-                                          from: fromEl?.value || '',
-                                          to: toEl?.value || '',
-                                          provider: providerEl?.value || '',
-                                        }).catch((e) => showToast(String(e), 'error'));
+                                        updateModelMapping(index, editingMappingValues)
+                                          .catch((e) => showToast(String(e), 'error'));
                                       }}
                                     >
                                       <Check className="h-4 w-4 text-green-500" />
@@ -1304,7 +1298,14 @@ export default function App() {
                                       size="sm"
                                       variant="ghost"
                                       className="h-7 w-7 p-0"
-                                      onClick={() => setEditingMapping(index)}
+                                      onClick={() => {
+                                        setEditingMapping(index);
+                                        setEditingMappingValues({
+                                          from: mapping.from || '',
+                                          to: mapping.to || '',
+                                          provider: mapping.provider || '',
+                                        });
+                                      }}
                                     >
                                       <Pencil className="h-4 w-4" />
                                     </Button>
