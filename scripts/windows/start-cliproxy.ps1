@@ -20,14 +20,6 @@ $configPath = Join-Path $repoRoot "config.yaml"
 $logsDir = Join-Path $repoRoot "logs"
 Ensure-Dir $logsDir
 
-# Ensure Microsoft Store Python user Scripts path is on PATH so Letta can be found.
-$pyScripts = Join-Path $env:USERPROFILE "AppData\\Local\\Packages\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\LocalCache\\local-packages\\Python313\\Scripts"
-if (Test-Path -LiteralPath $pyScripts) {
-  if ($env:Path -notlike "*$pyScripts*") {
-    $env:Path = "$pyScripts;$env:Path"
-  }
-}
-
 $stdoutLog = Join-Path $logsDir "proxypilot-engine.out.log"
 $stderrLog = Join-Path $logsDir "proxypilot-engine.err.log"
 
