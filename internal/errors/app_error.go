@@ -3,7 +3,6 @@ package errors
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 )
 
 // AppError represents a structured application error.
@@ -48,24 +47,3 @@ func New(statusCode int, code, message string, err error) *AppError {
 	}
 }
 
-// Common error constructors
-
-func BadRequest(message string, err error) *AppError {
-	return New(http.StatusBadRequest, "bad_request", message, err)
-}
-
-func Unauthorized(message string, err error) *AppError {
-	return New(http.StatusUnauthorized, "unauthorized", message, err)
-}
-
-func Forbidden(message string, err error) *AppError {
-	return New(http.StatusForbidden, "forbidden", message, err)
-}
-
-func NotFound(message string, err error) *AppError {
-	return New(http.StatusNotFound, "not_found", message, err)
-}
-
-func InternalServerError(message string, err error) *AppError {
-	return New(http.StatusInternalServerError, "internal_error", message, err)
-}
