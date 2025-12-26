@@ -169,3 +169,61 @@ func NewNoOpSummarizerExecutor() *NoOpSummarizerExecutor {
 func (n *NoOpSummarizerExecutor) Summarize(ctx context.Context, model string, prompt string) (string, error) {
 	return "", errors.New("summarization not available: no executor configured")
 }
+
+// CoreManagerExecutor defines the minimal interface for executing requests through
+// the core auth manager. This matches coreauth.Manager.Execute signature.
+type CoreManagerExecutor interface {
+	Execute(ctx context.Context, providers []string, req interface{}, opts interface{}) (interface{}, error)
+}
+
+// ManagerAuthAdapter wraps a CoreManagerExecutor to implement the AuthExecutor interface.
+// This adapter bridges the type differences between coreauth.Manager and the memory package.
+type ManagerAuthAdapter struct {
+	manager CoreManagerExecutor
+}
+
+// NewManagerAuthAdapter creates an adapter that wraps the given manager.
+// The manager must implement the CoreManagerExecutor interface (compatible with coreauth.Manager).
+func NewManagerAuthAdapter(manager CoreManagerExecutor) *ManagerAuthAdapter {
+	return &ManagerAuthAdapter{manager: manager}
+}
+
+// Execute implements AuthExecutor by delegating to the wrapped manager and extracting
+// the response payload.
+func (a *ManagerAuthAdapter) Execute(ctx context.Context, providers []string, req interface{}, opts interface{}) ([]byte, error) {
+	if a.manager == nil {
+		return nil, errors.New("manager auth adapter: manager not configured")
+	}
+
+	resp, err := a.manager.Execute(ctx, providers, req, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Handle nil response
+	if resp == nil {
+		return nil, errors.New("manager auth adapter: nil response from manager")
+	}
+
+	// Extract payload from response - try common response types
+	switch r := resp.(type) {
+	case []byte:
+		return r, nil
+	case interface{ GetPayload() []byte }:
+		return r.GetPayload(), nil
+	default:
+		// Try to access Payload field via reflection-like approach using JSON
+		// This handles cliproxyexecutor.Response which has a Payload []byte field
+		if data, err := json.Marshal(resp); err == nil {
+			var wrapper struct {
+				Payload []byte `json:"payload"`
+			}
+			if json.Unmarshal(data, &wrapper) == nil && wrapper.Payload != nil {
+				return wrapper.Payload, nil
+			}
+			// If no payload field, return the serialized response
+			return data, nil
+		}
+		return nil, fmt.Errorf("manager auth adapter: unsupported response type %T", resp)
+	}
+}
