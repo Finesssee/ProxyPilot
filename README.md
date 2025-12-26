@@ -188,8 +188,8 @@ ProxyPilot builds upon excellent work from the open-source community:
 
 Long-context features are inspired by research from the AI community:
 
-- **[Factory.ai](https://www.factory.ai/news/context-compression)** - Context compression techniques for long-running coding agents
-- **[Anthropic](https://www.anthropic.com/research/building-effective-agents)** - "Building Effective Agents" research for agentic harness design
+- **[Factory.ai](https://factory.ai/news/evaluating-compression)** - Context compression techniques for long-running coding agents
+- **[Anthropic](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)** - Effective harnesses for long-running agents
 
 Special thanks to these teams for sharing their work and insights.
 
