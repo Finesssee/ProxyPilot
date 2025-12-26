@@ -15,7 +15,8 @@ temp/*
 pgstore/*
 gitstore/*
 objectstore/*
-static/
+static/*
+!static/icon.png
 test/
 refs/*
 dist/*

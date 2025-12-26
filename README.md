@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./static/icon.png" width="128" height="128" alt="ProxyPilot Logo">
+</p>
+
 <h1 align="center">ProxyPilot</h1>
 
 <p align="center">
