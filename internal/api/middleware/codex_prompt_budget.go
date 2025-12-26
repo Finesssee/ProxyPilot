@@ -174,6 +174,17 @@ func SetSummarizerExecutor(executor memory.SummarizerExecutor) {
 	}
 }
 
+// InitSummarizerWithAuthManager configures LLM-based summarization using the core auth manager.
+// Call this after the auth manager is initialized to enable Factory.ai-style context compression.
+func InitSummarizerWithAuthManager(manager memory.CoreManagerExecutor, providers []string) {
+	if manager == nil {
+		return
+	}
+	adapter := memory.NewManagerAuthAdapter(manager)
+	executor := memory.NewPipelineSummarizerExecutor(adapter, providers)
+	SetSummarizerExecutor(executor)
+}
+
 func agenticSemanticEnabled() bool {
 	if v := strings.TrimSpace(os.Getenv("CLIPROXY_SEMANTIC_ENABLED")); v != "" {
 		if strings.EqualFold(v, "0") || strings.EqualFold(v, "false") || strings.EqualFold(v, "off") || strings.EqualFold(v, "no") {
