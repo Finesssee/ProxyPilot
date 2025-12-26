@@ -1,0 +1,80 @@
+name: Build Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g., 0.1.0)'
+        required: true
+        default: '0.1.0'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build WebUI
+        run: |
+          cd webui
+          npm ci
+          npm run build
+
+      - name: Build Windows binaries
+        run: |
+          mkdir -p dist
+          # Build tray app (includes embedded dashboard)
+          go build -ldflags="-s -w -H=windowsgui" -o dist/ProxyPilot.exe ./cmd/cliproxytray
+          # Build proxy engine
+          go build -ldflags="-s -w" -o dist/proxypilot-engine.exe ./cmd/server
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup -y
+
+      - name: Get version
+        id: version
+        run: |
+          if ("${{ github.event.inputs.version }}" -ne "") {
+            echo "VERSION=${{ github.event.inputs.version }}" >> $env:GITHUB_OUTPUT
+          } else {
+            $tag = "${{ github.ref_name }}"
+            $version = $tag -replace '^v', ''
+            echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Build Installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion="${{ steps.version.outputs.VERSION }}" installer\proxypilot.iss
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            dist/ProxyPilot.exe
+            dist/proxypilot-engine.exe
+            dist/ProxyPilot-*-Setup.exe
+
+      - name: Upload to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/ProxyPilot.exe
+            dist/proxypilot-engine.exe
+            dist/ProxyPilot-${{ steps.version.outputs.VERSION }}-Setup.exe
+            config.example.yaml
