@@ -60,12 +60,6 @@ func (e *AuthenticationError) Error() string {
 
 // Common authentication error types.
 var (
-	// ErrTokenExpired = &AuthenticationError{
-	// 	Type:    "token_expired",
-	// 	Message: "Access token has expired",
-	// 	Code:    http.StatusUnauthorized,
-	// }
-
 	// ErrInvalidState represents an error for invalid OAuth state parameter.
 	ErrInvalidState = &AuthenticationError{
 		Type:    "invalid_state",
