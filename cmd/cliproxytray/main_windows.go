@@ -22,9 +22,7 @@ import (
 	"github.com/getlantern/systray"
 	"github.com/jchv/go-webview2"
 	"github.com/router-for-me/CLIProxyAPI/v6/cmd/proxypilotui/assets"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/buildinfo"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/desktopctl"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/proxypilotupdate"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/trayicon"
 )
 
@@ -67,99 +65,43 @@ func run(repoRoot, configPath, exePath string) {
 		systray.SetTitle("ProxyPilot")
 		systray.SetTooltip("ProxyPilot")
 
-		statusItem := systray.AddMenuItem("Status: ...", "Current status")
-		statusItem.Disable()
+		// Minimal tray menu
+		openDashboard := systray.AddMenuItem("Open Dashboard", "Open ProxyPilot Dashboard")
 		systray.AddSeparator()
 
-		openProxyUI := systray.AddMenuItem("Open Dashboard", "Open ProxyPilot Control Center")
-
+		toggleItem := systray.AddMenuItem("Start", "Start/Stop proxy")
+		copyURLItem := systray.AddMenuItem("Copy API URL", "Copy http://127.0.0.1:8317/v1")
 		systray.AddSeparator()
 
-		// Engine submenu
-		engineMenu := systray.AddMenuItem("Engine", "Engine controls")
-		startItem := engineMenu.AddSubMenuItem("Start", "Start the ProxyPilot engine")
-		stopItem := engineMenu.AddSubMenuItem("Stop", "Stop the ProxyPilot engine")
-		restartItem := engineMenu.AddSubMenuItem("Restart", "Restart the ProxyPilot engine")
+		quitItem := systray.AddMenuItem("Quit", "Quit ProxyPilot")
 
-		// Connect submenu (VibeProxy-style easy setup)
-		connectMenu := systray.AddMenuItem("Connect", "Environment variables")
-		copyAnthropicEnv := connectMenu.AddSubMenuItem("Copy ANTHROPIC_BASE_URL", "Copy export ANTHROPIC_BASE_URL=http://127.0.0.1:8317/v1")
-		copyOpenAIEnv := connectMenu.AddSubMenuItem("Copy OPENAI_BASE_URL", "Copy export OPENAI_BASE_URL=http://127.0.0.1:8317/v1")
-		
-		// Settings submenu
-		settingsMenu := systray.AddMenuItem("Settings", "ProxyPilot settings")
-		autoOn, _, _ := desktopctl.IsWindowsRunAutostartEnabled(autostartAppName)
-		autoStartItem := settingsMenu.AddSubMenuItemCheckbox("Launch on login", "Start this tray app when you log in", autoOn)
+		// Auto-start proxy on launch if enabled
 		autoProxyOn, _ := desktopctl.GetAutoStartProxy()
-		autoStartProxyItem := settingsMenu.AddSubMenuItemCheckbox("Auto-start proxy", "Start the proxy server automatically", autoProxyOn)
-
-		// Tools submenu
-		toolsMenu := systray.AddMenuItem("Tools", "ProxyPilot tools")
-		openLogs := toolsMenu.AddSubMenuItem("Open Logs", "Open logs folder")
-		copyDiagnostics := toolsMenu.AddSubMenuItem("Copy Diagnostics", "Copy a support bundle to clipboard")
-		openLegacyUI := toolsMenu.AddSubMenuItem("Advanced UI", "Open management UI (advanced)")
-
-		// Updates submenu
-		updatesMenu := systray.AddMenuItem("Updates", "Check for updates")
-		checkUpdates := updatesMenu.AddSubMenuItem("Check for Updates", "Check GitHub Releases for a newer ProxyPilot")
-		updateNow := updatesMenu.AddSubMenuItem("Update ProxyPilot...", "Download and run the latest installer")
-		updateNow.Disable()
-
-		systray.AddSeparator()
-
-		quitItem := systray.AddMenuItem("Quit", "Quit")
-
-		lastErr := ""
-		var (
-			latestVersion string
-			assetName     string
-			assetURL      string
-		)
-		refresh := func() {
-			st, _ := desktopctl.StatusFor(configPath)
-			title := "Stopped"
-			if st.Running {
-				title = fmt.Sprintf("Running (:%d)", st.Port)
-			}
-			if st.LastError != "" && lastErr == "" {
-				lastErr = st.LastError
-			}
-			if lastErr != "" {
-				title = title + " - " + shorten(lastErr, 80)
-			}
-			statusItem.SetTitle("Status: " + title)
-			systray.SetTooltip("ProxyPilot - " + title)
-
-			if st.Running {
-				startItem.Disable()
-				stopItem.Enable()
-				restartItem.Enable()
-			} else {
-				startItem.Enable()
-				stopItem.Disable()
-				restartItem.Disable()
-			}
-		}
-
-		refresh()
-
-		// Optional: auto-start the proxy server on launch.
 		if autoProxyOn {
 			go func() {
 				st, _ := desktopctl.StatusFor(configPath)
-				if st.Running {
-					return
+				if !st.Running {
+					desktopctl.Start(desktopctl.StartOptions{RepoRoot: repoRoot, ConfigPath: configPath, ExePath: exePath})
 				}
-				_, err := desktopctl.Start(desktopctl.StartOptions{RepoRoot: repoRoot, ConfigPath: configPath, ExePath: exePath})
-				if err != nil {
-					lastErr = err.Error()
-				} else {
-					lastErr = ""
-				}
-				refresh()
 			}()
 		}
 
+		// Update UI based on status
+		refresh := func() {
+			st, _ := desktopctl.StatusFor(configPath)
+			if st.Running {
+				systray.SetTooltip(fmt.Sprintf("ProxyPilot - Running (:%d)", st.Port))
+				toggleItem.SetTitle("Stop")
+				toggleItem.SetTooltip("Stop the proxy")
+			} else {
+				systray.SetTooltip("ProxyPilot - Stopped")
+				toggleItem.SetTitle("Start")
+				toggleItem.SetTooltip("Start the proxy")
+			}
+		}
+		refresh()
+
+		// Refresh status periodically
 		go func() {
 			t := time.NewTicker(2 * time.Second)
 			defer t.Stop()
@@ -168,155 +110,22 @@ func run(repoRoot, configPath, exePath string) {
 			}
 		}()
 
+		// Handle clicks
 		go func() {
 			for {
 				select {
-				case <-startItem.ClickedCh:
-					_, err := desktopctl.Start(desktopctl.StartOptions{RepoRoot: repoRoot, ConfigPath: configPath, ExePath: exePath})
-					if err != nil {
-						lastErr = err.Error()
-						refresh()
-						continue
-					}
-					lastErr = ""
-					refresh()
-				case <-stopItem.ClickedCh:
-					if err := desktopctl.Stop(desktopctl.StopOptions{}); err != nil {
-						lastErr = err.Error()
-						refresh()
-						continue
-					}
-					lastErr = ""
-					refresh()
-				case <-restartItem.ClickedCh:
-					_, err := desktopctl.Restart(desktopctl.StartOptions{RepoRoot: repoRoot, ConfigPath: configPath, ExePath: exePath})
-					if err != nil {
-						lastErr = err.Error()
-						refresh()
-						continue
-					}
-					lastErr = ""
-					refresh()
-				case <-copyAnthropicEnv.ClickedCh:
-					_ = copyToClipboard(fmt.Sprintf("http://127.0.0.1:%d/v1", thinkingProxyPort))
-				case <-copyOpenAIEnv.ClickedCh:
-					_ = copyToClipboard(fmt.Sprintf("http://127.0.0.1:%d/v1", thinkingProxyPort))
-				case <-autoStartItem.ClickedCh:
-					if autoStartItem.Checked() {
-						_ = desktopctl.DisableWindowsRunAutostart(autostartAppName)
-						autoStartItem.Uncheck()
-						lastErr = ""
-						refresh()
-						continue
-					}
-					cmd, err := autostartCommand(repoRoot, configPath, exePath)
-					if err != nil {
-						lastErr = err.Error()
-						refresh()
-						continue
-					}
-					if err := desktopctl.EnableWindowsRunAutostart(autostartAppName, cmd); err != nil {
-						lastErr = err.Error()
-						refresh()
-						continue
-					}
-					autoStartItem.Check()
-					lastErr = ""
-					refresh()
-				case <-autoStartProxyItem.ClickedCh:
-					if autoStartProxyItem.Checked() {
-						_ = desktopctl.SetAutoStartProxy(false)
-						autoStartProxyItem.Uncheck()
-						lastErr = ""
-						refresh()
-						continue
-					}
-					_ = desktopctl.SetAutoStartProxy(true)
-					autoStartProxyItem.Check()
-					lastErr = ""
-					refresh()
-				case <-openProxyUI.ClickedCh:
-					if err := openProxyUIWithAutostart(repoRoot, configPath, exePath); err != nil {
-						lastErr = err.Error()
-						refresh()
-					} else {
-						lastErr = ""
-						refresh()
-					}
-				case <-openLegacyUI.ClickedCh:
+				case <-openDashboard.ClickedCh:
+					openProxyUIWithAutostart(repoRoot, configPath, exePath)
+				case <-toggleItem.ClickedCh:
 					st, _ := desktopctl.StatusFor(configPath)
-					if !st.Running || strings.TrimSpace(st.BaseURL) == "" {
-						lastErr = "proxy is not running"
-						refresh()
-						continue
-					}
-					_ = desktopctl.OpenBrowser(st.BaseURL + "/management.html?legacy=1")
-				case <-openLogs.ClickedCh:
-					if err := desktopctl.OpenLogsFolder(repoRoot, configPath); err != nil {
-						lastErr = err.Error()
-						refresh()
-					}
-				case <-copyDiagnostics.ClickedCh:
-					if err := copyDiagnosticsToClipboard(configPath); err != nil {
-						lastErr = err.Error()
+					if st.Running {
+						desktopctl.Stop(desktopctl.StopOptions{})
 					} else {
-						lastErr = "Diagnostics copied"
+						desktopctl.Start(desktopctl.StartOptions{RepoRoot: repoRoot, ConfigPath: configPath, ExePath: exePath})
 					}
 					refresh()
-				case <-checkUpdates.ClickedCh:
-					go func() {
-						ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-						defer cancel()
-						rel, err := proxypilotupdate.FetchLatestRelease(ctx)
-						if err != nil {
-							lastErr = err.Error()
-							refresh()
-							return
-						}
-						latestVersion = rel.Version()
-						assetName, assetURL = rel.FindPreferredAsset()
-						if strings.TrimSpace(assetURL) == "" {
-							lastErr = "no ProxyPilot asset found in latest release"
-							refresh()
-							return
-						}
-						// If this build is already tagged, avoid prompting unnecessarily.
-						if buildinfo.Version != "" && buildinfo.Version != "dev" && strings.EqualFold(buildinfo.Version, latestVersion) {
-							lastErr = "Up to date (" + latestVersion + ")"
-							updateNow.Disable()
-							refresh()
-							return
-						}
-						updateNow.SetTitle("Update ProxyPilot... (" + latestVersion + ")")
-						updateNow.Enable()
-						lastErr = "Update available (" + latestVersion + ")"
-						refresh()
-					}()
-				case <-updateNow.ClickedCh:
-					if strings.TrimSpace(assetURL) == "" {
-						lastErr = "no update asset URL (run Check for Updates)"
-						refresh()
-						continue
-					}
-					go func() {
-						dest := filepath.Join(os.TempDir(), "ProxyPilot-"+sanitizeFileName(latestVersion)+"-"+sanitizeFileName(assetName))
-						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-						defer cancel()
-						updateNow.SetTitle("Updating...")
-						lastErr = "Downloading update..."
-						refresh()
-						if err := proxypilotupdate.DownloadToFile(ctx, assetURL, dest); err != nil {
-							lastErr = err.Error()
-							updateNow.SetTitle("Update ProxyPilot...")
-							refresh()
-							return
-						}
-						// Run installer/zip handler and exit ProxyPilot so files can be replaced.
-						lastErr = "Launching installer..."
-						refresh()
-						_ = launchUpdate(dest)
-						systray.Quit()
-					}()
+				case <-copyURLItem.ClickedCh:
+					copyToClipboard(fmt.Sprintf("http://127.0.0.1:%d/v1", thinkingProxyPort))
 				case <-quitItem.ClickedCh:
 					systray.Quit()
 					return
