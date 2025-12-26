@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -19,6 +20,8 @@ import (
 	"time"
 
 	"github.com/getlantern/systray"
+	"github.com/jchv/go-webview2"
+	"github.com/router-for-me/CLIProxyAPI/v6/cmd/proxypilotui/assets"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/buildinfo"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/desktopctl"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/proxypilotupdate"
@@ -28,7 +31,19 @@ import (
 const autostartAppName = "ProxyPilot"
 const thinkingProxyPort = 8317
 
+var assetServerURL string
+
 func main() {
+	// Start embedded asset server for the dashboard UI
+	assetLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err == nil {
+		assetServerURL = "http://" + assetLn.Addr().String()
+		go func() {
+			fsys, _ := fs.Sub(assets.FS, ".")
+			http.Serve(assetLn, http.FileServer(http.FS(fsys)))
+		}()
+	}
+
 	var repoRoot string
 	var configPath string
 	var exePath string
@@ -392,44 +407,117 @@ type ioCloser interface {
 }
 
 func openProxyUIWithAutostart(repoRoot, configPath, exePath string) error {
-	// Prefer opening the desktop window if the UI binary exists next to this tray app.
-	if exe, err := os.Executable(); err == nil && strings.TrimSpace(exe) != "" {
-		dir := filepath.Dir(filepath.Clean(exe))
-		uiExe := filepath.Join(dir, "ProxyPilotUI.exe")
-		if _, err := os.Stat(uiExe); err == nil {
-			args := []string{}
-			if strings.TrimSpace(repoRoot) != "" {
-				args = append(args, "-repo", repoRoot)
-			}
-			if strings.TrimSpace(configPath) != "" {
-				args = append(args, "-config", configPath)
-			}
-			if strings.TrimSpace(exePath) != "" {
-				args = append(args, "-exe", exePath)
-			}
-			return exec.Command(uiExe, args...).Start()
-		}
-	}
-	// Fallback: open browser to the management UI (starts proxy if needed).
+	// Start proxy if not running
 	st, _ := desktopctl.StatusFor(configPath)
 	if !st.Running {
 		if _, err := desktopctl.Start(desktopctl.StartOptions{RepoRoot: repoRoot, ConfigPath: configPath, ExePath: exePath}); err != nil {
+			// Continue anyway to show UI
+		}
+	}
+
+	// Open embedded WebView2 dashboard
+	go func() {
+		openEmbeddedDashboard(configPath)
+	}()
+	return nil
+}
+
+func openEmbeddedDashboard(configPath string) {
+	target := assetServerURL + "/index.html"
+	if assetServerURL == "" {
+		// Fallback to browser if asset server failed
+		st, _ := desktopctl.StatusFor(configPath)
+		if st.Running && strings.TrimSpace(st.BaseURL) != "" {
+			_ = desktopctl.OpenBrowser(st.BaseURL + "/proxypilot.html")
+		}
+		return
+	}
+
+	w := webview2.NewWithOptions(webview2.WebViewOptions{
+		Debug:     true,
+		AutoFocus: true,
+		WindowOptions: webview2.WindowOptions{
+			Title:  "ProxyPilot",
+			Width:  1200,
+			Height: 850,
+			Center: true,
+		},
+	})
+	if w == nil {
+		// Fallback to browser
+		_ = desktopctl.OpenBrowser(target)
+		return
+	}
+	defer w.Destroy()
+
+	// Bind desktop functions for the React UI
+	_ = w.Bind("pp_status", func() (map[string]any, error) {
+		cur, _ := desktopctl.StatusFor(configPath)
+		return map[string]any{
+			"running":    cur.Running,
+			"port":       cur.Port,
+			"base_url":   cur.BaseURL,
+			"last_error": cur.LastError,
+		}, nil
+	})
+	_ = w.Bind("pp_start", func() error {
+		_, err := desktopctl.Start(desktopctl.StartOptions{ConfigPath: configPath})
+		return err
+	})
+	_ = w.Bind("pp_stop", func() error { return desktopctl.Stop(desktopctl.StopOptions{}) })
+	_ = w.Bind("pp_restart", func() error {
+		_, err := desktopctl.Restart(desktopctl.StartOptions{ConfigPath: configPath})
+		return err
+	})
+	_ = w.Bind("pp_open_logs", func() error { return desktopctl.OpenLogsFolder("", configPath) })
+	_ = w.Bind("pp_open_auth_folder", func() error {
+		dir, err := desktopctl.AuthDirFor(configPath)
+		if err != nil {
 			return err
 		}
-		deadline := time.Now().Add(3 * time.Second)
-		for time.Now().Before(deadline) {
-			st2, _ := desktopctl.StatusFor(configPath)
-			if st2.Running {
-				break
-			}
-			time.Sleep(150 * time.Millisecond)
+		return desktopctl.OpenFolder(dir)
+	})
+	_ = w.Bind("pp_get_oauth_private", func() (bool, error) { return desktopctl.GetOAuthPrivate() })
+	_ = w.Bind("pp_set_oauth_private", func(enabled bool) error { return desktopctl.SetOAuthPrivate(enabled) })
+	_ = w.Bind("pp_oauth", func(provider string) error { return startOAuthFlow(configPath, getOAuthEndpoint(provider)) })
+	_ = w.Bind("pp_copy_diagnostics", func() error { return copyDiagnosticsToClipboard(configPath) })
+	_ = w.Bind("pp_get_management_key", func() (string, error) { return desktopctl.GetManagementPassword() })
+	_ = w.Bind("pp_open_legacy_ui", func() error {
+		cur, _ := desktopctl.StatusFor(configPath)
+		if !cur.Running {
+			return fmt.Errorf("proxy not running")
 		}
+		return desktopctl.OpenBrowser(cur.BaseURL + "/management.html?legacy=1")
+	})
+	_ = w.Bind("pp_open_diagnostics", func() error {
+		cur, _ := desktopctl.StatusFor(configPath)
+		if !cur.Running {
+			return fmt.Errorf("proxy not running")
+		}
+		return desktopctl.OpenBrowser(cur.BaseURL + "/proxypilot.html")
+	})
+
+	w.Navigate(target)
+	w.Run()
+}
+
+func getOAuthEndpoint(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "antigravity":
+		return "/v0/management/antigravity-auth-url"
+	case "gemini-cli", "geminicli":
+		return "/v0/management/gemini-cli-auth-url"
+	case "codex":
+		return "/v0/management/codex-auth-url"
+	case "claude", "anthropic":
+		return "/v0/management/anthropic-auth-url"
+	case "qwen":
+		return "/v0/management/qwen-auth-url"
+	case "iflow":
+		return "/v0/management/iflow-auth-url"
+	default:
+		return ""
 	}
-	st, _ = desktopctl.StatusFor(configPath)
-	if strings.TrimSpace(st.BaseURL) == "" {
-		return fmt.Errorf("proxy base URL not available")
-	}
-	return desktopctl.OpenBrowser(st.BaseURL + "/proxypilot.html")
 }
 
 func shorten(s string, max int) string {
