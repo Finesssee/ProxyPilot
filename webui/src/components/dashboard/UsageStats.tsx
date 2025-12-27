@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useProxyContext } from '@/hooks/useProxyContext'
-import { Loader2, BarChart3, Activity, Zap, DollarSign, PieChart } from 'lucide-react'
+import { Loader2, BarChart3, Activity, Zap, DollarSign, PieChart, TrendingDown, Sparkles } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 interface DailyUsage {
     date: string
@@ -18,8 +19,14 @@ interface UsageData {
     total_input_tokens: number
     total_output_tokens: number
     estimated_cost_saved: number
+    actual_cost: number
+    direct_api_cost: number
+    savings: number
+    savings_percent: number
     by_model: Record<string, number>
     by_provider: Record<string, number>
+    cost_by_model: Record<string, number>
+    cost_by_provider: Record<string, number>
     daily: DailyUsage[]
 }
 
@@ -45,14 +52,20 @@ export function UsageStats() {
             if (usageData && typeof usageData === 'object') {
                 // Ensure all required fields have defaults
                 setData({
-                    total_requests: usageData.total_requests ?? 0,
-                    success_count: usageData.success_count ?? 0,
-                    failure_count: usageData.failure_count ?? 0,
-                    total_input_tokens: usageData.total_input_tokens ?? 0,
-                    total_output_tokens: usageData.total_output_tokens ?? 0,
-                    estimated_cost_saved: usageData.estimated_cost_saved ?? 0,
-                    by_model: usageData.by_model ?? {},
-                    by_provider: usageData.by_provider ?? {},
+                    total_requests: usageData.total_requests ?? usageData.totalRequests ?? 0,
+                    success_count: usageData.success_count ?? usageData.successCount ?? 0,
+                    failure_count: usageData.failure_count ?? usageData.failureCount ?? 0,
+                    total_input_tokens: usageData.total_input_tokens ?? usageData.totalInputTokens ?? 0,
+                    total_output_tokens: usageData.total_output_tokens ?? usageData.totalOutputTokens ?? 0,
+                    estimated_cost_saved: usageData.estimated_cost_saved ?? usageData.estimatedCostSaved ?? 0,
+                    actual_cost: usageData.actual_cost ?? usageData.actualCost ?? 0,
+                    direct_api_cost: usageData.direct_api_cost ?? usageData.directApiCost ?? 0,
+                    savings: usageData.savings ?? 0,
+                    savings_percent: usageData.savings_percent ?? usageData.savingsPercent ?? 0,
+                    by_model: usageData.by_model ?? usageData.byModel ?? {},
+                    by_provider: usageData.by_provider ?? usageData.byProvider ?? {},
+                    cost_by_model: usageData.cost_by_model ?? usageData.costByModel ?? {},
+                    cost_by_provider: usageData.cost_by_provider ?? usageData.costByProvider ?? {},
                     daily: usageData.daily ?? [],
                 })
                 setError(null)
@@ -106,6 +119,72 @@ export function UsageStats() {
 
     return (
         <div className="space-y-6">
+            {/* Cost Savings Hero Card */}
+            {(data.direct_api_cost > 0 || data.actual_cost > 0) && (
+                <Card className={cn(
+                    "relative overflow-hidden",
+                    "bg-gradient-to-br from-emerald-500/10 via-teal-500/5 to-cyan-500/10",
+                    "border-emerald-500/30 shadow-xl shadow-emerald-500/5"
+                )}>
+                    <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-emerald-400/10 via-transparent to-transparent" />
+                    <CardHeader className="relative pb-2">
+                        <div className="flex items-center gap-2">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/20 ring-1 ring-emerald-500/30">
+                                <TrendingDown className="h-5 w-5 text-emerald-400" />
+                            </div>
+                            <div>
+                                <CardTitle className="text-lg text-emerald-100">Cost Savings</CardTitle>
+                                <CardDescription className="text-emerald-300/70">ProxyPilot vs Direct API</CardDescription>
+                            </div>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="relative">
+                        <div className="grid gap-6 md:grid-cols-3">
+                            {/* Savings Amount */}
+                            <div className="space-y-1">
+                                <p className="text-xs font-medium uppercase tracking-wider text-emerald-300/60">You Saved</p>
+                                <div className="flex items-baseline gap-2">
+                                    <span className="text-3xl font-bold text-emerald-400">${data.savings.toFixed(2)}</span>
+                                    {data.savings_percent > 0 && (
+                                        <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-medium text-emerald-300">
+                                            {data.savings_percent.toFixed(0)}% off
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Cost Comparison Bar */}
+                            <div className="md:col-span-2 space-y-3">
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between text-xs">
+                                        <span className="text-muted-foreground">Direct API Cost</span>
+                                        <span className="font-medium text-red-400">${data.direct_api_cost.toFixed(2)}</span>
+                                    </div>
+                                    <div className="h-3 w-full overflow-hidden rounded-full bg-red-500/20">
+                                        <div className="h-full bg-red-500/60" style={{ width: '100%' }} />
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between text-xs">
+                                        <span className="flex items-center gap-1 text-muted-foreground">
+                                            <Sparkles className="h-3 w-3 text-emerald-400" />
+                                            ProxyPilot Cost
+                                        </span>
+                                        <span className="font-medium text-emerald-400">${data.actual_cost.toFixed(2)}</span>
+                                    </div>
+                                    <div className="h-3 w-full overflow-hidden rounded-full bg-emerald-500/20">
+                                        <div
+                                            className="h-full bg-emerald-500/60 transition-all"
+                                            style={{ width: data.direct_api_cost > 0 ? `${(data.actual_cost / data.direct_api_cost) * 100}%` : '0%' }}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
             {/* KPI Cards */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <Card className="backdrop-blur-sm bg-card/60 border-border/50 shadow-xl">
@@ -145,12 +224,12 @@ export function UsageStats() {
 
                 <Card className="backdrop-blur-sm bg-card/60 border-border/50 shadow-xl">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Est. Savings</CardTitle>
+                        <CardTitle className="text-sm font-medium">Total Cost</CardTitle>
                         <DollarSign className="h-4 w-4 text-purple-400" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">${data.estimated_cost_saved.toFixed(2)}</div>
-                        <p className="text-xs text-muted-foreground">Based on public rates</p>
+                        <div className="text-2xl font-bold">${data.actual_cost.toFixed(2)}</div>
+                        <p className="text-xs text-muted-foreground">Based on model pricing</p>
                     </CardContent>
                 </Card>
             </div>
@@ -230,7 +309,7 @@ export function UsageStats() {
             <Card className="backdrop-blur-sm bg-card/60 border-border/50 shadow-xl">
                 <CardHeader>
                     <CardTitle className="text-lg">Model Breakdown</CardTitle>
-                    <CardDescription>Usage statistics per model</CardDescription>
+                    <CardDescription>Usage and cost statistics per model</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <div className="overflow-hidden rounded-md border border-border/50">
@@ -240,23 +319,30 @@ export function UsageStats() {
                                     <th className="px-4 py-3 text-left font-medium">Model</th>
                                     <th className="px-4 py-3 text-right font-medium">Requests</th>
                                     <th className="px-4 py-3 text-right font-medium">Share</th>
+                                    <th className="px-4 py-3 text-right font-medium">Cost</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-border/40">
                                 {Object.entries(data.by_model)
                                     .sort((a, b) => b[1] - a[1])
-                                    .map(([model, count]) => (
-                                        <tr key={model} className="hover:bg-muted/20 transition-colors">
-                                            <td className="px-4 py-3 font-mono text-xs">{model}</td>
-                                            <td className="px-4 py-3 text-right">{count.toLocaleString()}</td>
-                                            <td className="px-4 py-3 text-right text-muted-foreground">
-                                                {((count / data.total_requests) * 100).toFixed(1)}%
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    .map(([model, count]) => {
+                                        const cost = data.cost_by_model?.[model] ?? 0
+                                        return (
+                                            <tr key={model} className="hover:bg-muted/20 transition-colors">
+                                                <td className="px-4 py-3 font-mono text-xs">{model}</td>
+                                                <td className="px-4 py-3 text-right">{count.toLocaleString()}</td>
+                                                <td className="px-4 py-3 text-right text-muted-foreground">
+                                                    {((count / data.total_requests) * 100).toFixed(1)}%
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-medium text-emerald-400">
+                                                    ${cost.toFixed(4)}
+                                                </td>
+                                            </tr>
+                                        )
+                                    })}
                                 {Object.keys(data.by_model).length === 0 && (
                                     <tr>
-                                        <td colSpan={3} className="px-4 py-8 text-center text-muted-foreground">
+                                        <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
                                             No model usage recorded yet.
                                         </td>
                                     </tr>
