@@ -130,6 +130,7 @@ func main() {
 		cur, _ := desktopctl.StatusFor(configPath)
 		return map[string]any{
 			"running":          cur.Running,
+			"version":          cur.Version,
 			"port":             cur.Port,
 			"thinking_port":    cur.ThinkingPort,
 			"thinking_running": cur.ThinkingRunning,
@@ -192,6 +193,31 @@ func main() {
 	})
 	_ = w.Bind("pp_copy_diagnostics", func() error { return copyDiagnosticsToClipboard(configPath) })
 	_ = w.Bind("pp_get_management_key", func() (string, error) { return desktopctl.GetManagementPassword() })
+
+	_ = w.Bind("pp_check_updates", func() (map[string]any, error) {
+		st, _ := desktopctl.StatusFor(configPath)
+		if !st.Running {
+			return nil, fmt.Errorf("proxy not running")
+		}
+		key, _ := desktopctl.GetManagementPassword()
+		client := &http.Client{Timeout: 10 * time.Second}
+		req, _ := http.NewRequest("GET", st.BaseURL+"/v0/management/updates/check", nil)
+		req.Header.Set("X-Management-Key", key)
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		var res map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+			return nil, err
+		}
+		return res, nil
+	})
+
+	_ = w.Bind("pp_download_update", func(url string) error {
+		return desktopctl.OpenBrowser(url)
+	})
 
 	// Integration bindings
 	_ = w.Bind("pp_get_integrations", func() ([]map[string]any, error) {

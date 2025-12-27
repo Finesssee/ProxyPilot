@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -22,14 +23,26 @@ import (
 	"github.com/getlantern/systray"
 	"github.com/jchv/go-webview2"
 	"github.com/router-for-me/CLIProxyAPI/v6/cmd/proxypilotui/assets"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/api/middleware"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/desktopctl"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/integrations"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
+	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/translator"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/trayicon"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/updates"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
+	configaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access/config"
+	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
 )
 
 const autostartAppName = "ProxyPilot"
 const thinkingProxyPort = 8317
 
 var assetServerURL string
+var dashboardMu sync.Mutex
+var dashboardOpen bool
 
 func main() {
 	// Start embedded asset server for the dashboard UI
@@ -55,8 +68,33 @@ func main() {
 }
 
 func run(repoRoot, configPath, exePath string) {
+	// Initialize logging
+	logging.SetupBaseLogger()
+
+	// Load config
+	cfg, err := config.LoadConfigOptional(configPath, false)
+	if err == nil && cfg != nil {
+		logging.ConfigureLogOutput(cfg.LoggingToFile, cfg.LogsMaxTotalSizeMB)
+		util.SetLogLevel(cfg)
+	}
+	if cfg == nil {
+		cfg = &config.Config{Port: 8318} // Default config if load fails
+	}
+
+	// Register token store
+	sdkAuth.RegisterTokenStore(sdkAuth.NewFileTokenStore())
+
+	// Register access providers
+	configaccess.Register()
+
+	// Create embedded engine (will be used instead of desktopctl)
+	engine := NewEmbeddedEngine()
+
+	// Get or create management password
+	password, _ := desktopctl.GetManagementPassword()
+
 	systray.Run(func() {
-		thinkingProxy := startThinkingProxy(configPath)
+		thinkingProxy := startThinkingProxy(engine)
 		defer thinkingProxy.Close()
 
 		if ico := trayicon.ProxyPilotICO(); len(ico) > 0 {
@@ -65,37 +103,70 @@ func run(repoRoot, configPath, exePath string) {
 		systray.SetTitle("ProxyPilot")
 		systray.SetTooltip("ProxyPilot")
 
-		// Minimal tray menu
-		openDashboard := systray.AddMenuItem("Open Dashboard", "Open ProxyPilot Dashboard")
+		// Header
+		systray.AddMenuItem("ProxyPilot", "ProxyPilot").Disable()
 		systray.AddSeparator()
 
-		toggleItem := systray.AddMenuItem("Start", "Start/Stop proxy")
+		// Status display item (disabled, updated dynamically)
+		statusItem := systray.AddMenuItem("○ Stopped", "Current proxy status")
+		statusItem.Disable()
+		systray.AddSeparator()
+
+		// Main actions
+		openDashboard := systray.AddMenuItem("Open Dashboard", "Open ProxyPilot Dashboard")
+		toggleItem := systray.AddMenuItem("Start Proxy", "Start/Stop proxy")
 		copyURLItem := systray.AddMenuItem("Copy API URL", "Copy http://127.0.0.1:8317/v1")
 		systray.AddSeparator()
 
+		// Providers submenu
+		providersMenu := systray.AddMenuItem("Providers", "Provider status")
+		claudeItem := providersMenu.AddSubMenuItem("○ Claude - Inactive", "Claude provider status")
+		geminiItem := providersMenu.AddSubMenuItem("○ Gemini - Inactive", "Gemini provider status")
+		codexItem := providersMenu.AddSubMenuItem("○ Codex - Inactive", "Codex provider status")
+		qwenItem := providersMenu.AddSubMenuItem("○ Qwen - Inactive", "Qwen provider status")
+		anthropicItem := providersMenu.AddSubMenuItem("○ Anthropic - Inactive", "Anthropic provider status")
+		// Disable provider items (they're informational only for now)
+		claudeItem.Disable()
+		geminiItem.Disable()
+		codexItem.Disable()
+		qwenItem.Disable()
+		anthropicItem.Disable()
+
+		// Diagnostics submenu
+		diagMenu := systray.AddMenuItem("Diagnostics", "Diagnostic tools")
+		copyDiagItem := diagMenu.AddSubMenuItem("Copy Diagnostics", "Copy diagnostics to clipboard")
+		openLogsItem := diagMenu.AddSubMenuItem("Open Logs Folder", "Open logs folder in explorer")
+		openAuthItem := diagMenu.AddSubMenuItem("Open Auth Folder", "Open auth folder in explorer")
+
+		systray.AddSeparator()
 		quitItem := systray.AddMenuItem("Quit", "Quit ProxyPilot")
 
 		// Auto-start proxy on launch if enabled
 		autoProxyOn, _ := desktopctl.GetAutoStartProxy()
 		if autoProxyOn {
 			go func() {
-				st, _ := desktopctl.StatusFor(configPath)
-				if !st.Running {
-					desktopctl.Start(desktopctl.StartOptions{RepoRoot: repoRoot, ConfigPath: configPath, ExePath: exePath})
+				if !engine.IsRunning() {
+					engine.Start(cfg, configPath, password)
 				}
 			}()
 		}
 
 		// Update UI based on status
 		refresh := func() {
-			st, _ := desktopctl.StatusFor(configPath)
+			st := engine.Status()
 			if st.Running {
-				systray.SetTooltip(fmt.Sprintf("ProxyPilot - Running (:%d)", st.Port))
-				toggleItem.SetTitle("Stop")
+				port := st.Port
+				if port <= 0 {
+					port = 8318
+				}
+				statusItem.SetTitle(fmt.Sprintf("● Running on :%d", port))
+				systray.SetTooltip(fmt.Sprintf("ProxyPilot - Running (:%d)", port))
+				toggleItem.SetTitle("Stop Proxy")
 				toggleItem.SetTooltip("Stop the proxy")
 			} else {
+				statusItem.SetTitle("○ Stopped")
 				systray.SetTooltip("ProxyPilot - Stopped")
-				toggleItem.SetTitle("Start")
+				toggleItem.SetTitle("Start Proxy")
 				toggleItem.SetTooltip("Start the proxy")
 			}
 		}
@@ -115,17 +186,24 @@ func run(repoRoot, configPath, exePath string) {
 			for {
 				select {
 				case <-openDashboard.ClickedCh:
-					openProxyUIWithAutostart(repoRoot, configPath, exePath)
+					openProxyUIWithAutostart(engine, cfg, configPath, password)
 				case <-toggleItem.ClickedCh:
-					st, _ := desktopctl.StatusFor(configPath)
-					if st.Running {
-						desktopctl.Stop(desktopctl.StopOptions{})
+					if engine.IsRunning() {
+						engine.Stop()
 					} else {
-						desktopctl.Start(desktopctl.StartOptions{RepoRoot: repoRoot, ConfigPath: configPath, ExePath: exePath})
+						engine.Start(cfg, configPath, password)
 					}
 					refresh()
 				case <-copyURLItem.ClickedCh:
 					copyToClipboard(fmt.Sprintf("http://127.0.0.1:%d/v1", thinkingProxyPort))
+				case <-copyDiagItem.ClickedCh:
+					copyDiagnosticsToClipboard(engine)
+				case <-openLogsItem.ClickedCh:
+					desktopctl.OpenLogsFolder(repoRoot, configPath)
+				case <-openAuthItem.ClickedCh:
+					if dir, err := desktopctl.AuthDirFor(configPath); err == nil {
+						desktopctl.OpenFolder(dir)
+					}
 				case <-quitItem.ClickedCh:
 					systray.Quit()
 					return
@@ -139,7 +217,7 @@ type closeFn func() error
 
 func (c closeFn) Close() error { return c() }
 
-func startThinkingProxy(configPath string) ioCloser {
+func startThinkingProxy(engine *EmbeddedEngine) ioCloser {
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", thinkingProxyPort))
 	if err != nil {
 		// Best effort: don't crash the tray app if the port is already taken.
@@ -154,7 +232,7 @@ func startThinkingProxy(configPath string) ioCloser {
 	)
 
 	getProxy := func() (*httputil.ReverseProxy, *url.URL) {
-		st, _ := desktopctl.StatusFor(configPath)
+		st := engine.Status()
 		port := st.Port
 		if port <= 0 {
 			port = 8318
@@ -215,27 +293,57 @@ type ioCloser interface {
 	Close() error
 }
 
-func openProxyUIWithAutostart(repoRoot, configPath, exePath string) error {
+func openProxyUIWithAutostart(engine *EmbeddedEngine, cfg *config.Config, configPath, password string) error {
 	// Start proxy if not running
-	st, _ := desktopctl.StatusFor(configPath)
-	if !st.Running {
-		if _, err := desktopctl.Start(desktopctl.StartOptions{RepoRoot: repoRoot, ConfigPath: configPath, ExePath: exePath}); err != nil {
+	if !engine.IsRunning() {
+		if err := engine.Start(cfg, configPath, password); err != nil {
 			// Continue anyway to show UI
 		}
 	}
 
 	// Open embedded WebView2 dashboard
 	go func() {
-		openEmbeddedDashboard(configPath)
+		openEmbeddedDashboard(engine, cfg, configPath, password)
 	}()
 	return nil
 }
 
-func openEmbeddedDashboard(configPath string) {
+func openEmbeddedDashboard(engine *EmbeddedEngine, cfg *config.Config, configPath, password string) {
+	// Lock this goroutine to an OS thread - required for Windows COM/GUI operations
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	// Prevent opening multiple dashboard windows
+	dashboardMu.Lock()
+	if dashboardOpen {
+		dashboardMu.Unlock()
+		return
+	}
+	dashboardOpen = true
+	dashboardMu.Unlock()
+
+	defer func() {
+		dashboardMu.Lock()
+		dashboardOpen = false
+		dashboardMu.Unlock()
+	}()
+
+	// Recover from any panics to prevent the tray app from crashing
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "WebView2 panic: %v\n", r)
+			// Try to open in browser as fallback
+			st := engine.Status()
+			if st.Running && strings.TrimSpace(st.BaseURL) != "" {
+				_ = desktopctl.OpenBrowser(st.BaseURL + "/proxypilot.html")
+			}
+		}
+	}()
+
 	target := assetServerURL + "/index.html"
 	if assetServerURL == "" {
 		// Fallback to browser if asset server failed
-		st, _ := desktopctl.StatusFor(configPath)
+		st := engine.Status()
 		if st.Running && strings.TrimSpace(st.BaseURL) != "" {
 			_ = desktopctl.OpenBrowser(st.BaseURL + "/proxypilot.html")
 		}
@@ -253,7 +361,8 @@ func openEmbeddedDashboard(configPath string) {
 		},
 	})
 	if w == nil {
-		// Fallback to browser
+		// Fallback to browser - WebView2 runtime may not be installed
+		fmt.Fprintf(os.Stderr, "WebView2 failed to initialize, falling back to browser\n")
 		_ = desktopctl.OpenBrowser(target)
 		return
 	}
@@ -261,7 +370,7 @@ func openEmbeddedDashboard(configPath string) {
 
 	// Bind desktop functions for the React UI
 	_ = w.Bind("pp_status", func() (map[string]any, error) {
-		cur, _ := desktopctl.StatusFor(configPath)
+		cur := engine.Status()
 		return map[string]any{
 			"running":    cur.Running,
 			"port":       cur.Port,
@@ -270,13 +379,11 @@ func openEmbeddedDashboard(configPath string) {
 		}, nil
 	})
 	_ = w.Bind("pp_start", func() error {
-		_, err := desktopctl.Start(desktopctl.StartOptions{ConfigPath: configPath})
-		return err
+		return engine.Start(cfg, configPath, password)
 	})
-	_ = w.Bind("pp_stop", func() error { return desktopctl.Stop(desktopctl.StopOptions{}) })
+	_ = w.Bind("pp_stop", func() error { return engine.Stop() })
 	_ = w.Bind("pp_restart", func() error {
-		_, err := desktopctl.Restart(desktopctl.StartOptions{ConfigPath: configPath})
-		return err
+		return engine.Restart(cfg, configPath, password)
 	})
 	_ = w.Bind("pp_open_logs", func() error { return desktopctl.OpenLogsFolder("", configPath) })
 	_ = w.Bind("pp_open_auth_folder", func() error {
@@ -288,22 +395,57 @@ func openEmbeddedDashboard(configPath string) {
 	})
 	_ = w.Bind("pp_get_oauth_private", func() (bool, error) { return desktopctl.GetOAuthPrivate() })
 	_ = w.Bind("pp_set_oauth_private", func(enabled bool) error { return desktopctl.SetOAuthPrivate(enabled) })
-	_ = w.Bind("pp_oauth", func(provider string) error { return startOAuthFlow(configPath, getOAuthEndpoint(provider)) })
-	_ = w.Bind("pp_copy_diagnostics", func() error { return copyDiagnosticsToClipboard(configPath) })
+	_ = w.Bind("pp_oauth", func(provider string) error { return startOAuthFlow(engine, getOAuthEndpoint(provider)) })
+	_ = w.Bind("pp_copy_diagnostics", func() error { return copyDiagnosticsToClipboard(engine) })
 	_ = w.Bind("pp_get_management_key", func() (string, error) { return desktopctl.GetManagementPassword() })
 	_ = w.Bind("pp_open_legacy_ui", func() error {
-		cur, _ := desktopctl.StatusFor(configPath)
+		cur := engine.Status()
 		if !cur.Running {
 			return fmt.Errorf("proxy not running")
 		}
 		return desktopctl.OpenBrowser(cur.BaseURL + "/management.html?legacy=1")
 	})
 	_ = w.Bind("pp_open_diagnostics", func() error {
-		cur, _ := desktopctl.StatusFor(configPath)
+		cur := engine.Status()
 		if !cur.Running {
 			return fmt.Errorf("proxy not running")
 		}
 		return desktopctl.OpenBrowser(cur.BaseURL + "/proxypilot.html")
+	})
+	_ = w.Bind("pp_get_requests", func() (any, error) {
+		return middleware.GetRequestMonitor(), nil
+	})
+	_ = w.Bind("pp_get_usage", func() (any, error) {
+		stats := usage.GetRequestStatistics()
+		if stats == nil {
+			return nil, fmt.Errorf("usage statistics not available")
+		}
+		return usage.ComputeUsageStats(stats.Snapshot()), nil
+	})
+	_ = w.Bind("pp_detect_agents", func() ([]integrations.Agent, error) {
+		st := engine.Status()
+		proxyURL := st.BaseURL
+		if proxyURL == "" {
+			proxyURL = fmt.Sprintf("http://127.0.0.1:%d", st.Port)
+		}
+		return integrations.DetectCLIAgents(proxyURL), nil
+	})
+	_ = w.Bind("pp_configure_agent", func(agentID string) error {
+		st := engine.Status()
+		proxyURL := st.BaseURL
+		if proxyURL == "" {
+			proxyURL = fmt.Sprintf("http://127.0.0.1:%d", st.Port)
+		}
+		return integrations.ConfigureCLIAgent(agentID, proxyURL)
+	})
+	_ = w.Bind("pp_unconfigure_agent", func(agentID string) error {
+		return integrations.UnconfigureCLIAgent(agentID)
+	})
+	_ = w.Bind("pp_check_updates", func() (*updates.UpdateInfo, error) {
+		return updates.CheckForUpdates()
+	})
+	_ = w.Bind("pp_download_update", func(url string) error {
+		return desktopctl.OpenBrowser(url)
 	})
 
 	w.Navigate(target)
@@ -367,8 +509,8 @@ type authURLResponse struct {
 	Error  string `json:"error"`
 }
 
-func startOAuthFlow(configPath string, endpointPath string) error {
-	st, _ := desktopctl.StatusFor(configPath)
+func startOAuthFlow(engine *EmbeddedEngine, endpointPath string) error {
+	st := engine.Status()
 	if !st.Running || strings.TrimSpace(st.BaseURL) == "" {
 		return fmt.Errorf("proxy is not running")
 	}
@@ -408,8 +550,8 @@ func startOAuthFlow(configPath string, endpointPath string) error {
 	return openOAuthURL(out.URL, private)
 }
 
-func copyDiagnosticsToClipboard(configPath string) error {
-	st, _ := desktopctl.StatusFor(configPath)
+func copyDiagnosticsToClipboard(engine *EmbeddedEngine) error {
+	st := engine.Status()
 	if !st.Running || strings.TrimSpace(st.BaseURL) == "" {
 		return fmt.Errorf("proxy is not running")
 	}
