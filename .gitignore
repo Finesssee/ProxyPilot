@@ -17,6 +17,7 @@ gitstore/*
 objectstore/*
 static/*
 !static/icon.png
+!static/icon.ico
 test/
 refs/*
 dist/*
