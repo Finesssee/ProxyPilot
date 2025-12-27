@@ -11,11 +11,35 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/buildinfo"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/embedded"
 )
+
+var (
+	embeddedMode   bool
+	embeddedMu     sync.RWMutex
+	embeddedConfig string
+)
+
+// SetEmbeddedMode enables or disables embedded server mode.
+// When enabled, Start/Stop/Restart will use the in-process server
+// instead of spawning a separate engine process.
+func SetEmbeddedMode(enabled bool) {
+	embeddedMu.Lock()
+	defer embeddedMu.Unlock()
+	embeddedMode = enabled
+}
+
+// IsEmbeddedMode returns whether embedded mode is enabled.
+func IsEmbeddedMode() bool {
+	embeddedMu.RLock()
+	defer embeddedMu.RUnlock()
+	return embeddedMode
+}
 
 func StatusFor(configPath string) (Status, error) {
 	statePath := defaultStatePath()
@@ -38,13 +62,17 @@ func StatusFor(configPath string) (Status, error) {
 	healthErr := checkHealth(baseURL)
 
 	running := healthErr == nil
-	managed := s != nil && s.PID > 0
-	if managed {
+
+	// Check if we're in embedded mode
+	isEmbedded := IsEmbeddedMode() || embedded.GlobalIsRunning()
+
+	managed := s != nil && (s.PID > 0 || isEmbedded)
+	if managed && !isEmbedded {
 		if alive, _ := isProcessAlive(s.PID); !alive {
 			managed = false
 		}
 	}
-	if s != nil {
+	if s != nil && !isEmbedded {
 		repairStateIfStale(statePath, s, running, managed)
 	}
 
@@ -71,6 +99,71 @@ func StatusFor(configPath string) (Status, error) {
 }
 
 func Start(opts StartOptions) (Status, error) {
+	// Use embedded mode if enabled or explicitly requested
+	if opts.Embedded || IsEmbeddedMode() {
+		return startEmbedded(opts)
+	}
+	return startSubprocess(opts)
+}
+
+// startEmbedded starts the proxy server in-process using the embedded package.
+func startEmbedded(opts StartOptions) (Status, error) {
+	statePath := defaultStatePath()
+	prev, _ := loadState(statePath)
+	configPath, err := resolveConfigPath(opts.RepoRoot, opts.ConfigPath)
+	if err != nil {
+		return Status{}, err
+	}
+	if _, err := os.Stat(configPath); err != nil {
+		return Status{}, fmt.Errorf("config not found: %s", configPath)
+	}
+
+	port, err := loadPort(configPath)
+	if err != nil {
+		return Status{}, err
+	}
+
+	if inUse, _ := isLocalPortInUse(port); inUse {
+		return StatusFor(configPath)
+	}
+
+	pw, errPw := getOrCreateManagementPassword()
+	if errPw != nil {
+		return Status{}, errPw
+	}
+
+	// Set management password env var for the embedded server
+	os.Setenv("MANAGEMENT_PASSWORD", pw)
+
+	// Start embedded server
+	if err := embedded.StartGlobal(configPath, pw); err != nil {
+		return Status{}, err
+	}
+
+	// Store config path for embedded mode
+	embeddedMu.Lock()
+	embeddedConfig = configPath
+	embeddedMu.Unlock()
+
+	// Save state (with PID 0 to indicate embedded mode)
+	s := &state{
+		PID:        0, // 0 indicates embedded mode
+		ConfigPath: configPath,
+		ExePath:    "", // No separate exe in embedded mode
+		StartedAt:  embedded.GlobalServer().StartedAt(),
+	}
+	if prev != nil {
+		s.AutoStartProxy = prev.AutoStartProxy
+		s.OAuthPrivate = prev.OAuthPrivate
+		s.ManagementPassword = prev.ManagementPassword
+	}
+	_ = saveState(statePath, s)
+
+	return StatusFor(configPath)
+}
+
+// startSubprocess starts the proxy server as a separate process (legacy mode).
+func startSubprocess(opts StartOptions) (Status, error) {
 	statePath := defaultStatePath()
 	prev, _ := loadState(statePath)
 	configPath, err := resolveConfigPath(opts.RepoRoot, opts.ConfigPath)
@@ -178,6 +271,27 @@ func Stop(opts StopOptions) error {
 	if pid == 0 && s != nil {
 		pid = s.PID
 	}
+
+	// Check if embedded server is running
+	if IsEmbeddedMode() || embedded.GlobalIsRunning() {
+		if err := embedded.StopGlobal(); err != nil {
+			return err
+		}
+		// Clear embedded config
+		embeddedMu.Lock()
+		embeddedConfig = ""
+		embeddedMu.Unlock()
+		// Update state
+		if s == nil {
+			s = &state{}
+		}
+		s.PID = 0
+		s.StartedAt = time.Time{}
+		_ = saveState(statePath, s)
+		return nil
+	}
+
+	// Legacy subprocess mode
 	if pid <= 0 {
 		return nil
 	}

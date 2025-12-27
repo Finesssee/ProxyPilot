@@ -23,6 +23,7 @@ type StartOptions struct {
 	ConfigPath string
 	ExePath    string
 	LogDir     string
+	Embedded   bool // If true, run server in-process instead of spawning subprocess
 }
 
 type StopOptions struct {

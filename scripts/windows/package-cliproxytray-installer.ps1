@@ -17,8 +17,7 @@ if (-not (Test-Path -LiteralPath $iexpress)) {
   throw "IExpress not found at: $iexpress. Install/enable IExpress or use the zip package script instead."
 }
 
-# Build binaries
-& (Join-Path $repoRoot "scripts\\windows\\build-cliproxyapi.ps1")
+# Build single binary (tray app with embedded engine)
 & (Join-Path $repoRoot "scripts\\windows\\build-cliproxytray.ps1")
 
 $distRoot = Join-Path $repoRoot "dist"
@@ -28,13 +27,11 @@ $staging = Join-Path $distRoot "ProxyPilot-Staging"
 if (Test-Path -LiteralPath $staging) { Remove-Item -Recurse -Force -LiteralPath $staging }
 Ensure-Dir $staging
 
-# Payload files
+# Payload files (single binary with embedded engine)
 $mgrExe = Join-Path $repoRoot "bin\\ProxyPilot.exe"
-$srvExe = Join-Path $repoRoot "bin\\proxypilot-engine.exe"
 $cfgSrc = Join-Path $repoRoot "config.example.yaml"
 
 Copy-Item -Force -LiteralPath $mgrExe -Destination (Join-Path $staging "ProxyPilot.exe")
-Copy-Item -Force -LiteralPath $srvExe -Destination (Join-Path $staging "proxypilot-engine.exe")
 if (Test-Path -LiteralPath $cfgSrc) {
   Copy-Item -Force -LiteralPath $cfgSrc -Destination (Join-Path $staging "config.example.yaml")
 }
@@ -82,14 +79,12 @@ SourceFiles=SourceFiles
 SourceFiles0=$escapedStaging
 [SourceFiles0]
 %FILE0%=ProxyPilot.exe
-%FILE1%=proxypilot-engine.exe
-%FILE2%=config.example.yaml
-%FILE3%=run-manager.cmd
+%FILE1%=config.example.yaml
+%FILE2%=run-manager.cmd
 [Strings]
 FILE0=ProxyPilot.exe
-FILE1=proxypilot-engine.exe
-FILE2=config.example.yaml
-FILE3=run-manager.cmd
+FILE1=config.example.yaml
+FILE2=run-manager.cmd
 "@ | Set-Content -Encoding ASCII -LiteralPath $sedPath
 
 # If config.example.yaml was absent, remove it from the SED to avoid build failure.

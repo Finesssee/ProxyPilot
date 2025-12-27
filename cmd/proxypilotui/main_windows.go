@@ -21,6 +21,7 @@ import (
 	"github.com/jchv/go-webview2"
 	"github.com/router-for-me/CLIProxyAPI/v6/cmd/proxypilotui/assets"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/desktopctl"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
 )
 
 func main() {
@@ -29,12 +30,20 @@ func main() {
 	var exePath string
 	var url string
 	var standalone bool
+	var legacyMode bool
 	flag.StringVar(&repoRoot, "repo", "", "Repo root (used to locate bin/ and logs/)")
 	flag.StringVar(&configPath, "config", "", "Path to config.yaml (defaults to <repo>/config.yaml)")
-	flag.StringVar(&exePath, "exe", "", "Path to proxy engine binary (defaults to <repo>/bin/proxypilot-engine.exe)")
+	flag.StringVar(&exePath, "exe", "", "Path to proxy engine binary (legacy mode only)")
 	flag.StringVar(&url, "url", "", "Open a specific URL in-app (advanced)")
 	flag.BoolVar(&standalone, "standalone", false, "Run standalone UI without connecting to proxy server")
+	flag.BoolVar(&legacyMode, "legacy", false, "Use legacy subprocess mode (separate engine binary)")
 	flag.Parse()
+
+	// Enable embedded mode by default (single binary)
+	if !legacyMode {
+		desktopctl.SetEmbeddedMode(true)
+		logging.SetupBaseLogger()
+	}
 
 	repoRoot, configPath, exePath = applyDefaults(repoRoot, configPath, exePath)
 

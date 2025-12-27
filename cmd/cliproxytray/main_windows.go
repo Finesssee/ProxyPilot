@@ -57,17 +57,15 @@ func main() {
 
 	var repoRoot string
 	var configPath string
-	var exePath string
-	flag.StringVar(&repoRoot, "repo", "", "Repo root (used to locate bin/ and logs/)")
+	flag.StringVar(&repoRoot, "repo", "", "Repo root (used to locate logs/)")
 	flag.StringVar(&configPath, "config", "", "Path to config.yaml (defaults to <repo>/config.yaml)")
-	flag.StringVar(&exePath, "exe", "", "Path to ProxyPilot Engine binary (defaults to <repo>/bin/proxypilot-engine.exe)")
 	flag.Parse()
 
-	repoRoot, configPath, exePath = applyDefaults(repoRoot, configPath, exePath)
-	run(repoRoot, configPath, exePath)
+	repoRoot, configPath = applyDefaults(repoRoot, configPath)
+	run(repoRoot, configPath)
 }
 
-func run(repoRoot, configPath, exePath string) {
+func run(repoRoot, configPath string) {
 	// Initialize logging
 	logging.SetupBaseLogger()
 
@@ -628,7 +626,7 @@ func findEdge() (string, error) {
 	return "", fmt.Errorf("msedge.exe not found")
 }
 
-func autostartCommand(repoRoot, configPath, exePath string) (string, error) {
+func autostartCommand(repoRoot, configPath string) (string, error) {
 	exe, err := os.Executable()
 	if err == nil && strings.TrimSpace(exe) != "" {
 		exe = filepath.Clean(exe)
@@ -638,23 +636,19 @@ func autostartCommand(repoRoot, configPath, exePath string) (string, error) {
 	if exe == "" {
 		return "", fmt.Errorf("unable to resolve tray executable path")
 	}
-	args := make([]string, 0, 6)
+	args := make([]string, 0, 4)
 	if strings.TrimSpace(repoRoot) != "" {
 		args = append(args, "-repo", repoRoot)
 	}
 	if strings.TrimSpace(configPath) != "" {
 		args = append(args, "-config", configPath)
 	}
-	if strings.TrimSpace(exePath) != "" {
-		args = append(args, "-exe", exePath)
-	}
 	return quoteWindowsCommand(exe, args), nil
 }
 
-func applyDefaults(repoRoot, configPath, exePath string) (string, string, string) {
+func applyDefaults(repoRoot, configPath string) (string, string) {
 	repoRoot = strings.TrimSpace(repoRoot)
 	configPath = strings.TrimSpace(configPath)
-	exePath = strings.TrimSpace(exePath)
 
 	exe, _ := os.Executable()
 	exeDir := ""
@@ -680,17 +674,7 @@ func applyDefaults(repoRoot, configPath, exePath string) (string, string, string
 		ensureConfig(configPath)
 	}
 
-	if exePath == "" && exeDir != "" {
-		for _, name := range []string{"proxypilot-engine.exe", "cliproxyapi-latest.exe"} {
-			cand := filepath.Join(exeDir, name)
-			if _, err := os.Stat(cand); err == nil {
-				exePath = cand
-				break
-			}
-		}
-	}
-
-	return repoRoot, configPath, exePath
+	return repoRoot, configPath
 }
 
 func ensureConfig(configPath string) {
