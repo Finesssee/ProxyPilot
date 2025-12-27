@@ -387,12 +387,19 @@ func ComputeUsageStats(snapshot StatisticsSnapshot) interfaces.UsageStats {
 		TotalInputTokens:   snapshot.TotalInputTokens,
 		TotalOutputTokens:  snapshot.TotalOutputTokens,
 		EstimatedCostSaved: 0,
+		ActualCost:         0,
+		DirectAPICost:      0,
+		Savings:            0,
+		SavingsPercent:     0,
 		ByModel:            make(map[string]int64),
 		ByProvider:         make(map[string]int64),
+		CostByModel:        make(map[string]float64),
+		CostByProvider:     make(map[string]float64),
 		Daily:              make([]interfaces.DailyUsage, 0),
 	}
 
-	var totalCost float64
+	var totalProxyCost float64
+	var totalDirectCost float64
 
 	for apiName, apiSnapshot := range snapshot.APIs {
 		// Try to identify provider from apiName
@@ -413,12 +420,29 @@ func ComputeUsageStats(snapshot StatisticsSnapshot) interfaces.UsageStats {
 			stats.ByProvider[actualProvider] += modelSnapshot.TotalRequests
 
 			for _, detail := range modelSnapshot.Details {
-				totalCost += estimateCost(actualProvider, modelName, detail.Tokens.InputTokens, detail.Tokens.OutputTokens)
+				proxyCost, directCost := estimateCostWithSavings(
+					actualProvider,
+					modelName,
+					detail.Tokens.InputTokens,
+					detail.Tokens.OutputTokens,
+					detail.Tokens.CachedTokens,
+				)
+				totalProxyCost += proxyCost
+				totalDirectCost += directCost
+				stats.CostByModel[modelName] += proxyCost
+				stats.CostByProvider[actualProvider] += proxyCost
 			}
 		}
 	}
 
-	stats.EstimatedCostSaved = totalCost
+	stats.ActualCost = totalProxyCost
+	stats.DirectAPICost = totalDirectCost
+	stats.Savings = totalDirectCost - totalProxyCost
+	if totalDirectCost > 0 {
+		stats.SavingsPercent = (stats.Savings / totalDirectCost) * 100
+	}
+	// Keep backward compatibility
+	stats.EstimatedCostSaved = totalProxyCost
 
 	// Last 7 days
 	now := time.Now()
@@ -452,23 +476,23 @@ func inferProviderFromModel(model string) string {
 }
 
 func estimateCost(provider string, model string, inputTokens, outputTokens int64) float64 {
-	p := strings.ToLower(provider)
-	m := strings.ToLower(model)
-
-	var inputRate, outputRate float64
-
-	if strings.Contains(p, "anthropic") || strings.Contains(p, "claude") || strings.Contains(m, "claude") {
-		inputRate = 3.0 / 1000000.0
-		outputRate = 15.0 / 1000000.0
-	} else if strings.Contains(p, "openai") || strings.Contains(m, "gpt-4") || strings.Contains(m, "gpt-3.5") {
-		inputRate = 10.0 / 1000000.0
-		outputRate = 30.0 / 1000000.0
-	} else if strings.Contains(p, "google") || strings.Contains(p, "gemini") || strings.Contains(m, "gemini") {
-		inputRate = 0.50 / 1000000.0
-		outputRate = 1.50 / 1000000.0
-	} else {
-		return 0
+	// Try model-specific pricing first
+	proxyCost, _, found := EstimateModelCost(model, inputTokens, outputTokens, 0)
+	if found {
+		return proxyCost
 	}
+	// Fallback to provider-based estimation
+	return FallbackEstimateCost(provider, model, inputTokens, outputTokens)
+}
 
-	return (float64(inputTokens) * inputRate) + (float64(outputTokens) * outputRate)
+// estimateCostWithSavings calculates both proxy cost and direct API cost.
+// Returns (proxyCost, directCost).
+func estimateCostWithSavings(provider string, model string, inputTokens, outputTokens, cachedTokens int64) (float64, float64) {
+	proxyCost, directCost, found := EstimateModelCost(model, inputTokens, outputTokens, cachedTokens)
+	if found {
+		return proxyCost, directCost
+	}
+	// Fallback - same cost for both
+	fallback := FallbackEstimateCost(provider, model, inputTokens, outputTokens)
+	return fallback, fallback
 }

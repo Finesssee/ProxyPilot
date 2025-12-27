@@ -182,9 +182,15 @@ type UsageStats struct {
 	FailureCount       int64            `json:"failureCount"`
 	TotalInputTokens   int64            `json:"totalInputTokens"`
 	TotalOutputTokens  int64            `json:"totalOutputTokens"`
-	EstimatedCostSaved float64          `json:"estimatedCostSaved"`
+	EstimatedCostSaved float64          `json:"estimatedCostSaved"` // Deprecated: use ActualCost
+	ActualCost         float64          `json:"actualCost"`         // Cost via ProxyPilot
+	DirectAPICost      float64          `json:"directApiCost"`      // What it would cost via direct API
+	Savings            float64          `json:"savings"`            // DirectAPICost - ActualCost
+	SavingsPercent     float64          `json:"savingsPercent"`     // Savings as percentage
 	ByModel            map[string]int64 `json:"byModel"`
 	ByProvider         map[string]int64 `json:"byProvider"`
+	CostByModel        map[string]float64 `json:"costByModel"`      // Cost breakdown by model
+	CostByProvider     map[string]float64 `json:"costByProvider"`   // Cost breakdown by provider
 	Daily              []DailyUsage     `json:"daily"`
 }
 
