@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
-import { X, FolderOpen, Clipboard, Lock, LockOpen, RefreshCw, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
+import { X, FolderOpen, Clipboard, Lock, LockOpen, RefreshCw, Download, CheckCircle2, AlertCircle, Loader2, Play, Shield, ExternalLink } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Switch } from '../ui/switch'
 import { Label } from '../ui/label'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { useProxyContext } from '@/hooks/useProxyContext'
 
 interface SettingsPanelProps {
   isOpen: boolean
@@ -15,12 +16,26 @@ interface UpdateInfo {
   available: boolean
   version: string
   download_url: string
+  release_notes?: string
 }
 
+interface UpdateStatus {
+  downloading: boolean
+  progress: { total_bytes: number; downloaded_bytes: number; percent: number }
+  ready: boolean
+  error: string
+}
+
+type UpdateStage = 'idle' | 'checking' | 'available' | 'downloading' | 'verifying' | 'ready' | 'installing'
+
 export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
+  const { mgmtFetch } = useProxyContext()
   const [privateOAuth, setPrivateOAuth] = useState(false)
   const [checkingUpdates, setCheckingUpdates] = useState(false)
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
+  const [updateStage, setUpdateStage] = useState<UpdateStage>('idle')
+  const [downloadProgress, setDownloadProgress] = useState(0)
+  const [updateError, setUpdateError] = useState<string | null>(null)
 
   // Load settings on mount
   useEffect(() => {
@@ -35,6 +50,40 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       }
     })()
   }, [])
+
+  // Poll for download status when downloading
+  useEffect(() => {
+    if (updateStage !== 'downloading') return
+
+    const pollStatus = async () => {
+      try {
+        let status: UpdateStatus
+        if (mgmtFetch) {
+          status = await mgmtFetch('/v0/management/updates/status')
+        } else {
+          return
+        }
+
+        if (status.error) {
+          setUpdateError(status.error)
+          setUpdateStage('available')
+          return
+        }
+
+        if (status.downloading) {
+          setDownloadProgress(status.progress?.percent || 0)
+        } else if (status.ready) {
+          setUpdateStage('ready')
+          setDownloadProgress(100)
+        }
+      } catch (e) {
+        console.error('Failed to poll update status:', e)
+      }
+    }
+
+    const interval = setInterval(pollStatus, 500)
+    return () => clearInterval(interval)
+  }, [updateStage, mgmtFetch])
 
   const handlePrivateOAuthChange = async (checked: boolean) => {
     try {
@@ -83,17 +132,26 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
   const handleCheckUpdates = async () => {
     setCheckingUpdates(true)
+    setUpdateStage('checking')
+    setUpdateError(null)
     try {
+      let info: UpdateInfo | null = null
       if (window.pp_check_updates) {
-        const info = await window.pp_check_updates()
-        setUpdateInfo(info)
-        if (info?.available) {
-          toast.success(`Update available: ${info.version}`)
-        } else {
-          toast.success('You are on the latest version')
-        }
+        info = await window.pp_check_updates()
+      } else if (mgmtFetch) {
+        info = await mgmtFetch('/v0/management/updates/check')
+      }
+
+      setUpdateInfo(info)
+      if (info?.available) {
+        setUpdateStage('available')
+        toast.success(`Update available: v${info.version}`)
+      } else {
+        setUpdateStage('idle')
+        toast.success('You are on the latest version')
       }
     } catch (e) {
+      setUpdateStage('idle')
       toast.error(e instanceof Error ? e.message : String(e))
     } finally {
       setCheckingUpdates(false)
@@ -101,14 +159,54 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   }
 
   const handleDownloadUpdate = async () => {
-    if (!updateInfo?.download_url) return
+    if (!updateInfo?.version) return
+    setUpdateStage('downloading')
+    setDownloadProgress(0)
+    setUpdateError(null)
+
     try {
-      if (window.pp_download_update) {
+      if (mgmtFetch) {
+        await mgmtFetch('/v0/management/updates/download', {
+          method: 'POST',
+          body: JSON.stringify({ version: updateInfo.version }),
+        })
+      } else if (window.pp_download_update) {
+        // Fallback to opening download page
         await window.pp_download_update(updateInfo.download_url)
+        setUpdateStage('available')
         toast.success('Opening download page...')
       }
     } catch (e) {
+      setUpdateStage('available')
+      setUpdateError(e instanceof Error ? e.message : String(e))
       toast.error(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const handleInstallUpdate = async () => {
+    setUpdateStage('installing')
+    try {
+      if (mgmtFetch) {
+        const result = await mgmtFetch('/v0/management/updates/install', {
+          method: 'POST',
+        })
+        if (result?.success) {
+          toast.success(result.message || 'Update installed! Restarting...')
+          // Application will restart
+        } else {
+          throw new Error(result?.message || 'Installation failed')
+        }
+      }
+    } catch (e) {
+      setUpdateStage('ready')
+      setUpdateError(e instanceof Error ? e.message : String(e))
+      toast.error(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const handleOpenReleasePage = () => {
+    if (updateInfo?.download_url) {
+      window.open(updateInfo.download_url, '_blank')
     }
   }
 
@@ -255,11 +353,12 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
               Updates
             </h3>
 
+            {/* Check for Updates Button */}
             <Button
               variant="outline"
               className="w-full justify-start gap-3"
               onClick={handleCheckUpdates}
-              disabled={checkingUpdates}
+              disabled={checkingUpdates || updateStage === 'downloading' || updateStage === 'installing'}
             >
               {checkingUpdates ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -269,36 +368,106 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
               Check for Updates
             </Button>
 
-            {updateInfo && (
+            {/* Update Status Card */}
+            {(updateInfo || updateStage !== 'idle') && (
               <div
                 className={cn(
-                  'p-3 rounded-lg border text-sm',
-                  updateInfo.available
+                  'p-4 rounded-lg border text-sm space-y-3',
+                  updateStage === 'ready' || updateStage === 'installing'
+                    ? 'bg-emerald-500/10 border-emerald-500/30'
+                    : updateInfo?.available
                     ? 'bg-[var(--accent-primary)]/10 border-[var(--accent-primary)]/30'
                     : 'bg-green-500/10 border-green-500/30'
                 )}
               >
+                {/* Header */}
                 <div className="flex items-start gap-2">
-                  {updateInfo.available ? (
+                  {updateStage === 'ready' ? (
+                    <Shield className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" />
+                  ) : updateStage === 'installing' ? (
+                    <Loader2 className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0 animate-spin" />
+                  ) : updateInfo?.available ? (
                     <AlertCircle className="h-4 w-4 text-[var(--accent-primary)] mt-0.5 shrink-0" />
                   ) : (
                     <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
                   )}
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-[var(--text-primary)]">
-                      {updateInfo.available ? `v${updateInfo.version} available` : 'Up to date'}
+                      {updateStage === 'downloading' && 'Downloading...'}
+                      {updateStage === 'ready' && `v${updateInfo?.version} ready to install`}
+                      {updateStage === 'installing' && 'Installing update...'}
+                      {updateStage === 'available' && `v${updateInfo?.version} available`}
+                      {updateStage === 'idle' && !updateInfo?.available && 'Up to date'}
                     </p>
-                    {updateInfo.available && (
+                    {updateInfo?.release_notes && !updateInfo?.available && (
+                      <p className="text-xs text-[var(--text-muted)] mt-1">
+                        {updateInfo.release_notes}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Download Progress */}
+                {updateStage === 'downloading' && (
+                  <div className="space-y-2">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--bg-void)]">
+                      <div
+                        className="h-full bg-[var(--accent-primary)] transition-all duration-300"
+                        style={{ width: `${downloadProgress}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-[var(--text-muted)] text-center">
+                      {downloadProgress.toFixed(0)}% complete
+                    </p>
+                  </div>
+                )}
+
+                {/* Error Message */}
+                {updateError && (
+                  <div className="p-2 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
+                    {updateError}
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex gap-2">
+                  {updateStage === 'available' && (
+                    <>
                       <Button
                         size="sm"
                         onClick={handleDownloadUpdate}
-                        className="mt-2 gap-2"
+                        className="flex-1 gap-2"
                       >
                         <Download className="h-3 w-3" />
-                        Download
+                        Download & Install
                       </Button>
-                    )}
-                  </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleOpenReleasePage}
+                        className="gap-2"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                      </Button>
+                    </>
+                  )}
+
+                  {updateStage === 'ready' && (
+                    <Button
+                      size="sm"
+                      onClick={handleInstallUpdate}
+                      className="flex-1 gap-2 bg-emerald-600 hover:bg-emerald-500"
+                    >
+                      <Play className="h-3 w-3" />
+                      Install & Restart
+                    </Button>
+                  )}
+
+                  {updateStage === 'installing' && (
+                    <div className="flex-1 text-center text-xs text-emerald-400">
+                      Please wait, do not close the application...
+                    </div>
+                  )}
                 </div>
               </div>
             )}
