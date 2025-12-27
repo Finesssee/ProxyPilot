@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
-import { Lock, LockOpen } from 'lucide-react'
-import { useProxyContext } from '@/hooks/useProxyContext'
+import { Lock, LockOpen, ChevronDown, RefreshCw } from 'lucide-react'
+import { useProxyContext, EngineOfflineError } from '@/hooks/useProxyContext'
 import { cn } from '@/lib/utils'
 
 // Provider configuration with ProxyPilot Aviation theme
@@ -13,6 +13,7 @@ const providers = [
   { id: 'qwen', name: 'Qwen', color: 'oklch(0.60 0.14 280)', icon: '🔮' },
   { id: 'anthropic', name: 'Anthropic', color: 'oklch(0.55 0.14 50)', icon: '🅰️' },
   { id: 'iflow', name: 'iFlow', color: 'oklch(0.55 0.12 220)', icon: '🌊' },
+  { id: 'antigravity', name: 'Antigravity', color: 'oklch(0.65 0.20 320)', icon: '🚀' },
 ] as const
 
 type ProviderId = (typeof providers)[number]['id']
@@ -190,13 +191,25 @@ function ProviderSkeleton() {
   )
 }
 
+interface AuthFileInfo {
+  id: string
+  provider?: string
+  type?: string
+  email?: string
+  label?: string
+  status?: string
+}
+
 export function ProviderLogins() {
-  const { loading, setLoading, showToast, authFiles, status, isMgmtLoading } = useProxyContext()
+  const { loading, setLoading, showToast, authFiles, status, isMgmtLoading, mgmtKey, mgmtFetch } = useProxyContext()
   const [privateOAuth, setPrivateOAuth] = useState(false)
+  const [showConfig, setShowConfig] = useState(false)
+  const [authFileList, setAuthFileList] = useState<AuthFileInfo[]>([])
+  const [mgmtConfig, setMgmtConfig] = useState<any>(null)
 
   const isRunning = status?.running ?? false
 
-  // TODO: Wire up actual auth status from backend
+  // Auth status based on file names
   const authStatus: Record<ProviderId, boolean> = {
     claude: authFiles.some(f => f.toLowerCase().includes('claude')),
     gemini: authFiles.some(f => f.toLowerCase().includes('gemini')),
@@ -204,11 +217,12 @@ export function ProviderLogins() {
     qwen: authFiles.some(f => f.toLowerCase().includes('qwen')),
     anthropic: authFiles.some(f => f.toLowerCase().includes('anthropic')),
     iflow: authFiles.some(f => f.toLowerCase().includes('iflow')),
+    antigravity: authFiles.some(f => f.toLowerCase().includes('antigravity')),
   }
 
   // Load OAuth private setting on mount
   useEffect(() => {
-    ; (async () => {
+    ;(async () => {
       try {
         if (window.pp_get_oauth_private) {
           const priv = await window.pp_get_oauth_private()
@@ -219,6 +233,23 @@ export function ProviderLogins() {
       }
     })()
   }, [])
+
+  // Load config when running
+  useEffect(() => {
+    if (!mgmtKey || !isRunning) return
+    ;(async () => {
+      try {
+        const cfg = await mgmtFetch('/v0/management/config')
+        setMgmtConfig(cfg)
+        const res = await mgmtFetch('/v0/management/auth-files')
+        setAuthFileList(res.files || [])
+      } catch (e) {
+        if (!(e instanceof EngineOfflineError)) {
+          console.error('Config load error:', e)
+        }
+      }
+    })()
+  }, [mgmtKey, isRunning])
 
   const handlePrivateOAuthChange = async (checked: boolean) => {
     try {
@@ -245,6 +276,38 @@ export function ProviderLogins() {
       setLoading(null)
     }
   }
+
+  const toggleDebug = async () => {
+    try {
+      const cur = await mgmtFetch('/v0/management/debug')
+      await mgmtFetch('/v0/management/debug', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: !cur.value }),
+      })
+      const cfg = await mgmtFetch('/v0/management/config')
+      setMgmtConfig(cfg)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  const resetCooldown = async (authId?: string) => {
+    try {
+      await mgmtFetch('/v0/management/auth/reset-cooldown', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(authId ? { auth_id: authId } : {}),
+      })
+      const res = await mgmtFetch('/v0/management/auth-files')
+      setAuthFileList(res.files || [])
+      showToast('Cooldowns reset', 'success')
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e), 'error')
+    }
+  }
+
+  const debugOn = !!mgmtConfig?.debug
 
   return (
     <div
@@ -341,6 +404,93 @@ export function ProviderLogins() {
             ))
           )}
         </div>
+
+        {/* Consolidated Configuration Section */}
+        {mgmtKey && isRunning && (
+          <div className="mt-6 pt-5 border-t border-[var(--border-subtle)]">
+            <button
+              onClick={() => setShowConfig(!showConfig)}
+              className="flex items-center justify-between w-full text-left group"
+            >
+              <span
+                className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors"
+                style={{ fontFamily: 'var(--font-mono)' }}
+              >
+                Configuration & Accounts
+              </span>
+              <ChevronDown className={cn(
+                'h-4 w-4 text-[var(--text-muted)] transition-transform',
+                showConfig && 'rotate-180'
+              )} />
+            </button>
+
+            {showConfig && (
+              <div className="mt-4 space-y-4 animate-in slide-in-from-top-2 duration-200">
+                {/* Quick Settings Row */}
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={() => toggleDebug().catch(console.error)}
+                    className={cn(
+                      'px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider border transition-all',
+                      debugOn
+                        ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] shadow-[0_0_10px_var(--accent-primary)/20]'
+                        : 'border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                    )}
+                    style={{ fontFamily: 'var(--font-mono)' }}
+                  >
+                    Debug: {debugOn ? 'ON' : 'OFF'}
+                  </button>
+
+                  <button
+                    onClick={() => resetCooldown().catch(console.error)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider border border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                    style={{ fontFamily: 'var(--font-mono)' }}
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    Reset Cooldowns
+                  </button>
+                </div>
+
+                {/* Auth Files Table */}
+                {authFileList.length > 0 && (
+                  <div className="rounded-lg border border-[var(--border-subtle)] overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-[var(--bg-elevated)]">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-[var(--text-muted)] font-semibold uppercase tracking-wider" style={{ fontFamily: 'var(--font-mono)' }}>Provider</th>
+                          <th className="px-3 py-2 text-left text-[var(--text-muted)] font-semibold uppercase tracking-wider" style={{ fontFamily: 'var(--font-mono)' }}>Account</th>
+                          <th className="px-3 py-2 text-left text-[var(--text-muted)] font-semibold uppercase tracking-wider" style={{ fontFamily: 'var(--font-mono)' }}>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {authFileList.map((f) => (
+                          <tr key={f.id} className="border-t border-[var(--border-subtle)]">
+                            <td className="px-3 py-2 font-mono text-[var(--text-primary)]">
+                              {f.provider || f.type || '—'}
+                            </td>
+                            <td className="px-3 py-2 text-[var(--text-secondary)]">
+                              {f.email || f.label || '—'}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className={cn(
+                                'inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider',
+                                f.status === 'active' || f.status === 'ok'
+                                  ? 'bg-[var(--status-online)]/15 text-[var(--status-online)]'
+                                  : 'bg-[var(--text-muted)]/15 text-[var(--text-muted)]'
+                              )} style={{ fontFamily: 'var(--font-mono)' }}>
+                                {f.status || 'unknown'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Custom keyframe styles */}

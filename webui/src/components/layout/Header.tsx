@@ -12,56 +12,6 @@ interface HeaderProps {
 }
 
 /**
- * Paper Airplane Logo SVG
- * Geometric design matching the ProxyPilot app icon
- */
-function PaperAirplaneLogo({ className, isHovered }: { className?: string; isHovered?: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 32 32"
-      className={cn('w-8 h-8', className)}
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      {/* Main airplane body - folded paper look */}
-      <path
-        d="M4 16L28 4L20 28L16 18L4 16Z"
-        fill="currentColor"
-        className="opacity-90"
-      />
-      {/* Wing fold line */}
-      <path
-        d="M28 4L16 18"
-        stroke="var(--bg-panel)"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        className="opacity-60"
-      />
-      {/* Inner fold detail */}
-      <path
-        d="M4 16L16 18L20 28"
-        stroke="var(--bg-panel)"
-        strokeWidth="1"
-        strokeLinecap="round"
-        className="opacity-40"
-      />
-      {/* Glow effect when running */}
-      {isHovered && (
-        <circle
-          cx="16"
-          cy="16"
-          r="14"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1"
-          className="opacity-30 animate-radar-pulse"
-        />
-      )}
-    </svg>
-  )
-}
-
-/**
  * Animated Flight Path Line
  * Draws on hover to simulate navigation route
  */
@@ -136,21 +86,21 @@ export function Header({ isRunning, port = 8318, version = 'v0.1.0' }: HeaderPro
         onMouseEnter={() => setIsLogoHovered(true)}
         onMouseLeave={() => setIsLogoHovered(false)}
       >
-        {/* Paper Airplane Logo */}
+        {/* ProxyPilot Logo */}
         <div
           className={cn(
             'relative w-11 h-11 flex items-center justify-center',
-            'rounded-lg',
-            'bg-gradient-to-br from-[var(--accent-primary)] to-[var(--accent-secondary)]',
+            'rounded-lg overflow-hidden',
             'shadow-[0_2px_0_0_oklch(0_0_0/0.2)]',
             'transition-all duration-300',
             isLogoHovered && 'shadow-[0_0_20px_0_var(--accent-glow)]',
             isRunning && 'animate-glow-pulse'
           )}
         >
-          <PaperAirplaneLogo
-            className="text-[var(--bg-panel)]"
-            isHovered={isLogoHovered}
+          <img
+            src="/logo.png"
+            alt="ProxyPilot"
+            className="w-full h-full object-cover"
           />
         </div>
 

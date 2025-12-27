@@ -8,7 +8,7 @@ const embedGoContent = `package assets
 
 import "embed"
 
-//go:embed index.html vite.svg assets/*
+//go:embed index.html vite.svg logo.png assets/*
 var FS embed.FS
 `;
 
@@ -29,6 +29,18 @@ export default defineConfig({
 	resolve: {
 		alias: {
 			"@": path.resolve(__dirname, "./src"),
+		},
+	},
+	server: {
+		proxy: {
+			"/v0": {
+				target: "http://localhost:8318",
+				changeOrigin: true,
+			},
+			"/v1": {
+				target: "http://localhost:8318",
+				changeOrigin: true,
+			},
 		},
 	},
 	build: {

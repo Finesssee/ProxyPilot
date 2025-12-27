@@ -61,10 +61,14 @@ export function AgentSetup() {
     const needsShellRestart = (id: string) => ['claude-code', 'aider', 'gemini-cli'].includes(id)
 
     const handleConfigure = async (agent: Agent) => {
-        if (!pp_configure_agent || !agent.id) return
+        if (!agent.id) return
         setConfiguring(agent.id)
         try {
-            await pp_configure_agent(agent.id)
+            if (isDesktop && pp_configure_agent) {
+                await pp_configure_agent(agent.id)
+            } else {
+                await mgmtFetch(`/v0/management/agents/${agent.id}/configure`, { method: 'POST' })
+            }
             const msg = needsShellRestart(agent.id)
                 ? `${agent.name} configured! Restart shell to apply.`
                 : `${agent.name} configured!`
@@ -77,10 +81,14 @@ export function AgentSetup() {
     }
 
     const handleUnconfigure = async (agent: Agent) => {
-        if (!pp_unconfigure_agent || !agent.id) return
+        if (!agent.id) return
         setUnconfiguring(agent.id)
         try {
-            await pp_unconfigure_agent(agent.id)
+            if (isDesktop && pp_unconfigure_agent) {
+                await pp_unconfigure_agent(agent.id)
+            } else {
+                await mgmtFetch(`/v0/management/agents/${agent.id}/unconfigure`, { method: 'POST' })
+            }
             const msg = needsShellRestart(agent.id)
                 ? `${agent.name} configuration removed. Restart shell to apply.`
                 : `${agent.name} configuration removed.`
@@ -178,7 +186,7 @@ export function AgentSetup() {
                                 {/* Actions */}
                                 <div className="flex items-center gap-2">
                                     {/* Auto-Configure Button */}
-                                    {agent.detected && !agent.configured && agent.canAutoConfigure && isDesktop && (
+                                    {agent.detected && !agent.configured && agent.canAutoConfigure && (
                                         <Tooltip>
                                             <TooltipTrigger asChild>
                                                 <button
@@ -199,7 +207,7 @@ export function AgentSetup() {
                                     )}
 
                                     {/* Unconfigure Button */}
-                                    {agent.detected && agent.configured && isDesktop && (
+                                    {agent.detected && agent.configured && (
                                         <Tooltip>
                                             <TooltipTrigger asChild>
                                                 <button
