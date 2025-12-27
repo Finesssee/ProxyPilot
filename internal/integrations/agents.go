@@ -350,7 +350,7 @@ func removeFromShellProfile(startMarker, endMarker string) error {
 }
 
 func unconfigureCodexCLI() error {
-	home := userHomeDir()
+	home := getHomeDir()
 	codexDir := filepath.Join(home, ".codex")
 	configPath := filepath.Join(codexDir, "config.toml")
 	data, err := os.ReadFile(configPath)
@@ -373,7 +373,7 @@ func unconfigureCodexCLI() error {
 }
 
 func unconfigureDroidCLI() error {
-	home := userHomeDir()
+	home := getHomeDir()
 	factoryDir := filepath.Join(home, ".factory")
 	configPath := filepath.Join(factoryDir, "config.json")
 	data, err := os.ReadFile(configPath)

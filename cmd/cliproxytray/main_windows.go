@@ -358,6 +358,7 @@ func openEmbeddedDashboard(engine *EmbeddedEngine, cfg *config.Config, configPat
 			Width:  1200,
 			Height: 850,
 			Center: true,
+			IconId: 1, // Use embedded icon from resource.syso
 		},
 	})
 	if w == nil {

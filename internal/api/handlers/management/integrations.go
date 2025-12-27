@@ -46,3 +46,35 @@ func (h *Handler) GetCLIAgents(c *gin.Context) {
 	agents := integrations.DetectCLIAgents(proxyURL)
 	c.JSON(http.StatusOK, gin.H{"agents": agents})
 }
+
+// PostCLIAgentConfigure configures a CLI agent to use the proxy.
+func (h *Handler) PostCLIAgentConfigure(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing agent id"})
+		return
+	}
+	proxyURL := h.cfg.ProxyURL
+	if proxyURL == "" {
+		proxyURL = "http://localhost:8080"
+	}
+	if err := integrations.ConfigureCLIAgent(id, proxyURL); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "configured", "id": id})
+}
+
+// PostCLIAgentUnconfigure removes proxy configuration from a CLI agent.
+func (h *Handler) PostCLIAgentUnconfigure(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing agent id"})
+		return
+	}
+	if err := integrations.UnconfigureCLIAgent(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "unconfigured", "id": id})
+}
