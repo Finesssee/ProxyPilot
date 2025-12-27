@@ -40,6 +40,7 @@ docs/*
 !docs/proxypilot.md
 !docs/agentic-harness-demo.md
 !docs/long-context-features.md
+!docs/desktop-app-build-process.md
 AGENTS.md
 CLAUDE.md
 GEMINI.md
