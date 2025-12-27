@@ -75,7 +75,7 @@ begin
     ExampleYaml := ExpandConstant('{app}\config.example.yaml');
     if (not FileExists(ConfigYaml)) and FileExists(ExampleYaml) then
     begin
-      FileCopy(ExampleYaml, ConfigYaml, False);
+      CopyFile(ExampleYaml, ConfigYaml, False);
     end;
   end;
 end;
