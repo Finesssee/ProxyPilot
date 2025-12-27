@@ -611,7 +611,39 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/integrations/status", s.mgmt.GetIntegrationsStatus)
 		mgmt.POST("/integrations/:id/configure", s.mgmt.PostIntegrationConfigure)
 		mgmt.GET("/agents", s.mgmt.GetCLIAgents)
+		mgmt.POST("/agents/:id/configure", s.mgmt.PostCLIAgentConfigure)
+		mgmt.POST("/agents/:id/unconfigure", s.mgmt.PostCLIAgentUnconfigure)
+
+		// Memory management routes
+		mgmt.GET("/memory/sessions", s.mgmt.ListMemorySessions)
+		mgmt.GET("/memory/session", s.mgmt.GetMemorySession)
+		mgmt.GET("/memory/events", s.mgmt.GetMemoryEvents)
+		mgmt.GET("/memory/anchors", s.mgmt.GetMemoryAnchors)
+		mgmt.PUT("/memory/todo", s.mgmt.PutMemoryTodo)
+		mgmt.PUT("/memory/pinned", s.mgmt.PutMemoryPinned)
+		mgmt.PUT("/memory/summary", s.mgmt.PutMemorySummary)
+		mgmt.PUT("/memory/semantic-toggle", s.mgmt.PutMemorySemanticToggle)
+		mgmt.DELETE("/memory/session", s.mgmt.DeleteMemorySession)
+		mgmt.POST("/memory/prune", s.mgmt.PruneMemory)
+		mgmt.GET("/memory/export", s.mgmt.ExportMemorySession)
+		mgmt.GET("/memory/export-all", s.mgmt.ExportAllMemory)
+		mgmt.DELETE("/memory/all", s.mgmt.DeleteAllMemory)
+		mgmt.POST("/memory/import", s.mgmt.ImportMemorySession)
+
+		// Semantic memory routes
+		mgmt.GET("/semantic/health", s.mgmt.GetSemanticHealth)
+		mgmt.GET("/semantic/namespaces", s.mgmt.ListSemanticNamespaces)
+		mgmt.GET("/semantic/items", s.mgmt.GetSemanticItems)
+
+		// ProxyPilot diagnostics and logs routes
+		mgmt.GET("/proxypilot/logs/tail", s.mgmt.GetProxyPilotLogTail)
+		mgmt.GET("/proxypilot/diagnostics", s.mgmt.GetProxyPilotDiagnostics)
+
 		mgmt.GET("/updates/check", s.mgmt.GetUpdateInfo)
+		mgmt.GET("/updates/status", s.mgmt.GetUpdateStatus)
+		mgmt.POST("/updates/download", s.mgmt.DownloadUpdate)
+		mgmt.POST("/updates/verify", s.mgmt.VerifyUpdate)
+		mgmt.POST("/updates/install", s.mgmt.InstallUpdate)
 	}
 }
 
