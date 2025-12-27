@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/buildinfo"
 )
 
 func StatusFor(configPath string) (Status, error) {
@@ -47,16 +49,17 @@ func StatusFor(configPath string) (Status, error) {
 	}
 
 	out := Status{
-		Running:         running,
-		Managed:         managed,
-		AutoStartProxy:  s != nil && s.AutoStartProxy,
-		PID:             pidOrZero(s),
-		Port:            port,
-		ThinkingPort:    8317,
-		BaseURL:         baseURL,
-		ConfigPath:      resolvedConfig,
-		ExePath:         exeOrEmpty(s),
-		StartedAt:       startedAtOrZero(s),
+		Running:        running,
+		Version:        buildinfo.Version,
+		Managed:        managed,
+		AutoStartProxy: s != nil && s.AutoStartProxy,
+		PID:            pidOrZero(s),
+		Port:           port,
+		ThinkingPort:   8317,
+		BaseURL:        baseURL,
+		ConfigPath:     resolvedConfig,
+		ExePath:        exeOrEmpty(s),
+		StartedAt:      startedAtOrZero(s),
 	}
 	if inUse, _ := isLocalPortInUse(8317); inUse {
 		out.ThinkingRunning = true

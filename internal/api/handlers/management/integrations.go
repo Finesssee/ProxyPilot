@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/integrations"
 )
 
 // GetIntegrationsStatus returns the list of detected tools and their configuration status.
@@ -34,4 +35,14 @@ func (h *Handler) PostIntegrationConfigure(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "configured", "id": id})
+}
+
+// GetCLIAgents returns the list of detected CLI agents and IDEs.
+func (h *Handler) GetCLIAgents(c *gin.Context) {
+	proxyURL := h.cfg.ProxyURL
+	if proxyURL == "" {
+		proxyURL = "http://localhost:8080"
+	}
+	agents := integrations.DetectCLIAgents(proxyURL)
+	c.JSON(http.StatusOK, gin.H{"agents": agents})
 }

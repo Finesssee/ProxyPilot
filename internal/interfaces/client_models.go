@@ -159,3 +159,40 @@ type ToolDeclaration struct {
 	// FunctionDeclarations is a list of available functions that the model can call.
 	FunctionDeclarations []interface{} `json:"functionDeclarations"`
 }
+
+// RequestLogEntry represents a single entry in the request monitor.
+type RequestLogEntry struct {
+	ID           string    `json:"id"`
+	Timestamp    time.Time `json:"timestamp"`
+	Method       string    `json:"method"`
+	Path         string    `json:"path"`
+	Model        string    `json:"model"`
+	Provider     string    `json:"provider"`
+	Status       int       `json:"status"`
+	LatencyMs    int64     `json:"latencyMs"`
+	InputTokens  int       `json:"inputTokens"`
+	OutputTokens int       `json:"outputTokens"`
+	Error        string    `json:"error,omitempty"`
+}
+
+// UsageStats represents aggregated usage statistics for the dashboard.
+type UsageStats struct {
+	TotalRequests      int64            `json:"totalRequests"`
+	SuccessCount       int64            `json:"successCount"`
+	FailureCount       int64            `json:"failureCount"`
+	TotalInputTokens   int64            `json:"totalInputTokens"`
+	TotalOutputTokens  int64            `json:"totalOutputTokens"`
+	EstimatedCostSaved float64          `json:"estimatedCostSaved"`
+	ByModel            map[string]int64 `json:"byModel"`
+	ByProvider         map[string]int64 `json:"byProvider"`
+	Daily              []DailyUsage     `json:"daily"`
+}
+
+// DailyUsage represents usage statistics for a single day.
+type DailyUsage struct {
+	Date         string `json:"date"`
+	Requests     int64  `json:"requests"`
+	Tokens       int64  `json:"tokens"`
+	InputTokens  int64  `json:"inputTokens"`
+	OutputTokens int64  `json:"outputTokens"`
+}

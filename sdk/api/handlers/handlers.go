@@ -337,6 +337,15 @@ func (h *BaseAPIHandler) ExecuteWithAuthManager(ctx context.Context, handlerType
 	if errMsg != nil {
 		return nil, errMsg
 	}
+
+	// Set model and provider in context for logging/monitoring
+	if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil {
+		ginCtx.Set("model", normalizedModel)
+		if len(providers) > 0 {
+			ginCtx.Set("provider", providers[0])
+		}
+	}
+
 	reqMeta := requestExecutionMetadata(ctx)
 	req := coreexecutor.Request{
 		Model:   normalizedModel,
@@ -378,6 +387,15 @@ func (h *BaseAPIHandler) ExecuteCountWithAuthManager(ctx context.Context, handle
 	if errMsg != nil {
 		return nil, errMsg
 	}
+
+	// Set model and provider in context for logging/monitoring
+	if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil {
+		ginCtx.Set("model", normalizedModel)
+		if len(providers) > 0 {
+			ginCtx.Set("provider", providers[0])
+		}
+	}
+
 	reqMeta := requestExecutionMetadata(ctx)
 	req := coreexecutor.Request{
 		Model:   normalizedModel,
@@ -422,6 +440,15 @@ func (h *BaseAPIHandler) ExecuteStreamWithAuthManager(ctx context.Context, handl
 		close(errChan)
 		return nil, errChan
 	}
+
+	// Set model and provider in context for logging/monitoring
+	if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil {
+		ginCtx.Set("model", normalizedModel)
+		if len(providers) > 0 {
+			ginCtx.Set("provider", providers[0])
+		}
+	}
+
 	reqMeta := requestExecutionMetadata(ctx)
 	req := coreexecutor.Request{
 		Model:   normalizedModel,

@@ -8,11 +8,40 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 )
+
+var (
+	requestMonitorMu sync.RWMutex
+	requestMonitor   []interfaces.RequestLogEntry
+	maxMonitorSize   = 100
+)
+
+func addRequestToMonitor(entry interfaces.RequestLogEntry) {
+	requestMonitorMu.Lock()
+	defer requestMonitorMu.Unlock()
+
+	requestMonitor = append(requestMonitor, entry)
+	if len(requestMonitor) > maxMonitorSize {
+		requestMonitor = requestMonitor[1:]
+	}
+}
+
+// GetRequestMonitor returns a copy of the current request monitor entries.
+func GetRequestMonitor() []interfaces.RequestLogEntry {
+	requestMonitorMu.RLock()
+	defer requestMonitorMu.RUnlock()
+
+	result := make([]interfaces.RequestLogEntry, len(requestMonitor))
+	copy(result, requestMonitor)
+	return result
+}
 
 // RequestLoggingMiddleware creates a Gin middleware that logs HTTP requests and responses.
 // It captures detailed information about the request and response, including headers and body,
@@ -53,13 +82,68 @@ func RequestLoggingMiddleware(logger logging.RequestLogger) gin.HandlerFunc {
 		c.Writer = wrapper
 
 		// Process the request
+		startTime := time.Now()
 		c.Next()
+		latency := time.Since(startTime)
 
 		// Finalize logging after request processing
 		if err = wrapper.Finalize(c); err != nil {
 			// Log error but don't interrupt the response
 			// In a real implementation, you might want to use a proper logger here
 		}
+
+		// Add to monitor
+		entry := interfaces.RequestLogEntry{
+			ID:        logging.GetGinRequestID(c),
+			Timestamp: startTime,
+			Method:    c.Request.Method,
+			Path:      c.Request.URL.Path,
+			Status:    c.Writer.Status(),
+			LatencyMs: latency.Milliseconds(),
+		}
+
+		// Try to get Model and Provider from context
+		if model, ok := c.Get("model"); ok {
+			if m, ok := model.(string); ok {
+				entry.Model = m
+			}
+		}
+		if provider, ok := c.Get("provider"); ok {
+			if p, ok := provider.(string); ok {
+				entry.Provider = p
+			}
+		}
+
+		// Try to get tokens from context
+		if inputTokens, ok := c.Get("input_tokens"); ok {
+			if it, ok := inputTokens.(int); ok {
+				entry.InputTokens = it
+			} else if it, ok := inputTokens.(int64); ok {
+				entry.InputTokens = int(it)
+			}
+		}
+		if outputTokens, ok := c.Get("output_tokens"); ok {
+			if ot, ok := outputTokens.(int); ok {
+				entry.OutputTokens = ot
+			} else if ot, ok := outputTokens.(int64); ok {
+				entry.OutputTokens = int(ot)
+			}
+		}
+
+		// Try to get error from context
+		if apiErr, ok := c.Get("API_RESPONSE_ERROR"); ok {
+			if errs, ok := apiErr.([]*interfaces.ErrorMessage); ok && len(errs) > 0 {
+				var errMsgs []string
+				for _, e := range errs {
+					if e != nil && e.Error != nil {
+						errMsgs = append(errMsgs, e.Error.Error())
+					}
+				}
+				entry.Error = strings.Join(errMsgs, "; ")
+			}
+		}
+
+		addRequestToMonitor(entry)
 	}
 }
 

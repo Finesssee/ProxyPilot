@@ -6,11 +6,13 @@ package usage
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
 	coreusage "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/usage"
 )
 
@@ -59,17 +61,21 @@ func StatisticsEnabled() bool { return statisticsEnabled.Load() }
 type RequestStatistics struct {
 	mu sync.RWMutex
 
-	totalRequests int64
-	successCount  int64
-	failureCount  int64
-	totalTokens   int64
+	totalRequests     int64
+	successCount      int64
+	failureCount      int64
+	totalTokens       int64
+	totalInputTokens  int64
+	totalOutputTokens int64
 
 	apis map[string]*apiStats
 
-	requestsByDay  map[string]int64
-	requestsByHour map[int]int64
-	tokensByDay    map[string]int64
-	tokensByHour   map[int]int64
+	requestsByDay     map[string]int64
+	requestsByHour    map[int]int64
+	tokensByDay       map[string]int64
+	inputTokensByDay  map[string]int64
+	outputTokensByDay map[string]int64
+	tokensByHour      map[int]int64
 }
 
 // apiStats holds aggregated metrics for a single API key.
@@ -106,17 +112,21 @@ type TokenStats struct {
 
 // StatisticsSnapshot represents an immutable view of the aggregated metrics.
 type StatisticsSnapshot struct {
-	TotalRequests int64 `json:"total_requests"`
-	SuccessCount  int64 `json:"success_count"`
-	FailureCount  int64 `json:"failure_count"`
-	TotalTokens   int64 `json:"total_tokens"`
+	TotalRequests     int64 `json:"total_requests"`
+	SuccessCount      int64 `json:"success_count"`
+	FailureCount      int64 `json:"failure_count"`
+	TotalTokens       int64 `json:"total_tokens"`
+	TotalInputTokens  int64 `json:"total_input_tokens"`
+	TotalOutputTokens int64 `json:"total_output_tokens"`
 
 	APIs map[string]APISnapshot `json:"apis"`
 
-	RequestsByDay  map[string]int64 `json:"requests_by_day"`
-	RequestsByHour map[string]int64 `json:"requests_by_hour"`
-	TokensByDay    map[string]int64 `json:"tokens_by_day"`
-	TokensByHour   map[string]int64 `json:"tokens_by_hour"`
+	RequestsByDay     map[string]int64 `json:"requests_by_day"`
+	RequestsByHour    map[string]int64 `json:"requests_by_hour"`
+	TokensByDay       map[string]int64 `json:"tokens_by_day"`
+	InputTokensByDay  map[string]int64 `json:"input_tokens_by_day"`
+	OutputTokensByDay map[string]int64 `json:"output_tokens_by_day"`
+	TokensByHour      map[string]int64 `json:"tokens_by_hour"`
 }
 
 // APISnapshot summarises metrics for a single API key.
@@ -141,11 +151,13 @@ func GetRequestStatistics() *RequestStatistics { return defaultRequestStatistics
 // NewRequestStatistics constructs an empty statistics store.
 func NewRequestStatistics() *RequestStatistics {
 	return &RequestStatistics{
-		apis:           make(map[string]*apiStats),
-		requestsByDay:  make(map[string]int64),
-		requestsByHour: make(map[int]int64),
-		tokensByDay:    make(map[string]int64),
-		tokensByHour:   make(map[int]int64),
+		apis:              make(map[string]*apiStats),
+		requestsByDay:     make(map[string]int64),
+		requestsByHour:    make(map[int]int64),
+		tokensByDay:       make(map[string]int64),
+		inputTokensByDay:  make(map[string]int64),
+		outputTokensByDay: make(map[string]int64),
+		tokensByHour:      make(map[int]int64),
 	}
 }
 
@@ -163,6 +175,8 @@ func (s *RequestStatistics) Record(ctx context.Context, record coreusage.Record)
 	}
 	detail := normaliseDetail(record.Detail)
 	totalTokens := detail.TotalTokens
+	inputTokens := detail.InputTokens
+	outputTokens := detail.OutputTokens
 	statsKey := record.APIKey
 	if statsKey == "" {
 		statsKey = resolveAPIIdentifier(ctx, record)
@@ -189,6 +203,8 @@ func (s *RequestStatistics) Record(ctx context.Context, record coreusage.Record)
 		s.failureCount++
 	}
 	s.totalTokens += totalTokens
+	s.totalInputTokens += inputTokens
+	s.totalOutputTokens += outputTokens
 
 	stats, ok := s.apis[statsKey]
 	if !ok {
@@ -206,6 +222,8 @@ func (s *RequestStatistics) Record(ctx context.Context, record coreusage.Record)
 	s.requestsByDay[dayKey]++
 	s.requestsByHour[hourKey]++
 	s.tokensByDay[dayKey] += totalTokens
+	s.inputTokensByDay[dayKey] += inputTokens
+	s.outputTokensByDay[dayKey] += outputTokens
 	s.tokensByHour[hourKey] += totalTokens
 }
 
@@ -236,6 +254,8 @@ func (s *RequestStatistics) Snapshot() StatisticsSnapshot {
 	result.SuccessCount = s.successCount
 	result.FailureCount = s.failureCount
 	result.TotalTokens = s.totalTokens
+	result.TotalInputTokens = s.totalInputTokens
+	result.TotalOutputTokens = s.totalOutputTokens
 
 	result.APIs = make(map[string]APISnapshot, len(s.apis))
 	for apiName, stats := range s.apis {
@@ -270,6 +290,16 @@ func (s *RequestStatistics) Snapshot() StatisticsSnapshot {
 	result.TokensByDay = make(map[string]int64, len(s.tokensByDay))
 	for k, v := range s.tokensByDay {
 		result.TokensByDay[k] = v
+	}
+
+	result.InputTokensByDay = make(map[string]int64, len(s.inputTokensByDay))
+	for k, v := range s.inputTokensByDay {
+		result.InputTokensByDay[k] = v
+	}
+
+	result.OutputTokensByDay = make(map[string]int64, len(s.outputTokensByDay))
+	for k, v := range s.outputTokensByDay {
+		result.OutputTokensByDay[k] = v
 	}
 
 	result.TokensByHour = make(map[string]int64, len(s.tokensByHour))
@@ -346,4 +376,99 @@ func formatHour(hour int) string {
 	}
 	hour = hour % 24
 	return fmt.Sprintf("%02d", hour)
+}
+
+// ComputeUsageStats converts a StatisticsSnapshot into a structured UsageStats object.
+func ComputeUsageStats(snapshot StatisticsSnapshot) interfaces.UsageStats {
+	stats := interfaces.UsageStats{
+		TotalRequests:      snapshot.TotalRequests,
+		SuccessCount:       snapshot.SuccessCount,
+		FailureCount:       snapshot.FailureCount,
+		TotalInputTokens:   snapshot.TotalInputTokens,
+		TotalOutputTokens:  snapshot.TotalOutputTokens,
+		EstimatedCostSaved: 0,
+		ByModel:            make(map[string]int64),
+		ByProvider:         make(map[string]int64),
+		Daily:              make([]interfaces.DailyUsage, 0),
+	}
+
+	var totalCost float64
+
+	for apiName, apiSnapshot := range snapshot.APIs {
+		// Try to identify provider from apiName
+		provider := apiName
+		// If apiName is "METHOD PATH", it's not a provider name.
+		if strings.Contains(apiName, " ") {
+			provider = "unknown"
+		}
+
+		for modelName, modelSnapshot := range apiSnapshot.Models {
+			stats.ByModel[modelName] += modelSnapshot.TotalRequests
+
+			// If provider is unknown, try to infer from model name
+			actualProvider := provider
+			if actualProvider == "unknown" {
+				actualProvider = inferProviderFromModel(modelName)
+			}
+			stats.ByProvider[actualProvider] += modelSnapshot.TotalRequests
+
+			for _, detail := range modelSnapshot.Details {
+				totalCost += estimateCost(actualProvider, modelName, detail.Tokens.InputTokens, detail.Tokens.OutputTokens)
+			}
+		}
+	}
+
+	stats.EstimatedCostSaved = totalCost
+
+	// Last 7 days
+	now := time.Now()
+	for i := 6; i >= 0; i-- {
+		date := now.AddDate(0, 0, -i).Format("2006-01-02")
+		daily := interfaces.DailyUsage{
+			Date:         date,
+			Requests:     snapshot.RequestsByDay[date],
+			Tokens:       snapshot.TokensByDay[date],
+			InputTokens:  snapshot.InputTokensByDay[date],
+			OutputTokens: snapshot.OutputTokensByDay[date],
+		}
+		stats.Daily = append(stats.Daily, daily)
+	}
+
+	return stats
+}
+
+func inferProviderFromModel(model string) string {
+	m := strings.ToLower(model)
+	if strings.Contains(m, "claude") {
+		return "anthropic"
+	}
+	if strings.Contains(m, "gpt") {
+		return "openai"
+	}
+	if strings.Contains(m, "gemini") {
+		return "google"
+	}
+	return "unknown"
+}
+
+func estimateCost(provider string, model string, inputTokens, outputTokens int64) float64 {
+	p := strings.ToLower(provider)
+	m := strings.ToLower(model)
+
+	var inputRate, outputRate float64
+
+	if strings.Contains(p, "anthropic") || strings.Contains(p, "claude") || strings.Contains(m, "claude") {
+		inputRate = 3.0 / 1000000.0
+		outputRate = 15.0 / 1000000.0
+	} else if strings.Contains(p, "openai") || strings.Contains(m, "gpt-4") || strings.Contains(m, "gpt-3.5") {
+		inputRate = 10.0 / 1000000.0
+		outputRate = 30.0 / 1000000.0
+	} else if strings.Contains(p, "google") || strings.Contains(p, "gemini") || strings.Contains(m, "gemini") {
+		inputRate = 0.50 / 1000000.0
+		outputRate = 1.50 / 1000000.0
+	} else {
+		return 0
+	}
+
+	return (float64(inputTokens) * inputRate) + (float64(outputTokens) * outputRate)
 }

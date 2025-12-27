@@ -28,11 +28,11 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/access"
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers"
-	sdkConfig "github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers/claude"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers/gemini"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers/openai"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
+	sdkConfig "github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
@@ -337,7 +337,6 @@ func (s *Server) setupRoutes() {
 	s.engine.POST("/messages", AuthMiddleware(s.accessManager), claudeCodeHandlers.ClaudeMessages)
 	s.engine.POST("/responses", AuthMiddleware(s.accessManager), openaiResponsesHandlers.Responses)
 
-
 	// Root endpoint
 	s.engine.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -498,6 +497,7 @@ func (s *Server) registerManagementRoutes() {
 	mgmt.Use(s.managementAvailabilityMiddleware(), s.mgmt.Middleware())
 	{
 		mgmt.GET("/usage", s.mgmt.GetUsageStatistics)
+		mgmt.GET("/requests", s.mgmt.GetRequests)
 		mgmt.GET("/config", s.mgmt.GetConfig)
 		mgmt.GET("/config.yaml", s.mgmt.GetConfigYAML)
 		mgmt.PUT("/config.yaml", s.mgmt.PutConfigYAML)
@@ -549,7 +549,6 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/ws-auth", s.mgmt.GetWebsocketAuth)
 		mgmt.PUT("/ws-auth", s.mgmt.PutWebsocketAuth)
 		mgmt.PATCH("/ws-auth", s.mgmt.PutWebsocketAuth)
-
 
 		mgmt.GET("/request-retry", s.mgmt.GetRequestRetry)
 		mgmt.PUT("/request-retry", s.mgmt.PutRequestRetry)
@@ -611,6 +610,8 @@ func (s *Server) registerManagementRoutes() {
 		// Integration detection and setup routes
 		mgmt.GET("/integrations/status", s.mgmt.GetIntegrationsStatus)
 		mgmt.POST("/integrations/:id/configure", s.mgmt.PostIntegrationConfigure)
+		mgmt.GET("/agents", s.mgmt.GetCLIAgents)
+		mgmt.GET("/updates/check", s.mgmt.GetUpdateInfo)
 	}
 }
 

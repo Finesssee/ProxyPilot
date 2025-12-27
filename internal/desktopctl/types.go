@@ -4,6 +4,7 @@ import "time"
 
 type Status struct {
 	Running         bool      `json:"running"`
+	Version         string    `json:"version,omitempty"`
 	Managed         bool      `json:"managed"`
 	AutoStartProxy  bool      `json:"auto_start_proxy,omitempty"`
 	PID             int       `json:"pid,omitempty"`
