@@ -38,8 +38,6 @@ jobs:
           mkdir -p dist
           # Build tray app (includes embedded dashboard)
           go build -ldflags="-s -w -H=windowsgui" -o dist/ProxyPilot.exe ./cmd/cliproxytray
-          # Build proxy engine
-          go build -ldflags="-s -w" -o dist/proxypilot-engine.exe ./cmd/server
 
       - name: Install Inno Setup
         run: |
@@ -66,7 +64,6 @@ jobs:
           name: windows-release
           path: |
             dist/ProxyPilot.exe
-            dist/proxypilot-engine.exe
             dist/ProxyPilot-*-Setup.exe
 
       - name: Upload to Release
@@ -75,6 +72,5 @@ jobs:
         with:
           files: |
             dist/ProxyPilot.exe
-            dist/proxypilot-engine.exe
             dist/ProxyPilot-${{ steps.version.outputs.VERSION }}-Setup.exe
             config.example.yaml

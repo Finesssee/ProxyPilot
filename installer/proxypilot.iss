@@ -38,8 +38,6 @@ Name: "startupicon"; Description: "Start ProxyPilot when Windows starts"; GroupD
 [Files]
 ; Main app (tray + dashboard UI)
 Source: "{#OutDir}\ProxyPilot.exe"; DestDir: "{app}"; Flags: ignoreversion
-; Proxy engine
-Source: "{#OutDir}\proxypilot-engine.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; Config
 Source: "{#RepoRoot}\config.example.yaml"; DestDir: "{app}"; Flags: ignoreversion
 ; Icons
@@ -57,7 +55,6 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Filename: "{app}\ProxyPilot.exe"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "taskkill"; Parameters: "/F /IM proxypilot-engine.exe"; Flags: runhidden; RunOnceId: "KillEngine"
 Filename: "taskkill"; Parameters: "/F /IM ProxyPilot.exe"; Flags: runhidden; RunOnceId: "KillTray"
 
 [UninstallDelete]

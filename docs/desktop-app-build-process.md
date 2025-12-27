@@ -4,31 +4,55 @@ Documentation of the desktop application build and release process established o
 
 ## Overview
 
-ProxyPilot Desktop consists of two executables:
-- **ProxyPilot.exe** - System tray app with embedded WebView2 dashboard
-- **proxypilot-engine.exe** - The proxy server engine
+ProxyPilot Desktop is a **single executable** that includes both the system tray UI and the proxy engine:
+- **ProxyPilot.exe** - System tray app with embedded WebView2 dashboard and embedded proxy engine
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    ProxyPilot.exe                       │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐  │
-│  │ System Tray │  │  WebView2   │  │ Embedded Assets │  │
-│  │   (systray) │  │  Dashboard  │  │   (webui/dist)  │  │
-│  └─────────────┘  └─────────────┘  └─────────────────┘  │
-└─────────────────────────────────────────────────────────┘
-                          │
-                          │ spawns/controls
-                          ▼
-┌─────────────────────────────────────────────────────────┐
-│                 proxypilot-engine.exe                   │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐  │
-│  │ Proxy Server│  │   Routing   │  │ Provider Auth   │  │
-│  │  (port 8317)│  │   Engine    │  │   Management    │  │
-│  └─────────────┘  └─────────────┘  └─────────────────┘  │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                       ProxyPilot.exe                            │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
+│  │ System Tray │  │  WebView2   │  │   Embedded Assets       │  │
+│  │   (systray) │  │  Dashboard  │  │     (webui/dist)        │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │              Embedded Proxy Engine (goroutine)              ││
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  ││
+│  │  │Thinking Proxy│  │   Routing   │  │   Provider Auth     │  ││
+│  │  │  (port 8317) │  │   Engine    │  │    Management       │  ││
+│  │  └─────────────┘  └─────────────┘  └─────────────────────┘  ││
+│  └─────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+### In-Process Engine
+
+The proxy engine runs as a goroutine within the same process, managed by `EmbeddedEngine`:
+
+```go
+// cmd/cliproxytray/engine.go
+type EmbeddedEngine struct {
+    mu        sync.Mutex
+    service   *cliproxy.Service
+    cancel    context.CancelFunc
+    running   bool
+    port      int
+    // ...
+}
+
+func (e *EmbeddedEngine) Start(cfg *config.Config, configPath, password string) error
+func (e *EmbeddedEngine) Stop() error
+func (e *EmbeddedEngine) Restart(cfg *config.Config, configPath, password string) error
+func (e *EmbeddedEngine) Status() Status
+```
+
+Benefits of single-binary architecture:
+- **Simpler deployment**: One file to distribute and install
+- **Smaller total size**: ~29MB vs ~46MB (shared Go runtime)
+- **Faster startup**: No process spawning overhead
+- **Easier debugging**: Single process to monitor
 
 ## Build Process
 
@@ -76,35 +100,20 @@ cp static/icon.ico internal/trayicon/icon.ico
 Generate `.syso` files for embedding icons in executables:
 
 ```bash
-# For the tray app
 cd cmd/cliproxytray
-goversioninfo -icon="../../static/icon.ico"
-
-# For the engine
-cd cmd/server
 goversioninfo -icon="../../static/icon.ico"
 ```
 
 This creates `resource.syso` files that Go automatically includes during build.
 
-### Step 4: Build Executables
+### Step 4: Build Executable
 
 ```bash
-# Build tray app (with -H windowsgui to hide console)
-GOOS=windows GOARCH=amd64 go build -ldflags="-H windowsgui" -o out/ProxyPilot.exe ./cmd/cliproxytray
-
-# Build engine
-GOOS=windows GOARCH=amd64 go build -o out/proxypilot-engine.exe ./cmd/server
+# Build single-binary tray app (with -H windowsgui to hide console)
+GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -H windowsgui" -o dist/ProxyPilot.exe ./cmd/cliproxytray
 ```
 
-### Step 5: Copy to Distribution Folder
-
-```bash
-cp out/ProxyPilot.exe dist/
-cp out/proxypilot-engine.exe dist/
-```
-
-### Step 6: Build Installer
+### Step 5: Build Installer
 
 ```bash
 # Using Inno Setup
@@ -133,6 +142,13 @@ Output: `dist/ProxyPilot-0.1.0-Setup.exe`
 }
 ```
 
+### Embedded Engine
+
+**cmd/cliproxytray/engine.go** - Manages the in-process proxy service:
+- Uses `cliproxy.NewBuilder()` SDK to build the service
+- Runs in a goroutine with cancellable context
+- Thread-safe start/stop/restart operations
+
 ### Tray Icon Embedding
 
 **internal/trayicon/ico.go**
@@ -154,7 +170,7 @@ func ProxyPilotICO() []byte {
 ### Installer Script
 
 **installer/proxypilot.iss** - Inno Setup script that:
-- Installs both executables to `%LOCALAPPDATA%\ProxyPilot`
+- Installs ProxyPilot.exe to `%LOCALAPPDATA%\ProxyPilot`
 - Creates Start Menu and Desktop shortcuts
 - Adds optional Windows startup entry
 - Copies config.example.yaml and creates config.yaml on first install
@@ -190,7 +206,6 @@ gh release create v0.1.0 \
   --notes "Release notes here" \
   dist/ProxyPilot-0.1.0-Setup.exe \
   dist/ProxyPilot.exe \
-  dist/proxypilot-engine.exe \
   config.example.yaml
 ```
 
@@ -225,17 +240,20 @@ gh release upload v0.1.0 dist/ProxyPilot.exe
 2. Rebuild the tray app to re-embed the icon
 3. Restart the application
 
+### Engine Not Starting
+
+1. Check if port 8317/8318 are already in use
+2. Review logs in `%LOCALAPPDATA%\ProxyPilot\logs\`
+3. Ensure config.yaml is valid YAML
+
 ## File Structure
 
 ```
 ProxyPilot/
 ├── cmd/
-│   ├── cliproxytray/
-│   │   ├── main_windows.go      # Tray app with WebView2
-│   │   ├── versioninfo.json     # Version/icon config
-│   │   └── resource.syso        # Compiled resources
-│   └── server/
-│       ├── main.go              # Engine entry point
+│   └── cliproxytray/
+│       ├── main_windows.go      # Tray app with embedded engine
+│       ├── engine.go            # EmbeddedEngine implementation
 │       ├── versioninfo.json     # Version/icon config
 │       └── resource.syso        # Compiled resources
 ├── internal/
@@ -250,11 +268,17 @@ ProxyPilot/
 │   └── dist/                    # Built assets (embedded)
 ├── installer/
 │   └── proxypilot.iss           # Inno Setup script
-├── out/                         # Build output
 └── dist/                        # Distribution files
+    └── ProxyPilot.exe           # Single-binary (~29MB)
 ```
 
 ## Version History
+
+- **v0.2.0** (2025-12-27) - Single-binary architecture
+  - Embedded proxy engine runs in-process
+  - Removed separate proxypilot-engine.exe
+  - Reduced total size from ~46MB to ~29MB
+  - Faster startup with no process spawning
 
 - **v0.1.0** (2025-12-27) - Initial desktop app release
   - System tray with minimal menu
