@@ -4,6 +4,7 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  /* Radius variants - industrial sharp edges */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -11,6 +12,13 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
+
+  /* Typography */
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+
+  /* Color mappings */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -42,83 +50,538 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* PILOT COMMAND Design Tokens */
+  /* Background Layers */
+  --bg-void: var(--bg-void);
+  --bg-panel: var(--bg-panel);
+  --bg-elevated: var(--bg-elevated);
+  --bg-active: var(--bg-active);
+
+  /* Accent Colors - Signature Orange/Amber */
+  --accent-primary: var(--accent-primary);
+  --accent-secondary: var(--accent-secondary);
+  --accent-glow: var(--accent-glow);
+
+  /* Status Indicators */
+  --status-online: var(--status-online);
+  --status-offline: var(--status-offline);
+  --status-warning: var(--status-warning);
+  --status-processing: var(--status-processing);
+
+  /* Text Hierarchy */
+  --text-primary: var(--text-primary);
+  --text-secondary: var(--text-secondary);
+  --text-muted: var(--text-muted);
+  --text-accent: var(--text-accent);
+
+  /* Borders */
+  --border-subtle: var(--border-subtle);
+  --border-default: var(--border-default);
+  --border-accent: var(--border-accent);
 }
 
 :root {
-  --radius: 0.75rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.13 0.02 260);
+  /* Smooth modern radius */
+  --radius: 0.5rem;
+
+  /* Light Mode - ProxyPilot Aviation Theme */
+  /* Background Layers */
+  --bg-void: oklch(0.97 0.01 240);
+  --bg-panel: oklch(1 0 0);
+  --bg-elevated: oklch(0.98 0.01 240);
+  --bg-active: oklch(0.94 0.02 240);
+
+  /* Accent Colors - Aviation Blue from logo */
+  --accent-primary: oklch(0.50 0.18 250);
+  --accent-secondary: oklch(0.45 0.15 255);
+  --accent-glow: oklch(0.75 0.12 220);
+
+  /* Status Indicators */
+  --status-online: oklch(0.60 0.18 145);
+  --status-offline: oklch(0.50 0.12 25);
+  --status-warning: oklch(0.70 0.16 85);
+  --status-processing: oklch(0.65 0.15 250);
+
+  /* Text Hierarchy */
+  --text-primary: oklch(0.20 0.03 250);
+  --text-secondary: oklch(0.40 0.02 250);
+  --text-muted: oklch(0.55 0.02 250);
+  --text-accent: oklch(0.45 0.16 250);
+
+  /* Borders */
+  --border-subtle: oklch(0.92 0.01 240);
+  --border-default: oklch(0.85 0.02 240);
+  --border-accent: oklch(0.50 0.12 250);
+
+  /* Semantic mappings for components */
+  --background: oklch(0.97 0.01 240);
+  --foreground: oklch(0.20 0.03 250);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.13 0.02 260);
+  --card-foreground: oklch(0.20 0.03 250);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.13 0.02 260);
-  --primary: oklch(0.55 0.2 255);
-  --primary-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.96 0.01 260);
-  --secondary-foreground: oklch(0.25 0.05 260);
-  --muted: oklch(0.96 0.01 260);
-  --muted-foreground: oklch(0.45 0.03 260);
-  --accent: oklch(0.96 0.01 260);
-  --accent-foreground: oklch(0.25 0.05 260);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.92 0.01 260);
-  --input: oklch(0.92 0.01 260);
-  --ring: oklch(0.55 0.2 255);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.98 0 0);
-  --sidebar-foreground: oklch(0.13 0.02 260);
-  --sidebar-primary: oklch(0.55 0.2 255);
+  --popover-foreground: oklch(0.20 0.03 250);
+  --primary: oklch(0.50 0.18 250);
+  --primary-foreground: oklch(0.98 0.01 240);
+  --secondary: oklch(0.94 0.02 240);
+  --secondary-foreground: oklch(0.30 0.03 250);
+  --muted: oklch(0.94 0.02 240);
+  --muted-foreground: oklch(0.50 0.02 250);
+  --accent: oklch(0.94 0.03 220);
+  --accent-foreground: oklch(0.40 0.15 250);
+  --destructive: oklch(0.55 0.20 25);
+  --border: oklch(0.92 0.01 240);
+  --input: oklch(0.92 0.01 240);
+  --ring: oklch(0.50 0.18 250);
+
+  /* Chart colors - aviation palette */
+  --chart-1: oklch(0.50 0.18 250);
+  --chart-2: oklch(0.60 0.18 145);
+  --chart-3: oklch(0.65 0.15 220);
+  --chart-4: oklch(0.70 0.16 85);
+  --chart-5: oklch(0.45 0.15 255);
+
+  /* Sidebar */
+  --sidebar: oklch(0.98 0.01 240);
+  --sidebar-foreground: oklch(0.20 0.03 250);
+  --sidebar-primary: oklch(0.50 0.18 250);
   --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.96 0.01 260);
-  --sidebar-accent-foreground: oklch(0.25 0.05 260);
-  --sidebar-border: oklch(0.92 0.01 260);
-  --sidebar-ring: oklch(0.55 0.2 255);
+  --sidebar-accent: oklch(0.94 0.03 220);
+  --sidebar-accent-foreground: oklch(0.40 0.15 250);
+  --sidebar-border: oklch(0.92 0.01 240);
+  --sidebar-ring: oklch(0.50 0.18 250);
 }
 
 .dark {
-  --background: oklch(0.10 0.03 260);
-  --foreground: oklch(0.98 0 0);
-  --card: oklch(0.13 0.04 260);
-  --card-foreground: oklch(0.98 0 0);
-  --popover: oklch(0.13 0.04 260);
-  --popover-foreground: oklch(0.98 0 0);
-  --primary: oklch(0.60 0.18 250);
-  --primary-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.20 0.05 260);
-  --secondary-foreground: oklch(0.98 0 0);
-  --muted: oklch(0.20 0.05 260);
-  --muted-foreground: oklch(0.65 0.05 260);
-  --accent: oklch(0.20 0.05 260);
-  --accent-foreground: oklch(0.98 0 0);
-  --destructive: oklch(0.4 0.15 25);
-  --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(0.25 0.05 260);
-  --input: oklch(0.25 0.05 260);
-  --ring: oklch(0.60 0.18 250);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.13 0.04 260);
-  --sidebar-foreground: oklch(0.98 0 0);
-  --sidebar-primary: oklch(0.60 0.18 250);
-  --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.20 0.05 260);
-  --sidebar-accent-foreground: oklch(0.98 0 0);
-  --sidebar-border: oklch(0.25 0.05 260);
-  --sidebar-ring: oklch(0.60 0.18 250);
+  /* Dark Mode - ProxyPilot Aviation Theme */
+  /* Background Layers - Deep navy like logo edges */
+  --bg-void: oklch(0.12 0.03 250);
+  --bg-panel: oklch(0.16 0.04 250);
+  --bg-elevated: oklch(0.20 0.05 250);
+  --bg-active: oklch(0.25 0.06 250);
+
+  /* Accent Colors - Bright aviation blue & cyan glow */
+  --accent-primary: oklch(0.65 0.18 250);
+  --accent-secondary: oklch(0.55 0.15 255);
+  --accent-glow: oklch(0.80 0.14 220);
+
+  /* Status Indicators */
+  --status-online: oklch(0.72 0.19 145);
+  --status-offline: oklch(0.55 0.12 25);
+  --status-warning: oklch(0.80 0.16 85);
+  --status-processing: oklch(0.70 0.15 250);
+
+  /* Text Hierarchy - Cream/paper white like the airplane */
+  --text-primary: oklch(0.96 0.01 90);
+  --text-secondary: oklch(0.75 0.02 240);
+  --text-muted: oklch(0.55 0.03 250);
+  --text-accent: oklch(0.80 0.14 220);
+
+  /* Borders */
+  --border-subtle: oklch(0.25 0.04 250);
+  --border-default: oklch(0.32 0.05 250);
+  --border-accent: oklch(0.55 0.12 250);
+
+  /* Semantic mappings for components */
+  --background: oklch(0.12 0.03 250);
+  --foreground: oklch(0.96 0.01 90);
+  --card: oklch(0.16 0.04 250);
+  --card-foreground: oklch(0.96 0.01 90);
+  --popover: oklch(0.16 0.04 250);
+  --popover-foreground: oklch(0.96 0.01 90);
+  --primary: oklch(0.65 0.18 250);
+  --primary-foreground: oklch(0.12 0.03 250);
+  --secondary: oklch(0.20 0.05 250);
+  --secondary-foreground: oklch(0.96 0.01 90);
+  --muted: oklch(0.20 0.05 250);
+  --muted-foreground: oklch(0.55 0.03 250);
+  --accent: oklch(0.25 0.06 250);
+  --accent-foreground: oklch(0.80 0.14 220);
+  --destructive: oklch(0.55 0.18 25);
+  --destructive-foreground: oklch(0.96 0.01 90);
+  --border: oklch(0.25 0.04 250);
+  --input: oklch(0.25 0.04 250);
+  --ring: oklch(0.65 0.18 250);
+
+  /* Chart colors - aviation palette */
+  --chart-1: oklch(0.65 0.18 250);
+  --chart-2: oklch(0.72 0.19 145);
+  --chart-3: oklch(0.70 0.15 220);
+  --chart-4: oklch(0.80 0.16 85);
+  --chart-5: oklch(0.55 0.15 255);
+
+  /* Sidebar */
+  --sidebar: oklch(0.14 0.035 250);
+  --sidebar-foreground: oklch(0.96 0.01 90);
+  --sidebar-primary: oklch(0.65 0.18 250);
+  --sidebar-primary-foreground: oklch(0.12 0.03 250);
+  --sidebar-accent: oklch(0.25 0.06 250);
+  --sidebar-accent-foreground: oklch(0.80 0.14 220);
+  --sidebar-border: oklch(0.25 0.04 250);
+  --sidebar-ring: oklch(0.65 0.18 250);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-body);
   }
+}
+
+/* PILOT COMMAND Animation Keyframes */
+@keyframes statusPulse {
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes slideInFromRight {
+  0% {
+    opacity: 0;
+    transform: translateX(1rem);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scanLine {
+  0% {
+    background-position: -100% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Utility classes for animations */
+.animate-status-pulse {
+  animation: statusPulse 2s ease-in-out infinite;
+}
+
+.animate-slide-in-right {
+  animation: slideInFromRight 0.3s ease-out forwards;
+}
+
+.animate-scan-line {
+  background: linear-gradient(90deg,
+      transparent 0%,
+      var(--accent-glow) 50%,
+      transparent 100%);
+  background-size: 200% 100%;
+  animation: scanLine 1.5s ease-in-out infinite;
+}
+
+/* Content fade-in animation */
+@keyframes fadeInUp {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.4s ease-out forwards;
+}
+
+/* Staggered children animation */
+.stagger-children>* {
+  opacity: 0;
+  animation: fadeInUp 0.3s ease-out forwards;
+}
+
+.stagger-children>*:nth-child(1) {
+  animation-delay: 0.05s;
+}
+
+.stagger-children>*:nth-child(2) {
+  animation-delay: 0.10s;
+}
+
+.stagger-children>*:nth-child(3) {
+  animation-delay: 0.15s;
+}
+
+.stagger-children>*:nth-child(4) {
+  animation-delay: 0.20s;
+}
+
+.stagger-children>*:nth-child(5) {
+  animation-delay: 0.25s;
+}
+
+.stagger-children>*:nth-child(6) {
+  animation-delay: 0.30s;
+}
+
+/* Flight Deck Animations */
+@keyframes radarPulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+@keyframes radarSweep {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes dataFlow {
+  0% {
+    stroke-dashoffset: 100;
+  }
+
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes signalPulse {
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+
+  50% {
+    opacity: 0.7;
+    transform: scaleY(0.95);
+  }
+}
+
+@keyframes scanline {
+  0% {
+    top: -10%;
+    opacity: 0;
+  }
+
+  10% {
+    opacity: 0.5;
+  }
+
+  90% {
+    opacity: 0.5;
+  }
+
+  100% {
+    top: 110%;
+    opacity: 0;
+  }
+}
+
+@keyframes glowPulse {
+
+  0%,
+  100% {
+    box-shadow: 0 0 8px var(--accent-glow);
+  }
+
+  50% {
+    box-shadow: 0 0 20px var(--accent-glow), 0 0 40px var(--accent-primary);
+  }
+}
+
+@keyframes flightPath {
+  0% {
+    stroke-dashoffset: 1000;
+    opacity: 0;
+  }
+
+  10% {
+    opacity: 1;
+  }
+
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+@keyframes connectingPulse {
+
+  0%,
+  100% {
+    box-shadow: 0 0 8px var(--status-processing);
+    border-color: var(--status-processing);
+    opacity: 1;
+  }
+
+  50% {
+    box-shadow: 0 0 15px var(--status-processing), 0 0 30px var(--status-processing);
+    border-color: var(--accent-primary);
+    opacity: 0.8;
+  }
+}
+
+/* Flight Deck utility classes */
+.animate-radar-pulse {
+  animation: radarPulse 2s ease-out infinite;
+}
+
+.animate-radar-sweep {
+  animation: radarSweep 4s linear infinite;
+}
+
+.animate-data-flow {
+  animation: dataFlow 1.5s ease-in-out forwards;
+}
+
+.animate-signal-pulse {
+  animation: signalPulse 1.5s ease-in-out infinite;
+}
+
+.animate-scanline {
+  animation: scanline 3s linear infinite;
+}
+
+.animate-glow-pulse {
+  animation: glowPulse 2s ease-in-out infinite;
+}
+
+.animate-connecting-pulse {
+  animation: connectingPulse 1s ease-in-out infinite;
+}
+
+.animate-flight-path {
+  animation: flightPath 2s ease-out forwards;
+}
+
+/* Staggered animation delays */
+.delay-0 {
+  animation-delay: 0ms;
+}
+
+.delay-75 {
+  animation-delay: 75ms;
+}
+
+.delay-100 {
+  animation-delay: 100ms;
+}
+
+.delay-150 {
+  animation-delay: 150ms;
+}
+
+.delay-200 {
+  animation-delay: 200ms;
+}
+
+.delay-300 {
+  animation-delay: 300ms;
+}
+
+.delay-400 {
+  animation-delay: 400ms;
+}
+
+.delay-500 {
+  animation-delay: 500ms;
+}
+
+/* Aviation grid background */
+.aviation-grid {
+  background-image:
+    linear-gradient(rgba(var(--accent-glow-rgb), 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--accent-glow-rgb), 0.03) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Cockpit button style */
+.btn-cockpit {
+  @apply relative px-4 py-2 rounded-md font-mono uppercase tracking-wider text-sm;
+  background: linear-gradient(to bottom, var(--bg-elevated), var(--bg-panel));
+  border: 1px solid var(--border-default);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.btn-cockpit:active {
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+  transform: translateY(1px);
+}
+
+/* Instrument panel segment */
+.instrument-segment {
+  @apply px-3 py-1 border-r border-[var(--border-subtle)] font-mono text-xs;
+  background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.1));
+}
+
+.instrument-segment:last-child {
+  border-right: none;
+}
+
+/* Card glow hover effect */
+.card-glow {
+  transition: box-shadow 0.2s ease-out, border-color 0.2s ease-out;
+}
+
+.card-glow:hover {
+  box-shadow: 0 0 20px color-mix(in oklch, var(--accent-primary) 15%, transparent);
+  border-color: var(--accent-primary);
+}
+
+/* Mechanical button press */
+.btn-mechanical {
+  transition: transform 0.1s ease-out, box-shadow 0.1s ease-out;
+}
+
+.btn-mechanical:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+
+/* Custom scrollbar for dark theme */
+.dark ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: var(--bg-panel);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Focus ring style */
+.focus-ring {
+  @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
 }

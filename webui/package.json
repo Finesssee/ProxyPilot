@@ -22,7 +22,7 @@
 		"lucide-react": "^0.562.0",
 		"react": "^19.2.0",
 		"react-dom": "^19.2.0",
-		"react-grab": "^0.0.91",
+		"sonner": "^2.0.7",
 		"tailwind-merge": "^3.4.0"
 	},
 	"devDependencies": {

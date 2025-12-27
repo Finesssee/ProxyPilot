@@ -5,18 +5,24 @@ import type * as React from "react";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-	"inline-flex items-center justify-center rounded-full border px-2 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden",
+	"inline-flex items-center justify-center rounded-sm border px-1.5 py-0.5 w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden font-mono text-[0.65rem] uppercase tracking-wide",
 	{
 		variants: {
 			variant: {
 				default:
-					"border-transparent bg-primary text-primary-foreground [a&]:hover:bg-primary/90",
+					"border-transparent bg-[hsl(var(--accent-primary))] text-[hsl(var(--bg-primary))] font-semibold [a&]:hover:bg-[hsl(var(--accent-primary))]/90",
 				secondary:
-					"border-transparent bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90",
+					"border-[hsl(var(--border-primary))] bg-[hsl(var(--bg-secondary))] text-[hsl(var(--text-secondary))] [a&]:hover:bg-[hsl(var(--bg-tertiary))]",
 				destructive:
-					"border-transparent bg-destructive text-white [a&]:hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
+					"border-transparent bg-[hsl(var(--status-offline))] text-white [a&]:hover:bg-[hsl(var(--status-offline))]/90 focus-visible:ring-[hsl(var(--status-offline))]/20",
 				outline:
-					"text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
+					"border-[hsl(var(--border-primary))] bg-transparent text-[hsl(var(--text-secondary))] [a&]:hover:bg-[hsl(var(--bg-tertiary))] [a&]:hover:text-[hsl(var(--text-primary))]",
+				success:
+					"border-transparent bg-[hsl(var(--status-online))] text-white font-semibold [a&]:hover:bg-[hsl(var(--status-online))]/90",
+				warning:
+					"border-transparent bg-[hsl(var(--status-warning))] text-[hsl(var(--bg-primary))] font-semibold [a&]:hover:bg-[hsl(var(--status-warning))]/90",
+				processing:
+					"border-transparent bg-[hsl(var(--status-processing))] text-white font-semibold [a&]:hover:bg-[hsl(var(--status-processing))]/90",
 			},
 		},
 		defaultVariants: {
@@ -43,4 +49,53 @@ function Badge({
 	);
 }
 
-export { Badge };
+// Dot color mapping based on variant
+const dotColorMap: Record<string, string> = {
+	default: "bg-[hsl(var(--bg-primary))]",
+	secondary: "bg-[hsl(var(--text-secondary))]",
+	destructive: "bg-white",
+	outline: "bg-current",
+	success: "bg-white",
+	warning: "bg-[hsl(var(--bg-primary))]",
+	processing: "bg-white",
+};
+
+function BadgeWithDot({
+	className,
+	variant = "default",
+	asChild = false,
+	children,
+	dotClassName,
+	...props
+}: React.ComponentProps<"span"> &
+	VariantProps<typeof badgeVariants> & {
+		asChild?: boolean;
+		dotClassName?: string;
+	}) {
+	const Comp = asChild ? Slot : "span";
+	const dotColor = dotColorMap[variant || "default"] || "bg-current";
+
+	return (
+		<Comp
+			data-slot="badge"
+			className={cn(
+				badgeVariants({ variant }),
+				"gap-1.5",
+				className,
+			)}
+			{...props}
+		>
+			<span
+				className={cn(
+					"w-1.5 h-1.5 rounded-full shrink-0",
+					dotColor,
+					dotClassName,
+				)}
+				aria-hidden="true"
+			/>
+			{children}
+		</Comp>
+	);
+}
+
+export { Badge, BadgeWithDot, badgeVariants };
