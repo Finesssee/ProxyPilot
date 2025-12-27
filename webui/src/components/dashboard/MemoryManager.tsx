@@ -1,24 +1,26 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
 import {
-  Database,
   Download,
   Upload,
   Trash2,
   RefreshCw,
   Save,
-  FileText,
   Anchor,
-  ListTodo,
   Pin,
   Scissors,
   Brain,
+  ChevronDown,
+  ChevronRight,
+  Circle,
+  AlertTriangle,
+  Wrench,
+  Loader2,
 } from 'lucide-react'
-import { useProxyContext } from '@/hooks/useProxyContext'
+import { useProxyContext, EngineOfflineError } from '@/hooks/useProxyContext'
+import { cn } from '@/lib/utils'
 
 interface MemorySession {
   key: string;
@@ -37,6 +39,18 @@ interface PruneConfig {
   maxBytesPerNamespace: number;
 }
 
+interface ParsedAnchor {
+  ts: string;
+  summary: string;
+}
+
+interface ParsedEvent {
+  ts: string;
+  kind: string;
+  role: string;
+  text: string;
+}
+
 const downloadBlob = (blob: Blob, filename: string) => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -46,8 +60,99 @@ const downloadBlob = (blob: Blob, filename: string) => {
   URL.revokeObjectURL(url);
 };
 
+// Format timestamp to HH:MM:SS
+const formatTime = (ts: string): string => {
+  if (!ts) return '--:--:--';
+  try {
+    const date = new Date(ts);
+    return date.toTimeString().slice(0, 8);
+  } catch {
+    return ts.slice(11, 19) || ts;
+  }
+};
+
+// Calculate duration between two timestamps
+const calculateDuration = (start: string, end: string): string => {
+  try {
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    const diffMs = endDate.getTime() - startDate.getTime();
+    const hours = Math.floor(diffMs / 3600000);
+    const minutes = Math.floor((diffMs % 3600000) / 60000);
+    const seconds = Math.floor((diffMs % 60000) / 1000);
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  } catch {
+    return '--:--:--';
+  }
+};
+
+// Collapsible section component with smooth animation
+function CollapsibleSection({
+  title,
+  icon: Icon,
+  count,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  icon: React.ElementType;
+  count?: number;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | undefined>(defaultOpen ? undefined : 0);
+
+  useEffect(() => {
+    if (isOpen) {
+      const contentEl = contentRef.current;
+      if (contentEl) {
+        setHeight(contentEl.scrollHeight);
+        // After animation, set to auto for dynamic content
+        const timer = setTimeout(() => setHeight(undefined), 300);
+        return () => clearTimeout(timer);
+      }
+    } else {
+      setHeight(0);
+    }
+  }, [isOpen]);
+
+  return (
+    <div className="border border-orange-500/30 rounded bg-black/40">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-orange-500/10 transition-colors"
+      >
+        {isOpen ? (
+          <ChevronDown className="h-4 w-4 text-orange-400" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-orange-400" />
+        )}
+        <Icon className="h-4 w-4 text-orange-400" />
+        <span className="text-xs font-mono text-orange-300 uppercase tracking-wider">
+          {title}
+        </span>
+        {count !== undefined && (
+          <span className="ml-auto text-xs font-mono bg-orange-500/20 text-orange-300 px-2 py-0.5 rounded">
+            {count}
+          </span>
+        )}
+      </button>
+      <div
+        style={{ height: height !== undefined ? `${height}px` : 'auto' }}
+        className="overflow-hidden transition-[height] duration-300 ease-in-out"
+      >
+        <div ref={contentRef} className="px-3 pb-3">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function MemoryManager() {
-  const { mgmtKey, mgmtFetch, showToast } = useProxyContext()
+  const { mgmtKey, mgmtFetch, showToast, status, isMgmtLoading } = useProxyContext()
 
   // Session state
   const [memorySessions, setMemorySessions] = useState<MemorySession[]>([])
@@ -60,9 +165,9 @@ export function MemoryManager() {
   const [memoryTodo, setMemoryTodo] = useState('')
   const [memorySemanticEnabled, setMemorySemanticEnabled] = useState(true)
 
-  // Events and anchors
-  const [memoryEvents, setMemoryEvents] = useState('')
-  const [memoryAnchors, setMemoryAnchors] = useState('')
+  // Events and anchors - now parsed
+  const [memoryEvents, setMemoryEvents] = useState<ParsedEvent[]>([])
+  const [memoryAnchors, setMemoryAnchors] = useState<ParsedAnchor[]>([])
   const [memoryEventsLimit, setMemoryEventsLimit] = useState(120)
   const [memoryAnchorsLimit, setMemoryAnchorsLimit] = useState(20)
 
@@ -78,6 +183,11 @@ export function MemoryManager() {
     maxBytesPerNamespace: 2000000,
   })
 
+  // Session dropdown open
+  const [sessionDropdownOpen, setSessionDropdownOpen] = useState(false)
+
+  const isRunning = status?.running ?? false
+
   // Load sessions list
   const loadMemorySessions = useCallback(async () => {
     try {
@@ -88,7 +198,9 @@ export function MemoryManager() {
         setMemorySession(sessions[0].key)
       }
     } catch (e) {
-      showToast(e instanceof Error ? e.message : String(e), 'error')
+      if (!(e instanceof EngineOfflineError)) {
+        showToast(e instanceof Error ? e.message : String(e), 'error')
+      }
     }
   }, [mgmtFetch, showToast, memorySession])
 
@@ -109,57 +221,61 @@ export function MemoryManager() {
         setMemorySemanticEnabled(!session.semantic_disabled)
       }
     } catch (e) {
-      showToast(e instanceof Error ? e.message : String(e), 'error')
+      if (!(e instanceof EngineOfflineError)) {
+        showToast(e instanceof Error ? e.message : String(e), 'error')
+      }
     }
   }, [memorySession, mgmtFetch, showToast])
 
   // Load events
   const loadMemoryEvents = useCallback(async () => {
     if (!memorySession) {
-      setMemoryEvents('Select a session.')
+      setMemoryEvents([])
       return
     }
     try {
       const res = await mgmtFetch(`/v0/management/memory/events?session=${encodeURIComponent(memorySession)}&limit=${encodeURIComponent(memoryEventsLimit)}`)
       const events = res.events || []
       if (!Array.isArray(events) || events.length === 0) {
-        setMemoryEvents('No events.')
+        setMemoryEvents([])
         return
       }
-      const lines = events.map((e: any) => {
-        const ts = e.ts || ''
-        const kind = e.kind || ''
-        const role = e.role || ''
-        const text = (e.text || '').toString()
-        return `[${ts}][${kind}][${role}] ${text}`
-      })
-      setMemoryEvents(lines.join('\n\n'))
+      const parsed: ParsedEvent[] = events.map((e: any) => ({
+        ts: e.ts || '',
+        kind: e.kind || '',
+        role: e.role || '',
+        text: (e.text || '').toString(),
+      }))
+      setMemoryEvents(parsed)
     } catch (e) {
-      showToast(e instanceof Error ? e.message : String(e), 'error')
+      if (!(e instanceof EngineOfflineError)) {
+        showToast(e instanceof Error ? e.message : String(e), 'error')
+      }
     }
   }, [memorySession, memoryEventsLimit, mgmtFetch, showToast])
 
   // Load anchors
   const loadMemoryAnchors = useCallback(async () => {
     if (!memorySession) {
-      setMemoryAnchors('Select a session.')
+      setMemoryAnchors([])
       return
     }
     try {
       const res = await mgmtFetch(`/v0/management/memory/anchors?session=${encodeURIComponent(memorySession)}&limit=${encodeURIComponent(memoryAnchorsLimit)}`)
       const anchors = res.anchors || []
       if (!Array.isArray(anchors) || anchors.length === 0) {
-        setMemoryAnchors('No anchors.')
+        setMemoryAnchors([])
         return
       }
-      const lines = anchors.map((a: any) => {
-        const ts = a.ts || ''
-        const summary = (a.summary || '').toString()
-        return `[${ts}]\n${summary}`
-      })
-      setMemoryAnchors(lines.join('\n\n---\n\n'))
+      const parsed: ParsedAnchor[] = anchors.map((a: any) => ({
+        ts: a.ts || '',
+        summary: (a.summary || '').toString(),
+      }))
+      setMemoryAnchors(parsed)
     } catch (e) {
-      showToast(e instanceof Error ? e.message : String(e), 'error')
+      if (!(e instanceof EngineOfflineError)) {
+        showToast(e instanceof Error ? e.message : String(e), 'error')
+      }
     }
   }, [memorySession, memoryAnchorsLimit, mgmtFetch, showToast])
 
@@ -237,8 +353,8 @@ export function MemoryManager() {
       })
       setMemorySession('')
       setMemoryDetails(null)
-      setMemoryEvents('')
-      setMemoryAnchors('')
+      setMemoryEvents([])
+      setMemoryAnchors([])
       await loadMemorySessions()
       showToast('Deleted session', 'success')
     } catch (e) {
@@ -258,7 +374,7 @@ export function MemoryManager() {
         throw new Error(msg)
       }
       const blob = await res.blob()
-      downloadBlob(blob, `proxypilot-session-${memorySession}.zip`)
+      downloadBlob(blob, `flight-log-${memorySession}.zip`)
     } catch (e) {
       showToast(e instanceof Error ? e.message : String(e), 'error')
     }
@@ -276,7 +392,7 @@ export function MemoryManager() {
         throw new Error(msg)
       }
       const blob = await res.blob()
-      downloadBlob(blob, 'proxypilot-memory-all.zip')
+      downloadBlob(blob, 'flight-data-complete.zip')
     } catch (e) {
       showToast(e instanceof Error ? e.message : String(e), 'error')
     }
@@ -285,15 +401,15 @@ export function MemoryManager() {
   // Delete all sessions
   const deleteAllMemory = async () => {
     if (!mgmtKey) return
-    if (!window.confirm('Delete all memory data? This cannot be undone.')) return
+    if (!window.confirm('PURGE ALL FLIGHT DATA? This action cannot be reversed.')) return
     try {
       await mgmtFetch('/v0/management/memory/delete-all?confirm=true', { method: 'POST' })
       setMemorySession('')
       setMemoryDetails(null)
-      setMemoryEvents('')
-      setMemoryAnchors('')
+      setMemoryEvents([])
+      setMemoryAnchors([])
       await loadMemorySessions()
-      showToast('Deleted all memory', 'success')
+      showToast('All flight data purged', 'success')
     } catch (e) {
       showToast(e instanceof Error ? e.message : String(e), 'error')
     }
@@ -315,7 +431,7 @@ export function MemoryManager() {
         throw new Error(msg)
       }
       await loadMemorySessionDetails()
-      showToast('Imported session', 'success')
+      showToast('Flight data imported', 'success')
     } catch (e) {
       showToast(e instanceof Error ? e.message : String(e), 'error')
     }
@@ -336,7 +452,7 @@ export function MemoryManager() {
         }),
       })
       await loadMemorySessions()
-      showToast('Prune completed', 'success')
+      showToast('Maintenance complete', 'success')
     } catch (e) {
       showToast(e instanceof Error ? e.message : String(e), 'error')
     }
@@ -344,298 +460,478 @@ export function MemoryManager() {
 
   // Load sessions on mount
   useEffect(() => {
-    if (mgmtKey) {
+    if (mgmtKey && isRunning) {
       loadMemorySessions()
+    } else if (!isRunning) {
+      setMemorySessions([])
+      setMemoryDetails(null)
+      setMemoryEvents([])
+      setMemoryAnchors([])
     }
-  }, [mgmtKey, loadMemorySessions])
+  }, [mgmtKey, isRunning, loadMemorySessions])
+
+  // Auto-load session details when session changes
+  useEffect(() => {
+    if (memorySession && isRunning) {
+      loadMemorySessionDetails()
+      loadMemoryAnchors()
+      loadMemoryEvents()
+    }
+  }, [memorySession, isRunning, loadMemorySessionDetails, loadMemoryAnchors, loadMemoryEvents])
 
   if (!mgmtKey) {
     return null
   }
 
+  // Get session start time and calculate duration
+  const sessionStartTime = memoryEvents.length > 0 ? memoryEvents[memoryEvents.length - 1]?.ts : '';
+  const sessionEndTime = memoryEvents.length > 0 ? memoryEvents[0]?.ts : '';
+  const sessionDuration = sessionStartTime && sessionEndTime ? calculateDuration(sessionStartTime, sessionEndTime) : '--:--:--';
+
   return (
-    <Card className="backdrop-blur-sm bg-card/60 border-border/50 shadow-xl">
-      <CardHeader className="pb-4">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-violet-500/10 flex items-center justify-center">
-            <Database className="h-5 w-5 text-violet-500" />
+    <div className="bg-gradient-to-b from-zinc-900 to-black border border-orange-500/40 rounded-lg shadow-2xl shadow-orange-500/10 overflow-hidden">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-orange-950/80 via-orange-900/60 to-orange-950/80 border-b border-orange-500/40 px-4 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <Circle className={`h-4 w-4 ${isRunning ? 'text-red-500 fill-red-500 animate-pulse' : 'text-muted'}`} />
+              {isRunning && <div className="absolute inset-0 h-4 w-4 bg-red-500 rounded-full blur-sm opacity-50 animate-pulse" />}
+            </div>
+            <span className="text-sm font-mono font-bold text-orange-300 uppercase tracking-widest">
+              Black Box Recorder
+            </span>
+            {isMgmtLoading && <Loader2 className="h-4 w-4 animate-spin text-orange-500/60" />}
+            <span className="text-xs font-mono text-orange-500/60">
+              [{memorySessions.length} LOGS]
+            </span>
           </div>
-          <div>
-            <CardTitle className="text-lg">Memory</CardTitle>
-            <CardDescription>Anchors, pinned context, TODOs, and session history</CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Action buttons */}
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={loadMemorySessions} className="gap-1">
-            <RefreshCw className="h-3 w-3" />
-            Refresh sessions
-          </Button>
-          <Button size="sm" variant="outline" onClick={loadMemorySessionDetails} className="gap-1">
-            <FileText className="h-3 w-3" />
-            Load session
-          </Button>
-          <Button size="sm" variant="outline" onClick={loadMemoryEvents} className="gap-1">
-            <FileText className="h-3 w-3" />
-            Events
-          </Button>
-          <Button size="sm" variant="outline" onClick={loadMemoryAnchors} className="gap-1">
-            <Anchor className="h-3 w-3" />
-            Anchors
-          </Button>
-          <Button size="sm" variant="outline" onClick={exportMemorySession} className="gap-1">
-            <Download className="h-3 w-3" />
-            Export
-          </Button>
-          <Button size="sm" variant="outline" onClick={exportAllMemory} className="gap-1">
-            <Download className="h-3 w-3" />
-            Export all
-          </Button>
-          <Button size="sm" variant="destructive" onClick={deleteMemorySession} className="gap-1">
-            <Trash2 className="h-3 w-3" />
-            Delete
-          </Button>
-          <Button size="sm" variant="destructive" onClick={deleteAllMemory} className="gap-1">
-            <Trash2 className="h-3 w-3" />
-            Delete all
-          </Button>
-        </div>
-
-        {/* Session selector and limits */}
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            className="min-w-[220px] rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono"
-            value={memorySession}
-            onChange={(e) => setMemorySession(e.target.value)}
-          >
-            {memorySessions.length === 0 && <option value="">(no sessions)</option>}
-            {memorySessions.map((s) => (
-              <option key={s.key} value={s.key}>
-                {s.key}
-              </option>
-            ))}
-          </select>
-          <div className="flex items-center gap-1">
-            <Label htmlFor="events-limit" className="text-xs text-muted-foreground">Events:</Label>
-            <input
-              id="events-limit"
-              type="number"
-              min={10}
-              max={500}
-              className="w-20 rounded-md border border-border bg-background/60 px-2 py-1 text-xs"
-              value={memoryEventsLimit}
-              onChange={(e) => setMemoryEventsLimit(parseInt(e.target.value || '120', 10))}
-            />
-          </div>
-          <div className="flex items-center gap-1">
-            <Label htmlFor="anchors-limit" className="text-xs text-muted-foreground">Anchors:</Label>
-            <input
-              id="anchors-limit"
-              type="number"
-              min={5}
-              max={200}
-              className="w-20 rounded-md border border-border bg-background/60 px-2 py-1 text-xs"
-              value={memoryAnchorsLimit}
-              onChange={(e) => setMemoryAnchorsLimit(parseInt(e.target.value || '20', 10))}
-            />
-          </div>
-          <span className="text-xs text-muted-foreground">
-            {memoryDetails?.updated_at ? `Updated ${memoryDetails.updated_at}` : 'No session loaded.'}
-          </span>
           <div className="flex items-center gap-2">
-            <Brain className="h-4 w-4 text-muted-foreground" />
-            <Label htmlFor="semantic-toggle" className="text-xs text-muted-foreground cursor-pointer">
-              Semantic
-            </Label>
-            <Switch
-              id="semantic-toggle"
-              checked={memorySemanticEnabled}
-              disabled={!memorySession}
-              onCheckedChange={toggleMemorySemantic}
-            />
-          </div>
-        </div>
-
-        <Separator className="bg-border/50" />
-
-        {/* Session details: Summary, Pinned, TODO */}
-        <div className="grid gap-4 lg:grid-cols-3">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Anchor className="h-3 w-3" />
-              Anchor summary
-            </div>
-            <textarea
-              className="h-40 w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono resize-y"
-              value={memorySummary}
-              onChange={(e) => setMemorySummary(e.target.value)}
-              placeholder="Session anchor summary..."
-            />
-            <Button size="sm" variant="outline" onClick={saveMemorySummary} className="gap-1">
-              <Save className="h-3 w-3" />
-              Save summary
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={exportMemorySession}
+              disabled={!memorySession || !isRunning}
+              className="gap-1.5 text-xs font-mono bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 border border-orange-500/30"
+            >
+              <Download className="h-3 w-3" />
+              EXPORT
             </Button>
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Pin className="h-3 w-3" />
-              Pinned context
-            </div>
-            <textarea
-              className="h-40 w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono resize-y"
-              value={memoryPinned}
-              onChange={(e) => setMemoryPinned(e.target.value)}
-              placeholder="Pinned context that persists across turns..."
-            />
-            <Button size="sm" variant="outline" onClick={saveMemoryPinned} className="gap-1">
-              <Save className="h-3 w-3" />
-              Save pinned
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={exportAllMemory}
+              disabled={!isRunning}
+              className="gap-1.5 text-xs font-mono bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 border border-orange-500/30"
+            >
+              <Download className="h-3 w-3" />
+              EXPORT ALL
             </Button>
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <ListTodo className="h-3 w-3" />
-              TODO
-            </div>
-            <textarea
-              className="h-40 w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs font-mono resize-y"
-              value={memoryTodo}
-              onChange={(e) => setMemoryTodo(e.target.value)}
-              placeholder="Session TODO list..."
-            />
-            <Button size="sm" variant="outline" onClick={saveMemoryTodo} className="gap-1">
-              <Save className="h-3 w-3" />
-              Save TODO
-            </Button>
-          </div>
-        </div>
-
-        <Separator className="bg-border/50" />
-
-        {/* Events and Anchors display */}
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <FileText className="h-3 w-3" />
-              Events
-            </div>
-            <pre className="max-h-56 overflow-auto rounded-md border border-border/50 bg-muted/30 p-2 text-xs whitespace-pre-wrap">
-              {memoryEvents || 'No events loaded.'}
-            </pre>
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Anchor className="h-3 w-3" />
-              Anchors
-            </div>
-            <pre className="max-h-56 overflow-auto rounded-md border border-border/50 bg-muted/30 p-2 text-xs whitespace-pre-wrap">
-              {memoryAnchors || 'No anchors loaded.'}
-            </pre>
-          </div>
-        </div>
-
-        <Separator className="bg-border/50" />
-
-        {/* Import and Prune */}
-        <div className="grid gap-4 lg:grid-cols-2">
-          {/* Import section */}
-          <div className="space-y-2 p-3 rounded-lg bg-muted/30 border border-border/50">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Upload className="h-3 w-3" />
-              Import session (zip)
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <label className={cn("cursor-pointer", !isRunning && "opacity-50 pointer-events-none")}>
               <input
                 type="file"
                 accept=".zip"
-                className="text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+                className="hidden"
+                disabled={!isRunning}
                 onChange={(e) => importMemorySession(e.target.files?.[0] || null)}
               />
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="import-replace"
-                  checked={memoryImportReplace}
-                  onCheckedChange={setMemoryImportReplace}
-                />
-                <Label htmlFor="import-replace" className="text-xs text-muted-foreground cursor-pointer">
-                  Replace existing
-                </Label>
+              <div className="flex items-center gap-1.5 text-xs font-mono bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 border border-orange-500/30 px-3 py-1.5 rounded-md transition-colors">
+                <Upload className="h-3 w-3" />
+                IMPORT
               </div>
-            </div>
-          </div>
-
-          {/* Prune section */}
-          <div className="space-y-2 p-3 rounded-lg bg-muted/30 border border-border/50">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Scissors className="h-3 w-3" />
-              Prune limits
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <Label htmlFor="prune-age" className="text-xs text-muted-foreground">Max age (days)</Label>
-                <input
-                  id="prune-age"
-                  type="number"
-                  min={0}
-                  className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs"
-                  value={memoryPrune.maxAgeDays}
-                  onChange={(e) => setMemoryPrune({ ...memoryPrune, maxAgeDays: parseInt(e.target.value || '0', 10) })}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="prune-sessions" className="text-xs text-muted-foreground">Max sessions</Label>
-                <input
-                  id="prune-sessions"
-                  type="number"
-                  min={0}
-                  className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs"
-                  value={memoryPrune.maxSessions}
-                  onChange={(e) => setMemoryPrune({ ...memoryPrune, maxSessions: parseInt(e.target.value || '0', 10) })}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="prune-namespaces" className="text-xs text-muted-foreground">Max namespaces</Label>
-                <input
-                  id="prune-namespaces"
-                  type="number"
-                  min={0}
-                  className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs"
-                  value={memoryPrune.maxNamespaces}
-                  onChange={(e) => setMemoryPrune({ ...memoryPrune, maxNamespaces: parseInt(e.target.value || '0', 10) })}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="prune-bytes-session" className="text-xs text-muted-foreground">Max bytes/session</Label>
-                <input
-                  id="prune-bytes-session"
-                  type="number"
-                  min={0}
-                  className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs"
-                  value={memoryPrune.maxBytesPerSession}
-                  onChange={(e) => setMemoryPrune({ ...memoryPrune, maxBytesPerSession: parseInt(e.target.value || '0', 10) })}
-                />
-              </div>
-              <div className="space-y-1 col-span-2">
-                <Label htmlFor="prune-bytes-namespace" className="text-xs text-muted-foreground">Max bytes/namespace</Label>
-                <input
-                  id="prune-bytes-namespace"
-                  type="number"
-                  min={0}
-                  className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs"
-                  value={memoryPrune.maxBytesPerNamespace}
-                  onChange={(e) => setMemoryPrune({ ...memoryPrune, maxBytesPerNamespace: parseInt(e.target.value || '0', 10) })}
-                />
-              </div>
-            </div>
-            <Button size="sm" variant="outline" onClick={pruneMemory} className="gap-1 mt-2">
-              <Scissors className="h-3 w-3" />
-              Prune memory
-            </Button>
+            </label>
           </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+
+      {/* Content */}
+      <div className="p-4 space-y-4">
+        {!isRunning && (
+          <div className="py-8 text-center text-muted-foreground border border-dashed border-orange-500/20 rounded bg-black/20">
+            <p className="text-sm uppercase tracking-widest font-mono">⚠️ Engine Offline</p>
+            <p className="text-xs mt-1">Start the proxy engine to access flight data</p>
+          </div>
+        )}
+
+        {isRunning && (
+          <>
+            {/* Session Selector */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-mono text-orange-400 uppercase tracking-wider">Session:</span>
+                <div className="relative flex-1">
+                  <button
+                    onClick={() => setSessionDropdownOpen(!sessionDropdownOpen)}
+                    className="w-full flex items-center justify-between px-3 py-2 bg-black/60 border border-orange-500/30 rounded text-left hover:border-orange-500/50 transition-colors"
+                  >
+                    <span className="font-mono text-sm text-orange-200">
+                      {memorySession || '(no session selected)'}
+                    </span>
+                    <ChevronDown className={`h-4 w-4 text-orange-400 transition-transform ${sessionDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {sessionDropdownOpen && (
+                    <div className="absolute z-10 w-full mt-1 max-h-60 overflow-auto bg-zinc-900 border border-orange-500/30 rounded shadow-xl">
+                      {memorySessions.length === 0 ? (
+                        <div className="px-3 py-2 text-xs font-mono text-orange-500/60">(no sessions)</div>
+                      ) : (
+                        memorySessions.map((s) => (
+                          <button
+                            key={s.key}
+                            onClick={() => {
+                              setMemorySession(s.key)
+                              setSessionDropdownOpen(false)
+                            }}
+                            className={`w-full px-3 py-2 text-left text-sm font-mono hover:bg-orange-500/10 transition-colors ${s.key === memorySession ? 'bg-orange-500/20 text-orange-200' : 'text-orange-300/80'
+                              }`}
+                          >
+                            {s.key}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={loadMemorySessions}
+                  className="text-orange-400 hover:text-orange-300 hover:bg-orange-500/10"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              </div>
+
+              {/* Session Metadata Card */}
+              {memorySession && (
+                <div className="bg-black/40 border border-orange-500/20 rounded p-3">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs font-mono">
+                    <div>
+                      <span className="text-orange-500/60">Started:</span>
+                      <div className="text-orange-200">{formatTime(sessionStartTime)} UTC</div>
+                    </div>
+                    <div>
+                      <span className="text-orange-500/60">Duration:</span>
+                      <div className="text-orange-200">{sessionDuration}</div>
+                    </div>
+                    <div>
+                      <span className="text-orange-500/60">Anchors:</span>
+                      <div className="text-orange-200">{memoryAnchors.length}</div>
+                    </div>
+                    <div>
+                      <span className="text-orange-500/60">Events:</span>
+                      <div className="text-orange-200">{memoryEvents.length}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 mt-3 pt-3 border-t border-orange-500/20">
+                    <div className="flex items-center gap-2">
+                      <Brain className="h-4 w-4 text-orange-400" />
+                      <Label htmlFor="semantic-toggle" className="text-xs font-mono text-orange-300 cursor-pointer">
+                        SEMANTIC
+                      </Label>
+                      <Switch
+                        id="semantic-toggle"
+                        checked={memorySemanticEnabled}
+                        disabled={!memorySession}
+                        onCheckedChange={toggleMemorySemantic}
+                      />
+                    </div>
+                    <span className="text-xs font-mono text-orange-500/60">
+                      {memoryDetails?.updated_at ? `Last update: ${memoryDetails.updated_at}` : ''}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Anchors Section */}
+            <CollapsibleSection
+              title="Anchors"
+              icon={Anchor}
+              count={memoryAnchors.length}
+              defaultOpen={true}
+            >
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 mb-2">
+                  <Label className="text-xs font-mono text-orange-500/60">Limit:</Label>
+                  <input
+                    type="number"
+                    min={5}
+                    max={200}
+                    className="w-16 rounded bg-black/60 border border-orange-500/30 px-2 py-1 text-xs font-mono text-orange-200 focus:border-orange-500/50 focus:outline-none"
+                    value={memoryAnchorsLimit}
+                    onChange={(e) => setMemoryAnchorsLimit(parseInt(e.target.value || '20', 10))}
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={loadMemoryAnchors}
+                    className="text-xs font-mono text-orange-400 hover:bg-orange-500/10"
+                  >
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    Reload
+                  </Button>
+                </div>
+                <div className="bg-black/60 border border-orange-500/20 rounded max-h-48 overflow-auto">
+                  {memoryAnchors.length === 0 ? (
+                    <div className="px-3 py-4 text-xs font-mono text-orange-500/50 text-center">No anchors recorded.</div>
+                  ) : (
+                    <div className="divide-y divide-orange-500/10">
+                      {memoryAnchors.map((anchor, i) => (
+                        <div key={i} className="px-3 py-2 hover:bg-orange-500/5">
+                          <div className="flex items-start gap-2">
+                            <span className="text-xs font-mono text-orange-400 shrink-0">
+                              {formatTime(anchor.ts)}
+                            </span>
+                            <span className="text-xs font-mono text-orange-500/30">|</span>
+                            <span className="text-xs font-mono text-orange-200/80 break-words">
+                              {anchor.summary.length > 100 ? anchor.summary.slice(0, 100) + '...' : anchor.summary}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-2 mt-3">
+                  <Label className="text-xs font-mono text-orange-500/60">Anchor Summary:</Label>
+                  <textarea
+                    className="w-full h-24 rounded bg-black/60 border border-orange-500/30 px-3 py-2 text-xs font-mono text-orange-200 resize-y focus:border-orange-500/50 focus:outline-none"
+                    value={memorySummary}
+                    onChange={(e) => setMemorySummary(e.target.value)}
+                    placeholder="Session anchor summary..."
+                  />
+                  <Button
+                    size="sm"
+                    onClick={saveMemorySummary}
+                    className="gap-1 text-xs font-mono bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30"
+                  >
+                    <Save className="h-3 w-3" />
+                    Save Summary
+                  </Button>
+                </div>
+              </div>
+            </CollapsibleSection>
+
+            {/* Pinned Context Section */}
+            <CollapsibleSection
+              title="Pinned Context"
+              icon={Pin}
+              defaultOpen={false}
+            >
+              <div className="space-y-2">
+                <textarea
+                  className="w-full h-32 rounded bg-black/60 border border-orange-500/30 px-3 py-2 text-xs font-mono text-orange-200 resize-y focus:border-orange-500/50 focus:outline-none"
+                  value={memoryPinned}
+                  onChange={(e) => setMemoryPinned(e.target.value)}
+                  placeholder="Pinned context that persists across turns..."
+                />
+                <Button
+                  size="sm"
+                  onClick={saveMemoryPinned}
+                  className="gap-1 text-xs font-mono bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30"
+                >
+                  <Save className="h-3 w-3" />
+                  Save Pinned
+                </Button>
+              </div>
+            </CollapsibleSection>
+
+            {/* TODO Section */}
+            <CollapsibleSection
+              title="TODO Log"
+              icon={Anchor}
+              defaultOpen={false}
+            >
+              <div className="space-y-2">
+                <textarea
+                  className="w-full h-32 rounded bg-black/60 border border-orange-500/30 px-3 py-2 text-xs font-mono text-orange-200 resize-y focus:border-orange-500/50 focus:outline-none"
+                  value={memoryTodo}
+                  onChange={(e) => setMemoryTodo(e.target.value)}
+                  placeholder="Session TODO list..."
+                />
+                <Button
+                  size="sm"
+                  onClick={saveMemoryTodo}
+                  className="gap-1 text-xs font-mono bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30"
+                >
+                  <Save className="h-3 w-3" />
+                  Save TODO
+                </Button>
+              </div>
+            </CollapsibleSection>
+
+            {/* Events Section */}
+            <CollapsibleSection
+              title="Event Log"
+              icon={Circle}
+              count={memoryEvents.length}
+              defaultOpen={false}
+            >
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 mb-2">
+                  <Label className="text-xs font-mono text-orange-500/60">Limit:</Label>
+                  <input
+                    type="number"
+                    min={10}
+                    max={500}
+                    className="w-16 rounded bg-black/60 border border-orange-500/30 px-2 py-1 text-xs font-mono text-orange-200 focus:border-orange-500/50 focus:outline-none"
+                    value={memoryEventsLimit}
+                    onChange={(e) => setMemoryEventsLimit(parseInt(e.target.value || '120', 10))}
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={loadMemoryEvents}
+                    className="text-xs font-mono text-orange-400 hover:bg-orange-500/10"
+                  >
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    Reload
+                  </Button>
+                </div>
+                <div className="bg-black/60 border border-orange-500/20 rounded max-h-64 overflow-auto">
+                  {memoryEvents.length === 0 ? (
+                    <div className="px-3 py-4 text-xs font-mono text-orange-500/50 text-center">No events recorded.</div>
+                  ) : (
+                    <div className="divide-y divide-orange-500/10">
+                      {memoryEvents.map((event, i) => (
+                        <div key={i} className="px-3 py-2 hover:bg-orange-500/5">
+                          <div className="flex items-start gap-2">
+                            <span className="text-xs font-mono text-orange-400 shrink-0">
+                              {formatTime(event.ts)}
+                            </span>
+                            <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300 shrink-0">
+                              {event.kind}
+                            </span>
+                            <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-zinc-700/50 text-zinc-300 shrink-0">
+                              {event.role}
+                            </span>
+                            <span className="text-xs font-mono text-orange-200/70 break-words">
+                              {event.text.length > 80 ? event.text.slice(0, 80) + '...' : event.text}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </CollapsibleSection>
+
+            {/* Maintenance Panel */}
+            <div className="relative pt-6">
+              <div className="absolute top-0 left-0 right-0 flex items-center">
+                <div className="flex-1 border-t border-dashed border-orange-500/30" />
+                <span className="px-3 text-xs font-mono text-orange-500/60 uppercase tracking-widest flex items-center gap-2">
+                  <Wrench className="h-3 w-3" />
+                  Maintenance
+                </span>
+                <div className="flex-1 border-t border-dashed border-orange-500/30" />
+              </div>
+
+              <div className="bg-black/40 border border-orange-500/20 rounded p-4 space-y-4">
+                {/* Import Options */}
+                <div className="flex items-center gap-4 pb-3 border-b border-orange-500/20">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="import-replace"
+                      checked={memoryImportReplace}
+                      onCheckedChange={setMemoryImportReplace}
+                    />
+                    <Label htmlFor="import-replace" className="text-xs font-mono text-orange-300 cursor-pointer">
+                      Replace on Import
+                    </Label>
+                  </div>
+                </div>
+
+                {/* Prune Settings */}
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs font-mono text-orange-500/60">Max Sessions</Label>
+                    <input
+                      type="number"
+                      min={0}
+                      className="w-full rounded bg-black/60 border border-orange-500/30 px-2 py-1.5 text-xs font-mono text-orange-200 focus:border-orange-500/50 focus:outline-none"
+                      value={memoryPrune.maxSessions}
+                      onChange={(e) => setMemoryPrune({ ...memoryPrune, maxSessions: parseInt(e.target.value || '0', 10) })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs font-mono text-orange-500/60">Max Age (days)</Label>
+                    <input
+                      type="number"
+                      min={0}
+                      className="w-full rounded bg-black/60 border border-orange-500/30 px-2 py-1.5 text-xs font-mono text-orange-200 focus:border-orange-500/50 focus:outline-none"
+                      value={memoryPrune.maxAgeDays}
+                      onChange={(e) => setMemoryPrune({ ...memoryPrune, maxAgeDays: parseInt(e.target.value || '0', 10) })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs font-mono text-orange-500/60">Max Namespaces</Label>
+                    <input
+                      type="number"
+                      min={0}
+                      className="w-full rounded bg-black/60 border border-orange-500/30 px-2 py-1.5 text-xs font-mono text-orange-200 focus:border-orange-500/50 focus:outline-none"
+                      value={memoryPrune.maxNamespaces}
+                      onChange={(e) => setMemoryPrune({ ...memoryPrune, maxNamespaces: parseInt(e.target.value || '0', 10) })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs font-mono text-orange-500/60">Bytes/Session</Label>
+                    <input
+                      type="number"
+                      min={0}
+                      className="w-full rounded bg-black/60 border border-orange-500/30 px-2 py-1.5 text-xs font-mono text-orange-200 focus:border-orange-500/50 focus:outline-none"
+                      value={memoryPrune.maxBytesPerSession}
+                      onChange={(e) => setMemoryPrune({ ...memoryPrune, maxBytesPerSession: parseInt(e.target.value || '0', 10) })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs font-mono text-orange-500/60">Bytes/Namespace</Label>
+                    <input
+                      type="number"
+                      min={0}
+                      className="w-full rounded bg-black/60 border border-orange-500/30 px-2 py-1.5 text-xs font-mono text-orange-200 focus:border-orange-500/50 focus:outline-none"
+                      value={memoryPrune.maxBytesPerNamespace}
+                      onChange={(e) => setMemoryPrune({ ...memoryPrune, maxBytesPerNamespace: parseInt(e.target.value || '0', 10) })}
+                    />
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center gap-3 pt-2">
+                  <Button
+                    size="sm"
+                    onClick={pruneMemory}
+                    className="gap-1.5 text-xs font-mono bg-amber-600/80 hover:bg-amber-600 text-black border border-amber-500"
+                  >
+                    <Scissors className="h-3 w-3" />
+                    PRUNE NOW
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={deleteMemorySession}
+                    disabled={!memorySession}
+                    className="gap-1.5 text-xs font-mono bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    Delete Session
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={deleteAllMemory}
+                    className="gap-1.5 text-xs font-mono bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30"
+                  >
+                    <AlertTriangle className="h-3 w-3" />
+                    Purge All Data
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   )
 }
