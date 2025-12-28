@@ -194,8 +194,6 @@ func main() {
 			endpoint = "/v0/management/anthropic-auth-url"
 		case "qwen":
 			endpoint = "/v0/management/qwen-auth-url"
-		case "iflow":
-			endpoint = "/v0/management/iflow-auth-url"
 		default:
 			return fmt.Errorf("unknown provider: %s", provider)
 		}
@@ -646,7 +644,6 @@ func controlCenterHTML() string {
           <button id="oauthCodex">Codex</button>
           <button id="oauthClaude">Claude</button>
           <button id="oauthQwen">Qwen</button>
-          <button id="oauthIflow">iFlow</button>
         </div>
         <div class="hint">These open the provider login flow in your browser and save auth files for ProxyPilot.</div>
       </div>
@@ -898,7 +895,6 @@ func controlCenterHTML() string {
     $('oauthCodex').addEventListener('click', oauth('codex'));
     $('oauthClaude').addEventListener('click', oauth('claude'));
     $('oauthQwen').addEventListener('click', oauth('qwen'));
-    $('oauthIflow').addEventListener('click', oauth('iflow'));
 
     $('addMappingBtn').addEventListener('click', async () => {
       const from = $('mapFrom').value.trim();
