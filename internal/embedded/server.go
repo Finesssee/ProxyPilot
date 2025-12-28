@@ -16,6 +16,9 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/api"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
+	configaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access/config"
+	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy"
 	log "github.com/sirupsen/logrus"
 )
@@ -63,12 +66,18 @@ func (s *Server) Start(configPath, password string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	// Resolve auth-dir to apply default if empty
+	if resolvedAuthDir, errResolve := util.ResolveAuthDir(cfg.AuthDir); errResolve == nil {
+		cfg.AuthDir = resolvedAuthDir
+	}
+
 	s.configPath = resolvedPath
 	s.password = password
 	s.port = cfg.Port
 
-	// Setup logging
+	// Setup logging with config-driven output
 	logging.SetupBaseLogger()
+	logging.ConfigureLogOutput(cfg.LoggingToFile, cfg.LogsMaxTotalSizeMB)
 
 	// Create context with cancel
 	ctx, cancel := context.WithCancel(context.Background())
@@ -88,6 +97,10 @@ func (s *Server) Start(configPath, password string) error {
 			// In embedded mode, we don't auto-shutdown on keep-alive timeout
 		}))
 	}
+
+	// Register SDK providers
+	sdkAuth.RegisterTokenStore(sdkAuth.NewFileTokenStore())
+	configaccess.Register()
 
 	service, err := builder.Build()
 	if err != nil {
