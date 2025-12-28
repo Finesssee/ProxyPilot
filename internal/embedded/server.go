@@ -67,9 +67,15 @@ func (s *Server) Start(configPath, password string) error {
 	}
 
 	// Resolve auth-dir to apply default if empty
-	if resolvedAuthDir, errResolve := util.ResolveAuthDir(cfg.AuthDir); errResolve == nil {
-		cfg.AuthDir = resolvedAuthDir
+	resolvedAuthDir, errResolve := util.ResolveAuthDir(cfg.AuthDir)
+	if errResolve != nil {
+		log.Warnf("failed to resolve auth dir %q: %v, using default", cfg.AuthDir, errResolve)
+		resolvedAuthDir = util.DefaultAuthDir()
 	}
+	if resolvedAuthDir == "" {
+		return fmt.Errorf("failed to determine auth directory: LOCALAPPDATA and HOME not available")
+	}
+	cfg.AuthDir = resolvedAuthDir
 
 	s.configPath = resolvedPath
 	s.password = password
