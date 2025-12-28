@@ -19,6 +19,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/runtime/executor"
 	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/translator" // Auto-register all translators
 	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/watcher"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/wsrelay"
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access"
@@ -426,10 +427,12 @@ func (s *Service) ensureExecutorsForAuth(a *coreauth.Auth) {
 		s.coreManager.RegisterExecutor(executor.NewCodexExecutor(s.cfg))
 	case "qwen":
 		s.coreManager.RegisterExecutor(executor.NewQwenExecutor(s.cfg))
-	case "iflow":
-		s.coreManager.RegisterExecutor(executor.NewIFlowExecutor(s.cfg))
 	case "kiro":
 		s.coreManager.RegisterExecutor(executor.NewKiroExecutor(s.cfg))
+	case "minimax":
+		s.coreManager.RegisterExecutor(executor.NewMiniMaxExecutor(s.cfg))
+	case "zhipu":
+		s.coreManager.RegisterExecutor(executor.NewZhipuExecutor(s.cfg))
 	default:
 		providerKey := strings.ToLower(strings.TrimSpace(a.Provider))
 		if providerKey == "" {
@@ -712,6 +715,17 @@ func (s *Service) Shutdown(ctx context.Context) error {
 }
 
 func (s *Service) ensureAuthDir() error {
+	// Resolve auth-dir to apply default if empty and expand ~ prefix
+	resolvedAuthDir, errResolve := util.ResolveAuthDir(s.cfg.AuthDir)
+	if errResolve != nil {
+		log.Warnf("failed to resolve auth dir %q: %v, using default", s.cfg.AuthDir, errResolve)
+		resolvedAuthDir = util.DefaultAuthDir()
+	}
+	if resolvedAuthDir == "" {
+		return fmt.Errorf("cliproxy: failed to determine auth directory: LOCALAPPDATA and HOME not available")
+	}
+	s.cfg.AuthDir = resolvedAuthDir
+
 	info, err := os.Stat(s.cfg.AuthDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -810,13 +824,17 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 	case "qwen":
 		models = registry.GetQwenModels()
 		models = applyExcludedModels(models, excluded)
-	case "iflow":
-		models = registry.GetIFlowModels()
 	case "github-copilot":
 		models = registry.GetGitHubCopilotModels()
 		models = applyExcludedModels(models, excluded)
 	case "kiro":
 		models = registry.GetKiroModels()
+		models = applyExcludedModels(models, excluded)
+	case "minimax":
+		models = registry.GetMiniMaxModels()
+		models = applyExcludedModels(models, excluded)
+	case "zhipu":
+		models = registry.GetZhipuModels()
 		models = applyExcludedModels(models, excluded)
 	default:
 		// Handle OpenAI-compatibility providers by name using config
