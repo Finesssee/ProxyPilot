@@ -23,6 +23,7 @@ func (s *Server) registerProxyPilotDashboardRoutes() {
 	s.engine.GET("/proxypilot.html", s.serveProxyPilotDashboard)
 	s.engine.GET("/assets/*filepath", s.serveProxyPilotAsset)
 	s.engine.GET("/vite.svg", s.serveProxyPilotViteIcon)
+	s.engine.GET("/logo.png", s.serveProxyPilotLogo)
 }
 
 func (s *Server) serveProxyPilotDashboard(c *gin.Context) {
@@ -37,7 +38,12 @@ func (s *Server) serveProxyPilotDashboard(c *gin.Context) {
 		return
 	}
 	html := string(index)
-	key := strings.TrimSpace(getManagementKey())
+	// Use localPassword from the server instance (set via WithLocalManagementPassword)
+	// Fall back to MANAGEMENT_PASSWORD env var for legacy subprocess mode
+	key := strings.TrimSpace(s.localPassword)
+	if key == "" {
+		key = strings.TrimSpace(os.Getenv("MANAGEMENT_PASSWORD"))
+	}
 	if key != "" && s.managementRoutesEnabled.Load() {
 		meta := `<meta name="pp-mgmt-key" content="` + escapeAttr(key) + `">`
 		html = strings.Replace(html, "</head>", meta+"</head>", 1)
@@ -79,6 +85,19 @@ func (s *Server) serveProxyPilotViteIcon(c *gin.Context) {
 	writeAssetResponse(c, "vite.svg", data)
 }
 
+func (s *Server) serveProxyPilotLogo(c *gin.Context) {
+	if !isLocalClient(c) {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+	data, err := fsReadFile("logo.png")
+	if err != nil {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	writeAssetResponse(c, "logo.png", data)
+}
+
 func writeAssetResponse(c *gin.Context, name string, data []byte) {
 	ext := strings.TrimPrefix(path.Ext(name), ".")
 	if mt := misc.MimeTypes[strings.ToLower(ext)]; mt != "" {
@@ -103,10 +122,6 @@ func fsReadFile(name string) ([]byte, error) {
 func isLocalClient(c *gin.Context) bool {
 	clientIP := c.ClientIP()
 	return clientIP == "127.0.0.1" || clientIP == "::1"
-}
-
-func getManagementKey() string {
-	return strings.TrimSpace(os.Getenv("MANAGEMENT_PASSWORD"))
 }
 
 func escapeAttr(s string) string {
