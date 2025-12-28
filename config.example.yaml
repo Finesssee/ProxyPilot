@@ -242,8 +242,6 @@ ws-auth: false
 #     - "vision-model"
 #   kiro:
 #     - "kiro-claude-haiku"
-#   iflow:
-#     - "tstars2.0"
 
 # Optional payload configuration
 # payload:

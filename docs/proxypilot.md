@@ -58,7 +58,7 @@ The password is stored in the ProxyPilot UI state file:
 ProxyPilot tray app includes:
 
 - `Private OAuth window` toggle (opens Edge `--inprivate` when available)
-- One-click login launchers: Antigravity, Gemini CLI, Codex, Claude, Qwen, iFlow
+- One-click login launchers: Antigravity, Gemini CLI, Codex, Claude, Qwen
 - `Open Auth Folder` shortcut
 
 ## Logs / diagnostics
