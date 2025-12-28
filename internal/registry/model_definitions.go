@@ -704,15 +704,8 @@ func GetQwenModels() []*ModelInfo {
 	}
 }
 
-// iFlowThinkingSupport is a shared ThinkingSupport configuration for iFlow models
-// that support thinking mode via chat_template_kwargs.enable_thinking (boolean toggle).
-// Uses level-based configuration so standard normalization flows apply before conversion.
-var iFlowThinkingSupport = &ThinkingSupport{
-	Levels: []string{"none", "auto", "minimal", "low", "medium", "high", "xhigh"},
-}
-
-// GetIFlowModels returns supported models for iFlow OAuth accounts.
-func GetIFlowModels() []*ModelInfo {
+// GetMiniMaxModels returns supported models for MiniMax API key accounts.
+func GetMiniMaxModels() []*ModelInfo {
 	entries := []struct {
 		ID          string
 		DisplayName string
@@ -720,28 +713,9 @@ func GetIFlowModels() []*ModelInfo {
 		Created     int64
 		Thinking    *ThinkingSupport
 	}{
-		{ID: "tstars2.0", DisplayName: "TStars-2.0", Description: "iFlow TStars-2.0 multimodal assistant", Created: 1746489600},
-		{ID: "qwen3-coder-plus", DisplayName: "Qwen3-Coder-Plus", Description: "Qwen3 Coder Plus code generation", Created: 1753228800},
-		{ID: "qwen3-max", DisplayName: "Qwen3-Max", Description: "Qwen3 flagship model", Created: 1758672000},
-		{ID: "qwen3-vl-plus", DisplayName: "Qwen3-VL-Plus", Description: "Qwen3 multimodal vision-language", Created: 1758672000},
-		{ID: "qwen3-max-preview", DisplayName: "Qwen3-Max-Preview", Description: "Qwen3 Max preview build", Created: 1757030400},
-		{ID: "kimi-k2-0905", DisplayName: "Kimi-K2-Instruct-0905", Description: "Moonshot Kimi K2 instruct 0905", Created: 1757030400},
-		{ID: "glm-4.6", DisplayName: "GLM-4.6", Description: "Zhipu GLM 4.6 general model", Created: 1759190400, Thinking: iFlowThinkingSupport},
-		{ID: "glm-4.7", DisplayName: "GLM-4.7", Description: "Zhipu GLM 4.7 general model", Created: 1766448000, Thinking: iFlowThinkingSupport},
-		{ID: "kimi-k2", DisplayName: "Kimi-K2", Description: "Moonshot Kimi K2 general model", Created: 1752192000},
-		{ID: "kimi-k2-thinking", DisplayName: "Kimi-K2-Thinking", Description: "Moonshot Kimi K2 thinking model", Created: 1762387200},
-		{ID: "deepseek-v3.2-chat", DisplayName: "DeepSeek-V3.2", Description: "DeepSeek V3.2 Chat", Created: 1764576000},
-		{ID: "deepseek-v3.2-reasoner", DisplayName: "DeepSeek-V3.2", Description: "DeepSeek V3.2 Reasoner", Created: 1764576000},
-		{ID: "deepseek-v3.2", DisplayName: "DeepSeek-V3.2-Exp", Description: "DeepSeek V3.2 experimental", Created: 1759104000},
-		{ID: "deepseek-v3.1", DisplayName: "DeepSeek-V3.1-Terminus", Description: "DeepSeek V3.1 Terminus", Created: 1756339200},
-		{ID: "deepseek-r1", DisplayName: "DeepSeek-R1", Description: "DeepSeek reasoning model R1", Created: 1737331200},
-		{ID: "deepseek-v3", DisplayName: "DeepSeek-V3-671B", Description: "DeepSeek V3 671B", Created: 1734307200},
-		{ID: "qwen3-32b", DisplayName: "Qwen3-32B", Description: "Qwen3 32B", Created: 1747094400},
-		{ID: "qwen3-235b-a22b-thinking-2507", DisplayName: "Qwen3-235B-A22B-Thinking", Description: "Qwen3 235B A22B Thinking (2507)", Created: 1753401600},
-		{ID: "qwen3-235b-a22b-instruct", DisplayName: "Qwen3-235B-A22B-Instruct", Description: "Qwen3 235B A22B Instruct", Created: 1753401600},
-		{ID: "qwen3-235b", DisplayName: "Qwen3-235B-A22B", Description: "Qwen3 235B A22B", Created: 1753401600},
-		{ID: "minimax-m2", DisplayName: "MiniMax-M2", Description: "MiniMax M2", Created: 1758672000},
-		{ID: "minimax-m2.1", DisplayName: "MiniMax-M2.1", Description: "MiniMax M2.1", Created: 1766448000},
+		{ID: "minimax-m2", DisplayName: "MiniMax-M2", Description: "MiniMax M2 base model", Created: 1758672000},
+		{ID: "minimax-m2.1", DisplayName: "MiniMax-M2.1", Description: "MiniMax M2.1 with reasoning", Created: 1766448000, Thinking: &ThinkingSupport{Levels: []string{"none", "auto", "low", "medium", "high"}}},
+		{ID: "minimax-m2.1-lightning", DisplayName: "MiniMax-M2.1-Lightning", Description: "MiniMax M2.1 fast variant", Created: 1766448000},
 	}
 	models := make([]*ModelInfo, 0, len(entries))
 	for _, entry := range entries {
@@ -749,8 +723,39 @@ func GetIFlowModels() []*ModelInfo {
 			ID:          entry.ID,
 			Object:      "model",
 			Created:     entry.Created,
-			OwnedBy:     "iflow",
-			Type:        "iflow",
+			OwnedBy:     "minimax",
+			Type:        "minimax",
+			DisplayName: entry.DisplayName,
+			Description: entry.Description,
+			Thinking:    entry.Thinking,
+		})
+	}
+	return models
+}
+
+// GetZhipuModels returns supported models for Zhipu AI (GLM) API key accounts.
+func GetZhipuModels() []*ModelInfo {
+	entries := []struct {
+		ID          string
+		DisplayName string
+		Description string
+		Created     int64
+		Thinking    *ThinkingSupport
+	}{
+		{ID: "glm-4.7", DisplayName: "GLM-4.7", Description: "Zhipu GLM 4.7 flagship model with thinking", Created: 1766448000, Thinking: &ThinkingSupport{Levels: []string{"none", "auto", "low", "medium", "high"}}},
+		{ID: "glm-4.6", DisplayName: "GLM-4.6", Description: "Zhipu GLM 4.6 high performance model", Created: 1759190400, Thinking: &ThinkingSupport{Levels: []string{"none", "auto", "low", "medium", "high"}}},
+		{ID: "glm-4.5", DisplayName: "GLM-4.5", Description: "Zhipu GLM 4.5 excellent for coding", Created: 1752192000},
+		{ID: "glm-4-long", DisplayName: "GLM-4-Long", Description: "Zhipu GLM 4 with 1M context", Created: 1745280000},
+		{ID: "glm-4.6v", DisplayName: "GLM-4.6V", Description: "Zhipu GLM 4.6 vision model", Created: 1759190400},
+	}
+	models := make([]*ModelInfo, 0, len(entries))
+	for _, entry := range entries {
+		models = append(models, &ModelInfo{
+			ID:          entry.ID,
+			Object:      "model",
+			Created:     entry.Created,
+			OwnedBy:     "zhipu",
+			Type:        "zhipu",
 			DisplayName: entry.DisplayName,
 			Description: entry.Description,
 			Thinking:    entry.Thinking,
