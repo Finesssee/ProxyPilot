@@ -12,9 +12,14 @@ bin/*
 logs/*
 conv/*
 temp/*
+refs/*
+
+# Storage backends
 pgstore/*
 gitstore/*
 objectstore/*
+
+# Static assets
 static/*
 !static/icon.png
 !static/icon.ico
@@ -53,6 +58,7 @@ GEMINI.md
 .agent/*
 .bmad/*
 _bmad/*
+_bmad-output/*
 .mcp/cache/
 
 # macOS
@@ -67,4 +73,3 @@ node_modules/
 dist/
 .turbo/
 .env
-

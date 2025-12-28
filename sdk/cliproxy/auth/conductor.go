@@ -205,10 +205,10 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
 	if auth == nil {
 		return nil, nil
 	}
-	auth.EnsureIndex()
 	if auth.ID == "" {
 		auth.ID = uuid.NewString()
 	}
+	auth.EnsureIndex()
 	m.mu.Lock()
 	m.auths[auth.ID] = auth.Clone()
 	m.mu.Unlock()
@@ -223,7 +223,7 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
 		return nil, nil
 	}
 	m.mu.Lock()
-	if existing, ok := m.auths[auth.ID]; ok && existing != nil && !auth.indexAssigned && auth.Index == 0 {
+	if existing, ok := m.auths[auth.ID]; ok && existing != nil && !auth.indexAssigned && auth.Index == "" {
 		auth.Index = existing.Index
 		auth.indexAssigned = existing.indexAssigned
 	}
@@ -265,7 +265,6 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req cliproxye
 		return cliproxyexecutor.Response{}, &Error{Code: "provider_not_found", Message: "no provider supplied"}
 	}
 	rotated := m.rotateProviders(req.Model, normalized)
-	defer m.advanceProviderCursor(req.Model, normalized)
 
 	retryTimes, maxWait := m.retrySettings()
 	attempts := retryTimes + 1
@@ -304,7 +303,6 @@ func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req clip
 		return cliproxyexecutor.Response{}, &Error{Code: "provider_not_found", Message: "no provider supplied"}
 	}
 	rotated := m.rotateProviders(req.Model, normalized)
-	defer m.advanceProviderCursor(req.Model, normalized)
 
 	retryTimes, maxWait := m.retrySettings()
 	attempts := retryTimes + 1
@@ -343,7 +341,6 @@ func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req cli
 		return nil, &Error{Code: "provider_not_found", Message: "no provider supplied"}
 	}
 	rotated := m.rotateProviders(req.Model, normalized)
-	defer m.advanceProviderCursor(req.Model, normalized)
 
 	retryTimes, maxWait := m.retrySettings()
 	attempts := retryTimes + 1
@@ -716,6 +713,9 @@ func (m *Manager) normalizeProviders(providers []string) []string {
 	return result
 }
 
+// rotateProviders returns a rotated view of the providers list starting from the
+// current offset for the model. Unlike upstream, we don't auto-increment here;
+// advanceProviderCursor is called separately after a successful request.
 func (m *Manager) rotateProviders(model string, providers []string) []string {
 	if len(providers) == 0 {
 		return nil
@@ -726,6 +726,7 @@ func (m *Manager) rotateProviders(model string, providers []string) []string {
 	m.mu.RLock()
 	offset := m.providerOffsets[model]
 	m.mu.RUnlock()
+
 	if len(providers) > 0 {
 		offset %= len(providers)
 	}
