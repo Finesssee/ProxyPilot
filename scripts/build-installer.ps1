@@ -25,7 +25,7 @@ if ($InnoSetup) {
     if (-not (Test-Path $ISCC)) {
         $ISCC = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
     }
-    $Version = "0.1.5"
+    $Version = "0.1.6"
 
     Write-Host "Building ProxyPilot $Version Installer (Inno Setup)..." -ForegroundColor Cyan
     Write-Host ""

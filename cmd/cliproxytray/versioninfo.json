@@ -3,13 +3,13 @@
     "FileVersion": {
       "Major": 0,
       "Minor": 1,
-      "Patch": 5,
+      "Patch": 6,
       "Build": 0
     },
     "ProductVersion": {
       "Major": 0,
       "Minor": 1,
-      "Patch": 5,
+      "Patch": 6,
       "Build": 0
     },
     "FileFlagsMask": "3f",
@@ -22,12 +22,12 @@
     "Comments": "Local AI Proxy with Embedded Engine",
     "CompanyName": "ProxyPilot",
     "FileDescription": "ProxyPilot - Single Binary Desktop App",
-    "FileVersion": "0.1.5",
+    "FileVersion": "0.1.6",
     "InternalName": "ProxyPilot",
     "LegalCopyright": "MIT License",
     "OriginalFilename": "ProxyPilot.exe",
     "ProductName": "ProxyPilot",
-    "ProductVersion": "0.1.5"
+    "ProductVersion": "0.1.6"
   },
   "VarFileInfo": {
     "Translation": {

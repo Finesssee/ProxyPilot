@@ -97,7 +97,7 @@ export function WelcomeStep({ onInstall }: WelcomeStepProps) {
         animate={{ opacity: 1 }}
         transition={{ delay: 0.5, duration: 0.4 }}
       >
-        v0.1.5
+        v0.1.6
       </motion.p>
     </div>
   )
