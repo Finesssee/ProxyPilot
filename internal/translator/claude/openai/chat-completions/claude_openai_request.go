@@ -169,19 +169,37 @@ func ConvertOpenAIRequestToClaude(modelName string, inputRawJSON []byte, stream 
 						case "image_url":
 							// Convert OpenAI image format to Claude Code format
 							imageURL := part.Get("image_url.url").String()
+							if imageURL == "" {
+								return true
+							}
+
+							var imagePart string
 							if strings.HasPrefix(imageURL, "data:") {
 								// Extract base64 data and media type from data URL
-								parts := strings.Split(imageURL, ",")
-								if len(parts) == 2 {
-									mediaTypePart := strings.Split(parts[0], ";")[0]
-									mediaType := strings.TrimPrefix(mediaTypePart, "data:")
-									data := parts[1]
-
-									imagePart := `{"type":"image","source":{"type":"base64","media_type":"","data":""}}`
+								// Format: data:<media_type>;base64,<data>
+								trimmed := strings.TrimPrefix(imageURL, "data:")
+								mediaAndData := strings.SplitN(trimmed, ";base64,", 2)
+								mediaType := "application/octet-stream"
+								data := ""
+								if len(mediaAndData) == 2 {
+									if mediaAndData[0] != "" {
+										mediaType = mediaAndData[0]
+									}
+									data = mediaAndData[1]
+								}
+								if data != "" {
+									imagePart = `{"type":"image","source":{"type":"base64","media_type":"","data":""}}`
 									imagePart, _ = sjson.Set(imagePart, "source.media_type", mediaType)
 									imagePart, _ = sjson.Set(imagePart, "source.data", data)
-									msg, _ = sjson.SetRaw(msg, "content.-1", imagePart)
 								}
+							} else {
+								// Handle URL-based images (https://)
+								imagePart = `{"type":"image","source":{"type":"url","url":""}}`
+								imagePart, _ = sjson.Set(imagePart, "source.url", imageURL)
+							}
+
+							if imagePart != "" {
+								msg, _ = sjson.SetRaw(msg, "content.-1", imagePart)
 							}
 						}
 						return true
