@@ -33,7 +33,7 @@
 
 ## Features
 
-- 🎯 **7 Auth Providers** - Claude, Codex (OpenAI), Gemini, Gemini CLI, Kiro (AWS), Qwen, iFlow
+- 🎯 **8 Auth Providers** - Claude, Codex (OpenAI), Gemini, Gemini CLI, Kiro (AWS), Qwen, MiniMax, Zhipu AI
 - 🔄 **Universal API Translation** - Auto-converts between OpenAI, Anthropic, and Gemini formats
 - 🔧 **Tool Calling Repair** - Fixes tool/function call mismatches between providers automatically
 - 🧠 **Extended Thinking** - Full support for Claude and Gemini thinking models
@@ -59,7 +59,8 @@
 | Gemini CLI | OAuth2 | Cloud Code Assist models |
 | Kiro | OAuth2 + AWS SSO | AWS CodeWhisperer |
 | Qwen | OAuth2 | Qwen models |
-| iFlow | Cookie-based | Alibaba models |
+| MiniMax | API Key | MiniMax M2, M2.1 models |
+| Zhipu AI | API Key | GLM-4.5, GLM-4.6, GLM-4.7 |
 | Custom | API Key | Any OpenAI-compatible endpoint |
 
 ---
@@ -179,11 +180,17 @@ Works with these AI coding tools:
 
 ---
 
+## Author
+
+ProxyPilot is developed and maintained by [@Finesssee](https://github.com/Finesssee). Some contributors shown in the git history are from upstream [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) merges. Direct contributors to ProxyPilot will be listed here as the project grows.
+
+---
+
 ## Credits
 
 ProxyPilot builds upon excellent work from the open-source community:
 
-- **[CLIProxyAPI](https://github.com/anthropics/claude-code)** - The original unified proxy server that inspired this project
+- **[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)** - The original unified proxy server that inspired this project
 - **[VibeProxy](https://github.com/automazeio/vibeproxy)** - Native macOS menu bar app showcasing clean proxy UX
 
 Long-context features are inspired by research from the AI community:
