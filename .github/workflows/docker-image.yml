@@ -6,12 +6,14 @@ on:
       - v*
 
 env:
-  APP_NAME: CLIProxyAPI
-  DOCKERHUB_REPO: eceasy/cli-proxy-api-plus
+  APP_NAME: ProxyPilot
+  DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_REPO || 'proxypilot/proxypilot' }}
 
 jobs:
   docker:
     runs-on: ubuntu-latest
+    # Only run if DockerHub credentials are available
+    if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

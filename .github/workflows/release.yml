@@ -56,6 +56,17 @@ jobs:
           Copy-Item -Path installer-ui/dist/* -Destination cmd/installer/ui/ -Recurse -Force
         shell: pwsh
 
+      - name: Create bundle for installer
+        run: |
+          # Create bundle directory
+          New-Item -ItemType Directory -Force -Path cmd/installer/bundle | Out-Null
+          # Copy files for embedding
+          Copy-Item -Path dist/ProxyPilot.exe -Destination cmd/installer/bundle/
+          Copy-Item -Path config.example.yaml -Destination cmd/installer/bundle/
+          Copy-Item -Path static/icon.ico -Destination cmd/installer/bundle/
+          Copy-Item -Path static/icon.png -Destination cmd/installer/bundle/
+        shell: pwsh
+
       - name: Build Custom Installer
         run: |
           go build -ldflags="-s -w -H=windowsgui" -o dist/ProxyPilot-Installer.exe ./cmd/installer
