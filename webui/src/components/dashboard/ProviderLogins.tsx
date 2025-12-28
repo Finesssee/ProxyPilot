@@ -12,7 +12,6 @@ const providers = [
   { id: 'codex', name: 'Codex', color: 'oklch(0.60 0.16 145)', icon: '💻' },
   { id: 'qwen', name: 'Qwen', color: 'oklch(0.60 0.14 280)', icon: '🔮' },
   { id: 'anthropic', name: 'Anthropic', color: 'oklch(0.55 0.14 50)', icon: '🅰️' },
-  { id: 'iflow', name: 'iFlow', color: 'oklch(0.55 0.12 220)', icon: '🌊' },
   { id: 'antigravity', name: 'Antigravity', color: 'oklch(0.65 0.20 320)', icon: '🚀' },
 ] as const
 
@@ -216,7 +215,6 @@ export function ProviderLogins() {
     codex: authFiles.some(f => f.toLowerCase().includes('codex')),
     qwen: authFiles.some(f => f.toLowerCase().includes('qwen')),
     anthropic: authFiles.some(f => f.toLowerCase().includes('anthropic')),
-    iflow: authFiles.some(f => f.toLowerCase().includes('iflow')),
     antigravity: authFiles.some(f => f.toLowerCase().includes('antigravity')),
   }
 

@@ -8,7 +8,6 @@ const providers = [
   { id: 'codex', name: 'Codex' },
   { id: 'qwen', name: 'Qwen' },
   { id: 'anthropic', name: 'Anthropic' },
-  { id: 'iflow', name: 'iFlow' },
 ] as const
 
 type ProviderId = (typeof providers)[number]['id']
@@ -50,7 +49,6 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       codex: authFiles.some(f => f.toLowerCase().includes('codex')),
       qwen: authFiles.some(f => f.toLowerCase().includes('qwen')),
       anthropic: authFiles.some(f => f.toLowerCase().includes('anthropic')),
-      iflow: authFiles.some(f => f.toLowerCase().includes('iflow')),
     }
   }, [providerStatus, authFiles])
 
