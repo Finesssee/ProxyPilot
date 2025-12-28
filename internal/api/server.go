@@ -31,6 +31,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers/claude"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers/gemini"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers/openai"
+	internalHandlers "github.com/router-for-me/CLIProxyAPI/v6/internal/api/handlers"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	sdkConfig "github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 	log "github.com/sirupsen/logrus"
@@ -269,6 +270,9 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	// Setup routes
 	s.setupRoutes()
 
+	// Register ProxyPilot dashboard routes (embedded UI)
+	s.registerProxyPilotDashboardRoutes()
+
 	// Apply additional router configurators from options
 	if optionState.routerConfigurator != nil {
 		optionState.routerConfigurator(engine, s.handlers, cfg)
@@ -314,6 +318,14 @@ func (s *Server) setupRoutes() {
 		v1.POST("/messages", claudeCodeHandlers.ClaudeMessages)
 		v1.POST("/messages/count_tokens", claudeCodeHandlers.ClaudeCountTokens)
 		v1.POST("/responses", openaiResponsesHandlers.Responses)
+
+		// Translation API routes
+		translatorHandler := internalHandlers.NewTranslatorHandler()
+		v1.GET("/translations", translatorHandler.GetTranslationsMatrix)
+		v1.GET("/translations/check", translatorHandler.CheckTranslation)
+		v1.GET("/translations/docs", translatorHandler.GetTranslationDocs)
+		v1.POST("/translations/score", translatorHandler.ScoreTranslation)
+		v1.POST("/translations/compare", translatorHandler.CompareStructures)
 	}
 
 	// Gemini compatible API routes
