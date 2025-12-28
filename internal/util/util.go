@@ -31,11 +31,29 @@ func SetLogLevel(cfg *config.Config) {
 	}
 }
 
+// DefaultAuthDir returns the default auth directory path based on the OS.
+// On Windows: %LOCALAPPDATA%\ProxyPilot\auth
+// On other OS: ~/.config/proxypilot/auth (XDG compliant)
+func DefaultAuthDir() string {
+	if dir := os.Getenv("LOCALAPPDATA"); dir != "" {
+		// Windows
+		return filepath.Join(dir, "ProxyPilot", "auth")
+	}
+	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
+		return filepath.Join(dir, "proxypilot", "auth")
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".config", "proxypilot", "auth")
+	}
+	return ""
+}
+
 // ResolveAuthDir normalizes the auth directory path for consistent reuse throughout the app.
 // It expands a leading tilde (~) to the user's home directory and returns a cleaned path.
+// If authDir is empty, it returns the default auth directory.
 func ResolveAuthDir(authDir string) (string, error) {
 	if authDir == "" {
-		return "", nil
+		return DefaultAuthDir(), nil
 	}
 	if strings.HasPrefix(authDir, "~") {
 		home, err := os.UserHomeDir()
