@@ -17,6 +17,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/memory"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/runtime/executor"
+	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/translator" // Auto-register all translators
 	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/watcher"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/wsrelay"

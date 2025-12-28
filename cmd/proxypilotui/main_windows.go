@@ -22,6 +22,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/cmd/proxypilotui/assets"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/desktopctl"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
+	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/translator"
 )
 
 func main() {
