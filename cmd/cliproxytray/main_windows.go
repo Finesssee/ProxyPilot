@@ -463,8 +463,6 @@ func getOAuthEndpoint(provider string) string {
 		return "/v0/management/anthropic-auth-url"
 	case "qwen":
 		return "/v0/management/qwen-auth-url"
-	case "iflow":
-		return "/v0/management/iflow-auth-url"
 	default:
 		return ""
 	}
