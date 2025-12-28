@@ -2,11 +2,11 @@ package desktopctl
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 )
 
 func resolveConfigPath(repoRoot, configPath string) (string, error) {
@@ -45,21 +45,9 @@ func authDir(configPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir := strings.TrimSpace(cfg.AuthDir)
-	if dir == "" {
-		return "", fmt.Errorf("auth-dir not configured")
-	}
-	if strings.HasPrefix(dir, "~/") || dir == "~" {
-		home, _ := os.UserHomeDir()
-		if home != "" {
-			if dir == "~" {
-				dir = home
-			} else {
-				dir = filepath.Join(home, strings.TrimPrefix(dir, "~/"))
-			}
-		}
-	}
-	return dir, nil
+	// ResolveAuthDir handles empty string by returning DefaultAuthDir()
+	// and also handles tilde expansion.
+	return util.ResolveAuthDir(cfg.AuthDir)
 }
 
 // AuthDirFor returns the resolved auth directory for the given config file.
