@@ -580,6 +580,14 @@ func (h *BaseAPIHandler) getRequestDetails(modelName string) (providers []string
 	// Resolve "auto" model to an actual available model first
 	resolvedModelName := util.ResolveAutoModel(modelName)
 
+	// Check for global model mapping (provider-agnostic first pass)
+	// This allows mappings like "gpt-4o" -> "claude-sonnet-4-20250514" to work
+	if h.Cfg != nil {
+		if mappedModel := h.Cfg.LookupGlobalModelMapping(resolvedModelName, ""); mappedModel != "" {
+			resolvedModelName = mappedModel
+		}
+	}
+
 	// Normalize the model name to handle dynamic thinking suffixes before determining the provider.
 	normalizedModel, metadata = normalizeModelMetadata(resolvedModelName)
 

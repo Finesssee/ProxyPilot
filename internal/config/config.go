@@ -484,6 +484,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 		}
 	}
 
+	// Wire up the global model mapper hook so SDK handlers can use it.
+	cfg.SDKConfig.GlobalModelMapper = cfg.LookupGlobalModelMapping
+
 	// Return the populated configuration struct.
 	return &cfg, nil
 }

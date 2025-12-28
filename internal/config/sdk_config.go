@@ -4,6 +4,10 @@
 // debug settings, proxy configuration, and API keys.
 package config
 
+// GlobalModelMapperFunc is a function type for looking up global model mappings.
+// It takes a model name and provider hint, and returns the mapped model name (or empty string if no mapping).
+type GlobalModelMapperFunc func(model string, provider string) string
+
 // SDKConfig represents the application's configuration, loaded from a YAML file.
 type SDKConfig struct {
 	// ProxyURL is the URL of an optional proxy server to use for outbound requests.
@@ -28,6 +32,10 @@ type SDKConfig struct {
 
 	// Compression configures context compression behavior for long conversations.
 	Compression CompressionConfig `yaml:"compression,omitempty" json:"compression,omitempty"`
+
+	// GlobalModelMapper is an optional hook for looking up global model mappings.
+	// This is set by the parent Config to enable cross-provider model aliasing.
+	GlobalModelMapper GlobalModelMapperFunc `yaml:"-" json:"-"`
 }
 
 // StreamingConfig holds server streaming behavior configuration.
@@ -171,3 +179,14 @@ func (c *CompressionConfig) ShouldFallbackToRegex() bool {
 	}
 	return *c.FallbackToRegex
 }
+
+// LookupGlobalModelMapping returns the mapped model name if a global mapping exists.
+// It delegates to the GlobalModelMapper hook if set.
+// Returns empty string if no mapping found or hook not set.
+func (cfg *SDKConfig) LookupGlobalModelMapping(model string, provider string) string {
+	if cfg == nil || cfg.GlobalModelMapper == nil {
+		return ""
+	}
+	return cfg.GlobalModelMapper(model, provider)
+}
+
