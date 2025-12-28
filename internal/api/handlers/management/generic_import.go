@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	iflowauth "github.com/router-for-me/CLIProxyAPI/v6/internal/auth/iflow"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 )
 
@@ -69,9 +68,6 @@ func (h *Handler) ImportCredential(c *gin.Context) {
 		var result importResult
 
 		switch provider {
-		case "iflow":
-			authSvc := iflowauth.NewIFlowAuth(h.cfg)
-			result = h.processIFlowCookie(ctx, authSvc, raw, lineNum)
 		case "openai", "claude", "gemini":
 			// Generic API Key import
 			result = h.processAPIKey(ctx, provider, raw, lineNum)
@@ -96,10 +92,13 @@ func (h *Handler) ImportCredential(c *gin.Context) {
 	})
 }
 
-// Re-using importResult from iflow_import.go if it's exported, otherwise redefined here for clarity in new file.
-// Ideally, we'd refactor iflow_import.go to share types, but for now assuming it stays as is or we modify it.
-// Since we are creating a new file, let's assume we might replace iflow_import with this generic one eventually.
-// For this step, I will assume we are ADDING this handler alongside existing ones.
+// importResult captures the result of importing a single credential line.
+type importResult struct {
+	Line      int    `json:"line"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
+	SavedPath string `json:"saved_path,omitempty"`
+}
 
 // GenericTokenStorage is a simple map wrapper to satisfy TokenStorage interface
 type GenericTokenStorage map[string]string
