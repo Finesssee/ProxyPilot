@@ -1,3 +1,9 @@
+before:
+  hooks:
+    # Remove Windows resource files before building
+    # These .syso files cause ARM64 cross-compile failures on Linux/Darwin
+    - find . -name "*.syso" -type f -delete || true
+
 builds:
   - id: "cli-proxy-api-plus"
     env:
@@ -9,6 +15,10 @@ builds:
     goarch:
       - amd64
       - arm64
+    ignore:
+      # Skip Windows ARM64 (not commonly used)
+      - goos: windows
+        goarch: arm64
     main: ./cmd/server/
     binary: cli-proxy-api-plus
     ldflags:
