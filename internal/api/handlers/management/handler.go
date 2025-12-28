@@ -333,6 +333,15 @@ func (h *Handler) Middleware() gin.HandlerFunc {
 					return
 				}
 			}
+			// For localhost, also accept configured API keys (same keys that work for main API)
+			if cfg != nil {
+				for _, apiKey := range cfg.APIKeys {
+					if apiKey != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(apiKey)) == 1 {
+						c.Next()
+						return
+					}
+				}
+			}
 		}
 
 		if envSecret != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(envSecret)) == 1 {
