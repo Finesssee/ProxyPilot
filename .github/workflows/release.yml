@@ -42,9 +42,32 @@ jobs:
           # Build tray app (includes embedded dashboard)
           go build -ldflags="-s -w -H=windowsgui" -o dist/ProxyPilot.exe ./cmd/cliproxytray
 
+      - name: Build Installer UI
+        run: |
+          cd installer-ui
+          npm ci
+          npm run build
+
+      - name: Copy Installer UI to cmd/installer
+        run: |
+          # Ensure target directory exists
+          New-Item -ItemType Directory -Force -Path cmd/installer/ui | Out-Null
+          # Copy built UI files
+          Copy-Item -Path installer-ui/dist/* -Destination cmd/installer/ui/ -Recurse -Force
+        shell: pwsh
+
+      - name: Build Custom Installer
+        run: |
+          go build -ldflags="-s -w -H=windowsgui" -o dist/ProxyPilot-Installer.exe ./cmd/installer
+
       - name: Install Inno Setup
         run: |
           choco install innosetup -y
+
+      - name: Generate installer branding images
+        run: |
+          cd installer/assets
+          powershell -ExecutionPolicy Bypass -File generate-wizard-images.ps1
 
       - name: Get version
         id: version
@@ -57,7 +80,7 @@ jobs:
             echo "VERSION=$version" >> $env:GITHUB_OUTPUT
           }
 
-      - name: Build Installer
+      - name: Build Inno Setup Installer
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion="${{ steps.version.outputs.VERSION }}" installer\proxypilot.iss
 
@@ -67,6 +90,7 @@ jobs:
           name: windows-release
           path: |
             dist/ProxyPilot.exe
+            dist/ProxyPilot-Installer.exe
             dist/ProxyPilot-*-Setup.exe
 
       - name: Upload to Release
@@ -75,5 +99,6 @@ jobs:
         with:
           files: |
             dist/ProxyPilot.exe
+            dist/ProxyPilot-Installer.exe
             dist/ProxyPilot-${{ steps.version.outputs.VERSION }}-Setup.exe
             config.example.yaml
