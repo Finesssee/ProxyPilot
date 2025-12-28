@@ -1,0 +1,526 @@
+/* ============================================
+   ProxyPilot Installer - Clean Professional Theme
+   Inspired by Perplexity Comet's minimal aesthetic
+   ============================================ */
+
+:root {
+  /* Dark theme colors */
+  --bg-primary: #0a0a0b;
+  --bg-secondary: #111113;
+  --bg-elevated: #18181b;
+  --bg-hover: #1f1f23;
+
+  /* Text colors */
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+
+  /* Accent - ProxyPilot blue */
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-glow: rgba(59, 130, 246, 0.15);
+
+  /* Success green */
+  --success: #22c55e;
+  --success-glow: rgba(34, 197, 94, 0.15);
+
+  /* Borders */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.12);
+
+  /* Spacing */
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', monospace;
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-base: 200ms ease;
+  --transition-slow: 300ms ease;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================
+   App Container
+   ============================================ */
+
+.app-container {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  position: relative;
+}
+
+/* Subtle gradient background */
+.app-container::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 80% 50% at 50% -20%,
+    var(--accent-glow) 0%,
+    transparent 70%
+  );
+  pointer-events: none;
+}
+
+/* ============================================
+   Window Controls
+   ============================================ */
+
+.window-controls {
+  position: absolute;
+  top: var(--space-md);
+  right: var(--space-md);
+  z-index: 100;
+  -webkit-app-region: no-drag;
+}
+
+.window-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.window-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.window-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* ============================================
+   Main Content
+   ============================================ */
+
+.main-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl);
+  -webkit-app-region: drag;
+}
+
+.step-container {
+  width: 100%;
+  max-width: 400px;
+  -webkit-app-region: no-drag;
+}
+
+/* ============================================
+   Welcome Step
+   ============================================ */
+
+.welcome-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-lg);
+  text-align: center;
+}
+
+/* Logo */
+.logo-container {
+  width: 96px;
+  height: 96px;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    0 0 60px var(--accent-glow);
+}
+
+.logo-container img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Text content */
+.text-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.app-name {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.app-tagline {
+  font-size: 15px;
+  color: var(--text-secondary);
+}
+
+/* Features */
+.features-card {
+  width: 100%;
+  padding: var(--space-lg);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.features {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.feature {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.feature-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.feature-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Install Button */
+.install-btn {
+  width: 100%;
+  height: 48px;
+  border: none;
+  border-radius: 12px;
+  background: var(--accent);
+  color: white;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  transition: all var(--transition-fast);
+}
+
+.install-btn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.install-btn:active {
+  transform: translateY(0);
+}
+
+.install-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Version */
+.version-info {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* ============================================
+   Installing Step
+   ============================================ */
+
+.installing-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xl);
+  text-align: center;
+}
+
+/* Progress Circle */
+.progress-circle-container {
+  position: relative;
+  width: 120px;
+  height: 120px;
+}
+
+.progress-circle {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.progress-circle-bg {
+  fill: none;
+  stroke: var(--bg-elevated);
+  stroke-width: 8;
+}
+
+.progress-circle-fill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dashoffset var(--transition-slow);
+}
+
+.progress-percent {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.progress-percent span {
+  font-size: 16px;
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+/* Progress Info */
+.progress-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  width: 100%;
+}
+
+.installing-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Progress Bar */
+.progress-bar-container {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-elevated);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width var(--transition-slow);
+}
+
+/* Status */
+.status-text {
+  font-size: 14px;
+  color: var(--text-secondary);
+  min-height: 21px;
+}
+
+/* ============================================
+   Complete Step
+   ============================================ */
+
+.complete-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-lg);
+  text-align: center;
+}
+
+/* Success Icon */
+.success-icon-container {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: var(--success-glow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.success-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--success);
+}
+
+.success-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Success Content */
+.success-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.success-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.success-message {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* Launch Button */
+.launch-btn {
+  width: 100%;
+  height: 48px;
+  border: none;
+  border-radius: 12px;
+  background: var(--success);
+  color: white;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  transition: all var(--transition-fast);
+}
+
+.launch-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.launch-btn:active {
+  transform: translateY(0);
+}
+
+.launch-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Post Install Info */
+.post-install-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 100%;
+}
+
+.info-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.info-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.post-install-info p {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: left;
+}
+
+/* ============================================
+   Accessibility
+   ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   Responsive
+   ============================================ */
+
+@media (max-height: 400px) {
+  .main-content {
+    padding: var(--space-md);
+  }
+
+  .logo-container {
+    width: 72px;
+    height: 72px;
+    border-radius: 18px;
+  }
+
+  .welcome-step,
+  .installing-step,
+  .complete-step {
+    gap: var(--space-md);
+  }
+
+  .progress-circle-container {
+    width: 100px;
+    height: 100px;
+  }
+}
