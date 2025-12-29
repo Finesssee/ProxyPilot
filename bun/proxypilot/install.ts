@@ -4,7 +4,7 @@ import { $ } from "bun";
 import { existsSync, chmodSync } from "fs";
 import { join } from "path";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 const REPO = "Finesssee/ProxyPilot";
 
 const PLATFORM_MAP: Record<string, string> = {

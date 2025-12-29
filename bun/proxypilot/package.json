@@ -1,6 +1,6 @@
 {
   "name": "proxypilot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "ProxyPilot - Local API proxy for AI coding tools with CLI control",
   "bin": {
     "proxypilot": "bin/proxypilot"
