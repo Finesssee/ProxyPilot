@@ -2,7 +2,7 @@ name: Publish ProxyPilot via Bun
 
 on:
   workflow_run:
-    workflows: ["ProxyPilot NPM Release"]
+    workflows: ["ProxyPilot Release"]
     types:
       - completed
   workflow_dispatch:

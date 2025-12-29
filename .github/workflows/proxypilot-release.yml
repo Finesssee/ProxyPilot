@@ -1,9 +1,9 @@
-name: ProxyPilot NPM Release
+name: ProxyPilot Release
 
 on:
   push:
     tags:
-      - 'npm-v*'
+      - 'v*'
 
 permissions:
   contents: write
