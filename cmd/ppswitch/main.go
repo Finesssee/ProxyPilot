@@ -10,7 +10,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 )
 
-const version = "1.0.0"
+const version = "0.1.0"
 
 func main() {
 	args := os.Args[1:]
@@ -50,17 +50,25 @@ func main() {
 func printHelp() {
 	fmt.Println(`ppswitch - ProxyPilot Configuration Switcher
 
+Install:
+  bun install -g ppswitch
+
 Usage:
   ppswitch                    Show status of all agents
   ppswitch <agent>            Show status of specific agent
   ppswitch <agent> <mode>     Switch agent to mode
 
 Agents:
-  claude, gemini, codex, opencode, droid, cursor, kilo, roocode
+  claude    Claude Code       gemini    Gemini CLI
+  codex     Codex CLI         opencode  OpenCode
+  droid     Factory Droid     cursor    Cursor
+  kilo      Kilo Code (*)     roocode   RooCode (*)
+
+  (*) VS Code extensions - require manual configuration
 
 Modes:
-  proxy     Route through ProxyPilot
-  native    Use direct API access
+  proxy     Route through ProxyPilot (http://127.0.0.1:8317)
+  native    Use direct API access (restore original config)
 
 Examples:
   ppswitch                    Show all agent statuses
@@ -70,5 +78,7 @@ Examples:
 
 Flags:
   -h, --help       Show this help
-  -v, --version    Show version`)
+  -v, --version    Show version
+
+More info: https://github.com/anthropics/proxypilot`)
 }
