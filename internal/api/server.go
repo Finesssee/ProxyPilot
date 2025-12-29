@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	internalHandlers "github.com/router-for-me/CLIProxyAPI/v6/internal/api/handlers"
 	managementHandlers "github.com/router-for-me/CLIProxyAPI/v6/internal/api/handlers/management"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/api/middleware"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
@@ -31,7 +32,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers/claude"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers/gemini"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers/openai"
-	internalHandlers "github.com/router-for-me/CLIProxyAPI/v6/internal/api/handlers"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	sdkConfig "github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 	log "github.com/sirupsen/logrus"
@@ -352,7 +352,7 @@ func (s *Server) setupRoutes() {
 
 	// Health check endpoint for Droid CLI and other clients
 	s.engine.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "port": s.cfg.Port})
 	})
 
 	// Root-level API routes (mirrors /v1/* for clients that dont add /v1 prefix)
@@ -510,6 +510,15 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/usage", s.mgmt.GetUsageStatistics)
 		mgmt.GET("/usage/export", s.mgmt.ExportUsageStatistics)
 		mgmt.POST("/usage/import", s.mgmt.ImportUsageStatistics)
+
+		// Request monitoring and history routes
+		mgmt.GET("/requests", s.mgmt.GetRequests)
+		mgmt.GET("/request-history", s.mgmt.GetRequestHistory)
+		mgmt.GET("/request-history/stats", s.mgmt.GetRequestHistoryStats)
+		mgmt.DELETE("/request-history", s.mgmt.ClearRequestHistory)
+		mgmt.GET("/request-history/export", s.mgmt.ExportRequestHistory)
+		mgmt.POST("/request-history/import", s.mgmt.ImportRequestHistory)
+		mgmt.POST("/request-history/save", s.mgmt.SaveRequestHistory)
 		mgmt.GET("/config", s.mgmt.GetConfig)
 		mgmt.GET("/config.yaml", s.mgmt.GetConfigYAML)
 		mgmt.PUT("/config.yaml", s.mgmt.PutConfigYAML)
@@ -619,6 +628,10 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/model-mappings", s.mgmt.GetModelMappings)
 		mgmt.PUT("/model-mappings", s.mgmt.SetModelMappings)
 		mgmt.GET("/model-mappings/test", s.mgmt.TestModelMapping)
+
+		// Thinking budget routes
+		mgmt.GET("/thinking-budget", s.mgmt.GetThinkingBudget)
+		mgmt.PUT("/thinking-budget", s.mgmt.SetThinkingBudget)
 
 		// Integration detection and setup routes
 		mgmt.GET("/integrations/status", s.mgmt.GetIntegrationsStatus)
