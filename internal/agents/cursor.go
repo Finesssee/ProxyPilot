@@ -193,6 +193,18 @@ Or edit %s directly and add:
 `, proxyURL, h.configPath, proxyURL)
 }
 
+// GetShellConfig returns shell profile configuration for Cursor
+func (h *CursorHandler) GetShellConfig(proxyURL string) string {
+	return fmt.Sprintf(`# ProxyPilot - Cursor IDE Configuration
+# Note: Cursor primarily uses settings.json, not environment variables.
+# Use the UI or edit settings.json directly.
+
+# Optional: Set OPENAI-compatible environment variables as fallback
+export OPENAI_BASE_URL="%s/v1"
+export OPENAI_API_KEY="proxypilot-local"
+`, proxyURL)
+}
+
 // readConfig reads the Cursor settings file
 func (h *CursorHandler) readConfig() (map[string]any, error) {
 	data, err := os.ReadFile(h.configPath)

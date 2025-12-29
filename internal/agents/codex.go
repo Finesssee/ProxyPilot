@@ -203,3 +203,17 @@ wire_api = "openai"
 4. Restart Codex CLI for changes to take effect.
 `, h.configPath, proxyURL)
 }
+
+// GetShellConfig returns shell profile configuration for Codex CLI
+func (h *CodexHandler) GetShellConfig(proxyURL string) string {
+	return fmt.Sprintf(`# ProxyPilot - Codex CLI Configuration
+# Add these lines to your shell profile (~/.bashrc, ~/.zshrc, or ~/.profile)
+
+export PROXYPILOT_API_KEY="proxypilot-local"
+export OPENAI_BASE_URL="%s/v1"
+export OPENAI_API_KEY="proxypilot-local"
+
+# Note: Codex CLI also requires config.toml configuration.
+# See the setup instructions for full details.
+`, proxyURL)
+}

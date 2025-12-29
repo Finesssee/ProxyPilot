@@ -196,6 +196,18 @@ func (h *FactoryDroidHandler) GetInstructions(proxyURL string) string {
 `, h.settingsPath, proxyURL)
 }
 
+// GetShellConfig returns shell profile configuration for Factory Droid
+func (h *FactoryDroidHandler) GetShellConfig(proxyURL string) string {
+	return fmt.Sprintf(`# ProxyPilot - Factory Droid Configuration
+# Factory Droid uses settings.json for configuration, not environment variables.
+# Use the auto-configure feature or edit %s directly.
+
+# Optional: For other OpenAI-compatible tools
+export OPENAI_BASE_URL="%s/v1"
+export OPENAI_API_KEY="proxypilot-local"
+`, h.settingsPath, proxyURL)
+}
+
 func (h *FactoryDroidHandler) readSettings() (map[string]any, error) {
 	data, err := os.ReadFile(h.settingsPath)
 	if err != nil {
@@ -277,7 +289,7 @@ func buildDroidModels(proxyURL string) []map[string]any {
 		displayName := "proxypilot-" + m.displayName
 		// Create ID in Droid's format: custom:<name>-<index>
 		id := fmt.Sprintf("custom:%s-%d", strings.ReplaceAll(displayName, " ", "-"), i)
-		
+
 		models = append(models, map[string]any{
 			"model":          m.modelID,
 			"id":             id,

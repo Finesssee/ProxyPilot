@@ -197,6 +197,20 @@ func (h *OpenCodeHandler) GetInstructions(proxyURL string) string {
 `, h.configPath, proxyURL)
 }
 
+// GetShellConfig returns shell profile configuration for OpenCode
+func (h *OpenCodeHandler) GetShellConfig(proxyURL string) string {
+	return fmt.Sprintf(`# ProxyPilot - OpenCode Configuration
+# Add these lines to your shell profile (~/.bashrc, ~/.zshrc, or ~/.profile)
+
+export OPENAI_BASE_URL="%s/v1"
+export OPENAI_API_KEY="proxypilot-local"
+
+# Or use Anthropic-compatible settings:
+# export ANTHROPIC_BASE_URL="%s"
+# export ANTHROPIC_AUTH_TOKEN="proxypilot-local"
+`, proxyURL, proxyURL)
+}
+
 // readConfig reads the OpenCode settings file
 func (h *OpenCodeHandler) readConfig() (map[string]any, error) {
 	data, err := os.ReadFile(h.configPath)

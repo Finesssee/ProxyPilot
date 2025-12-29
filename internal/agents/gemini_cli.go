@@ -198,3 +198,17 @@ func (h *GeminiCLIHandler) writeConfig(config map[string]any) error {
 
 	return os.WriteFile(h.configPath, data, 0644)
 }
+
+// GetShellConfig returns shell profile configuration for Gemini CLI
+func (h *GeminiCLIHandler) GetShellConfig(proxyURL string) string {
+	return fmt.Sprintf(`# ProxyPilot - Gemini CLI Configuration
+# Add these lines to your shell profile (~/.bashrc, ~/.zshrc, or ~/.profile)
+
+# Option 1: OAuth mode (local only)
+export CODE_ASSIST_ENDPOINT="%s"
+
+# Option 2: API Key mode (works with any IP/domain)
+# export GOOGLE_GEMINI_BASE_URL="%s"
+# export GEMINI_API_KEY="proxypilot-local"
+`, proxyURL, proxyURL)
+}

@@ -204,6 +204,25 @@ func (h *ClaudeCodeHandler) GetInstructions(proxyURL string) string {
 `, h.configPath, proxyURL)
 }
 
+// GetShellConfig returns shell profile configuration for Claude Code
+func (h *ClaudeCodeHandler) GetShellConfig(proxyURL string) string {
+	return fmt.Sprintf(`# ProxyPilot - Claude Code Configuration
+# Add these lines to your shell profile (~/.bashrc, ~/.zshrc, or ~/.profile)
+
+export ANTHROPIC_BASE_URL="%s"
+export ANTHROPIC_AUTH_TOKEN="proxypilot-local"
+
+# For Claude Code 2.x, you can also set default models:
+# export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-1-20250805"
+# export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-5-20250929"
+# export ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-3-5-haiku-20241022"
+
+# For Claude Code 1.x:
+# export ANTHROPIC_MODEL="claude-sonnet-4-5-20250929"
+# export ANTHROPIC_SMALL_FAST_MODEL="claude-3-5-haiku-20241022"
+`, proxyURL)
+}
+
 // readConfig reads the Claude Code settings file
 func (h *ClaudeCodeHandler) readConfig() (map[string]any, error) {
 	data, err := os.ReadFile(h.configPath)

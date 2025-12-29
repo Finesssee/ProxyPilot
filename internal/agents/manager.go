@@ -15,6 +15,7 @@ type AgentInfo struct {
 	CanAutoConfigure bool              `json:"can_auto_configure"`
 	ConfigPath       string            `json:"config_path,omitempty"`
 	Instructions     string            `json:"instructions,omitempty"`
+	ShellConfig      string            `json:"shell_config,omitempty"`
 	EnvVars          map[string]string `json:"env_vars,omitempty"`
 }
 
@@ -56,6 +57,10 @@ type AgentHandler interface {
 
 	// GetInstructions returns manual configuration instructions
 	GetInstructions(proxyURL string) string
+
+	// GetShellConfig returns shell script configuration for this agent.
+	// This is used for agents that need environment variables in shell profiles.
+	GetShellConfig(proxyURL string) string
 }
 
 // Manager manages all CLI agent configurations
@@ -133,6 +138,7 @@ func (m *Manager) DetectAll() ([]AgentInfo, error) {
 			CanAutoConfigure: handler.CanAutoConfigure(),
 			ConfigPath:       handler.GetConfigPath(),
 			Instructions:     handler.GetInstructions(m.proxyURL),
+			ShellConfig:      handler.GetShellConfig(m.proxyURL),
 		}
 
 		detected, err := handler.Detect()
@@ -174,6 +180,7 @@ func (m *Manager) GetAgentInfo(agentID string) (AgentInfo, error) {
 		CanAutoConfigure: handler.CanAutoConfigure(),
 		ConfigPath:       handler.GetConfigPath(),
 		Instructions:     handler.GetInstructions(m.proxyURL),
+		ShellConfig:      handler.GetShellConfig(m.proxyURL),
 	}
 
 	detected, _ := handler.Detect()

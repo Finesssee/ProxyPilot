@@ -252,6 +252,24 @@ Note: Amazon Q CLI has separate usage quota from Kiro IDE.
 `
 }
 
+// GetShellConfig returns shell profile configuration for Amazon Q CLI
+func (h *AmazonQCLIHandler) GetShellConfig(proxyURL string) string {
+	return fmt.Sprintf(`# ProxyPilot - Amazon Q CLI Configuration
+# Amazon Q CLI uses its own authentication via 'q login'.
+# ProxyPilot automatically imports the tokens after you authenticate.
+
+# To authenticate:
+# q login
+
+# ProxyPilot will detect and use the tokens automatically.
+# No additional environment variables needed.
+
+# Optional: For other OpenAI-compatible tools
+export OPENAI_BASE_URL="%s/v1"
+export OPENAI_API_KEY="proxypilot-local"
+`, proxyURL)
+}
+
 // GetWSLInfo returns WSL distro and user information (for external use)
 func (h *AmazonQCLIHandler) GetWSLInfo() (distro, user string) {
 	return h.wslDistro, h.wslUser
