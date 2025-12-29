@@ -21,8 +21,11 @@ jobs:
           bun-version: latest
 
       - name: Setup registry auth
-        run: echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+        working-directory: bun/ppswitch
+        run: echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > .npmrc
 
       - name: Publish package
         working-directory: bun/ppswitch
-        run: bun publish
+        run: bun publish --access public
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
