@@ -80,5 +80,5 @@ Flags:
   -h, --help       Show this help
   -v, --version    Show version
 
-More info: https://github.com/anthropics/proxypilot`)
+More info: https://github.com/Finesssee/ProxyPilot`)
 }
