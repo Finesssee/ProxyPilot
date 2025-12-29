@@ -144,6 +144,9 @@ func RequestLoggingMiddleware(logger logging.RequestLogger) gin.HandlerFunc {
 		}
 
 		addRequestToMonitor(entry)
+
+		// Also add to persistent history
+		GetRequestHistory().AddEntry(entry)
 	}
 }
 
