@@ -172,6 +172,84 @@ All endpoints auto-translate between formats based on the target provider.
 | `proxypilotui` | Desktop control center (Windows) |
 | `cliproxytray` | System tray application (Windows) |
 | `proxypilotpack` | Build and packaging tool |
+| `ppswitch` | Config switcher for AI CLI agents |
+
+---
+
+## ppswitch - Config Switcher
+
+**ppswitch** is a lightweight CLI tool that switches AI coding agents between proxy mode (through ProxyPilot) and native mode (direct API access). Think of it like `nvm` for Node versions, but for AI agent configurations.
+
+### Install
+
+```bash
+# Via bun (recommended)
+bun install -g ppswitch
+
+# Via npm
+npm install -g ppswitch
+
+# Via Go
+go install github.com/Finesssee/ProxyPilot/cmd/ppswitch@latest
+```
+
+### Usage
+
+```bash
+ppswitch                    # Show status of all agents
+ppswitch <agent>            # Show status of specific agent
+ppswitch <agent> <mode>     # Switch agent to mode
+```
+
+### Supported Agents
+
+| Agent | CLI Tool | Config Location |
+|-------|----------|-----------------|
+| `claude` | Claude Code | `~/.claude/settings.json` |
+| `gemini` | Gemini CLI | `~/.gemini/settings.json` |
+| `codex` | Codex CLI | `~/.codex/config.toml` |
+| `opencode` | OpenCode | `~/.opencode/config.json` |
+| `droid` | Factory Droid | `~/.factory/settings.json` |
+| `cursor` | Cursor IDE | `~/.cursor/config.json` |
+| `kilo` | Kilo Code* | VS Code settings |
+| `roocode` | RooCode* | VS Code settings |
+
+*VS Code extensions require manual configuration
+
+### Modes
+
+| Mode | Description |
+|------|-------------|
+| `proxy` | Route through ProxyPilot (`http://127.0.0.1:8317`) |
+| `native` | Use direct API access (restore original config) |
+
+### Examples
+
+```bash
+# Check all agent statuses
+ppswitch
+
+# Switch Claude to use ProxyPilot
+ppswitch claude proxy
+
+# Switch Gemini back to native API
+ppswitch gemini native
+
+# Check Claude's current mode
+ppswitch claude
+```
+
+### How It Works
+
+When switching to **proxy** mode:
+1. Backs up current config to `<config>.native.json`
+2. Updates config to point to `http://127.0.0.1:8317`
+
+When switching to **native** mode:
+1. Restores config from `<config>.native.json` backup
+2. Removes backup file after successful restore
+
+This preserves your original API keys and settings while allowing quick toggling between ProxyPilot and direct access.
 
 ---
 
