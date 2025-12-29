@@ -165,6 +165,9 @@ type Server struct {
 	keepAliveOnTimeout func()
 	keepAliveHeartbeat chan struct{}
 	keepAliveStop      chan struct{}
+
+	// agentsV2 is the new unified agent configuration handler
+	agentsV2 *managementHandlers.AgentsV2Handler
 }
 
 // NewServer creates and initializes a new API server instance.
@@ -267,6 +270,15 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	s.mgmt.SetLogDirectory(logDir)
 	s.localPassword = optionState.localPassword
 
+	// Initialize agents v2 handler
+	agentsPort := cfg.Port
+	if agentsPort == 0 {
+		agentsPort = 8317
+	}
+	if agentsV2Handler, err := managementHandlers.NewAgentsV2Handler(agentsPort); err == nil {
+		s.agentsV2 = agentsV2Handler
+	}
+
 	// Setup routes
 	s.setupRoutes()
 
@@ -278,8 +290,9 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 		optionState.routerConfigurator(engine, s.handlers, cfg)
 	}
 
-	// Register management routes when configuration or environment secrets are available.
-	hasManagementSecret := cfg.RemoteManagement.SecretKey != "" || envManagementSecret
+	// Register management routes when configuration or environment secrets are available,
+	// or when a local password is configured for localhost management access.
+	hasManagementSecret := cfg.RemoteManagement.SecretKey != "" || envManagementSecret || optionState.localPassword != ""
 	s.managementRoutesEnabled.Store(hasManagementSecret)
 	if hasManagementSecret {
 		s.registerManagementRoutes()
@@ -589,6 +602,9 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/antigravity-auth-url", s.mgmt.RequestAntigravityToken)
 		mgmt.GET("/qwen-auth-url", s.mgmt.RequestQwenToken)
 		mgmt.GET("/kiro-auth-url", s.mgmt.RequestKiroToken)
+		mgmt.POST("/amazonq-import", s.mgmt.ImportAmazonQToken)
+		mgmt.POST("/minimax-api-key", s.mgmt.SaveMiniMaxAPIKey)
+		mgmt.POST("/zhipu-api-key", s.mgmt.SaveZhipuAPIKey)
 		mgmt.POST("/oauth-callback", s.mgmt.PostOAuthCallback)
 		mgmt.GET("/get-auth-status", s.mgmt.GetAuthStatus)
 
@@ -610,6 +626,17 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/agents", s.mgmt.GetCLIAgents)
 		mgmt.POST("/agents/:id/configure", s.mgmt.PostCLIAgentConfigure)
 		mgmt.POST("/agents/:id/unconfigure", s.mgmt.PostCLIAgentUnconfigure)
+
+		// New unified agent configuration routes (v2)
+		if s.agentsV2 != nil {
+			mgmt.GET("/v2/agents", s.agentsV2.GetAgents)
+			mgmt.GET("/v2/agents/state", s.agentsV2.GetAgentState)
+			mgmt.POST("/v2/agents/enable-all", s.agentsV2.EnableAllAgents)
+			mgmt.POST("/v2/agents/disable-all", s.agentsV2.DisableAllAgents)
+			mgmt.GET("/v2/agents/:id", s.agentsV2.GetAgent)
+			mgmt.POST("/v2/agents/:id/enable", s.agentsV2.EnableAgent)
+			mgmt.POST("/v2/agents/:id/disable", s.agentsV2.DisableAgent)
+		}
 
 		// Memory management routes
 		mgmt.GET("/memory/sessions", s.mgmt.ListMemorySessions)
