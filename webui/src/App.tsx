@@ -13,6 +13,7 @@ import {
   ConfigEditor,
   RequestMonitor,
   UsageStats,
+  ThinkingBudgetSettings,
 } from '@/components/dashboard'
 import { Header } from '@/components/layout/Header'
 import { StatusBar } from '@/components/layout/StatusBar'
@@ -75,6 +76,7 @@ function DashboardContent() {
             {mgmtKey ? (
               <>
                 <ModelMappings />
+                <ThinkingBudgetSettings />
                 <ConfigEditor />
               </>
             ) : (
