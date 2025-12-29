@@ -12,7 +12,16 @@ import {
     Database,
     AlertCircle,
     CheckCircle2,
-    XCircle
+    XCircle,
+    Download,
+    Trash2,
+    Filter,
+    History,
+    Radio,
+    ChevronLeft,
+    ChevronsLeft,
+    ChevronsRight,
+    Save
 } from 'lucide-react'
 
 interface RequestLogEntry {
@@ -29,15 +38,48 @@ interface RequestLogEntry {
     error?: string
 }
 
+interface HistoryStats {
+    total_requests: number
+    success_count: number
+    failure_count: number
+    total_tokens_in: number
+    total_tokens_out: number
+    total_cost_usd: number
+    direct_api_cost: number
+    savings: number
+    savings_percent: number
+}
+
+type ViewMode = 'live' | 'history'
+
 export function RequestMonitor() {
     const { mgmtFetch, showToast, status, isMgmtLoading } = useProxyContext()
     const [requests, setRequests] = useState<RequestLogEntry[]>([])
+    const [historyStats, setHistoryStats] = useState<HistoryStats | null>(null)
     const [isLive, setIsLive] = useState(false)
+    const [viewMode, setViewMode] = useState<ViewMode>('live')
     const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
     const liveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
     const isRunning = status?.running ?? false
 
-    const fetchRequests = useCallback(async () => {
+    // Filter state
+    const [showFilters, setShowFilters] = useState(false)
+    const [filterModel, setFilterModel] = useState('')
+    const [filterProvider, setFilterProvider] = useState('')
+    const [filterStatus, setFilterStatus] = useState<'all' | 'success' | 'error'>('all')
+    const [filterStartDate, setFilterStartDate] = useState('')
+    const [filterEndDate, setFilterEndDate] = useState('')
+
+    // Pagination state
+    const [page, setPage] = useState(1)
+    const [pageSize] = useState(50)
+    const [totalCount, setTotalCount] = useState(0)
+
+    // Unique values for filters
+    const [availableModels, setAvailableModels] = useState<string[]>([])
+    const [availableProviders, setAvailableProviders] = useState<string[]>([])
+
+    const fetchLiveRequests = useCallback(async () => {
         try {
             let data: RequestLogEntry[] = []
             if (window.pp_get_requests) {
@@ -46,14 +88,62 @@ export function RequestMonitor() {
                 const res = await mgmtFetch('/v0/management/requests')
                 data = res.requests || []
             }
-            // Sort by timestamp descending
             setRequests([...data].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()))
+
+            // Extract unique models and providers
+            const models = new Set<string>()
+            const providers = new Set<string>()
+            data.forEach(r => {
+                if (r.model) models.add(r.model)
+                if (r.provider) providers.add(r.provider)
+            })
+            setAvailableModels(Array.from(models).sort())
+            setAvailableProviders(Array.from(providers).sort())
         } catch (e) {
             if (!(e instanceof EngineOfflineError)) {
                 showToast(e instanceof Error ? e.message : String(e), 'error')
             }
         }
     }, [mgmtFetch, showToast])
+
+    const fetchHistory = useCallback(async () => {
+        try {
+            const params = new URLSearchParams()
+            params.set('limit', String(pageSize))
+            params.set('offset', String((page - 1) * pageSize))
+
+            if (filterModel) params.set('model', filterModel)
+            if (filterProvider) params.set('provider', filterProvider)
+            if (filterStartDate) params.set('start_date', new Date(filterStartDate).toISOString())
+            if (filterEndDate) params.set('end_date', new Date(filterEndDate).toISOString())
+            if (filterStatus === 'success') {
+                params.set('status_min', '200')
+                params.set('status_max', '299')
+            } else if (filterStatus === 'error') {
+                params.set('errors_only', 'true')
+            }
+
+            const res = await mgmtFetch(`/v0/management/request-history?${params.toString()}`)
+            setRequests(res.entries || [])
+            setTotalCount(res.total || 0)
+
+            // Also fetch stats
+            const statsRes = await mgmtFetch('/v0/management/request-history/stats')
+            setHistoryStats(statsRes.stats || null)
+
+            // Extract unique models and providers from stats
+            if (statsRes.stats?.by_model) {
+                setAvailableModels(Object.keys(statsRes.stats.by_model).sort())
+            }
+            if (statsRes.stats?.by_provider) {
+                setAvailableProviders(Object.keys(statsRes.stats.by_provider).sort())
+            }
+        } catch (e) {
+            if (!(e instanceof EngineOfflineError)) {
+                showToast(e instanceof Error ? e.message : String(e), 'error')
+            }
+        }
+    }, [mgmtFetch, showToast, page, pageSize, filterModel, filterProvider, filterStatus, filterStartDate, filterEndDate])
 
     const toggleLive = () => {
         if (isLive) {
@@ -64,9 +154,9 @@ export function RequestMonitor() {
             }
         } else {
             setIsLive(true)
-            fetchRequests()
+            fetchLiveRequests()
             liveIntervalRef.current = setInterval(() => {
-                fetchRequests()
+                fetchLiveRequests()
             }, 2000)
         }
     }
@@ -81,14 +171,63 @@ export function RequestMonitor() {
         setExpandedRows(newExpanded)
     }
 
+    const handleExport = async () => {
+        try {
+            const res = await mgmtFetch('/v0/management/request-history/export')
+            const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `proxypilot-request-history-${new Date().toISOString().split('T')[0]}.json`
+            a.click()
+            URL.revokeObjectURL(url)
+            showToast('Request history exported', 'success')
+        } catch (e) {
+            showToast(e instanceof Error ? e.message : String(e), 'error')
+        }
+    }
+
+    const handleClear = async () => {
+        if (!confirm('Are you sure you want to clear all request history? This cannot be undone.')) {
+            return
+        }
+        try {
+            await mgmtFetch('/v0/management/request-history', { method: 'DELETE' })
+            showToast('Request history cleared', 'success')
+            setRequests([])
+            setTotalCount(0)
+            setHistoryStats(null)
+        } catch (e) {
+            showToast(e instanceof Error ? e.message : String(e), 'error')
+        }
+    }
+
+    const handleSave = async () => {
+        try {
+            await mgmtFetch('/v0/management/request-history/save', { method: 'POST' })
+            showToast('Request history saved to disk', 'success')
+        } catch (e) {
+            showToast(e instanceof Error ? e.message : String(e), 'error')
+        }
+    }
+
     useEffect(() => {
-        fetchRequests()
+        if (viewMode === 'live') {
+            fetchLiveRequests()
+        } else {
+            fetchHistory()
+        }
         return () => {
             if (liveIntervalRef.current) {
                 clearInterval(liveIntervalRef.current)
             }
         }
-    }, [fetchRequests])
+    }, [viewMode, fetchLiveRequests, fetchHistory])
+
+    // Reset page when filters change
+    useEffect(() => {
+        setPage(1)
+    }, [filterModel, filterProvider, filterStatus, filterStartDate, filterEndDate])
 
     const getStatusColor = (code: number) => {
         if (code >= 200 && code < 300) return 'text-[var(--status-online)]'
@@ -109,6 +248,13 @@ export function RequestMonitor() {
         return date.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
     }
 
+    const formatDate = (ts: string) => {
+        const date = new Date(ts)
+        return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+    }
+
+    const totalPages = Math.ceil(totalCount / pageSize)
+
     return (
         <Card className="backdrop-blur-sm bg-[var(--bg-void)] border-[var(--border-default)] shadow-xl overflow-hidden">
             <CardHeader className="pb-3 border-b border-[var(--border-subtle)] bg-[var(--bg-panel)]">
@@ -122,24 +268,93 @@ export function RequestMonitor() {
                         </div>
                         {isMgmtLoading && <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground" />}
 
-                        <button
-                            onClick={toggleLive}
-                            disabled={!isRunning}
-                            className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-mono transition-all ${isLive && isRunning
-                                ? 'bg-[var(--accent-glow)]/20 text-[var(--accent-glow)]'
-                                : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-                                } ${!isRunning ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        >
-                            <span className={`h-1.5 w-1.5 rounded-full ${isLive && isRunning ? 'bg-[var(--accent-glow)]' : 'bg-[var(--text-muted)]'}`} />
-                            LIVE
-                        </button>
+                        {/* View Mode Toggle */}
+                        <div className="flex items-center gap-1 bg-[var(--bg-elevated)] rounded p-0.5">
+                            <button
+                                onClick={() => { setViewMode('live'); setIsLive(false) }}
+                                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-mono transition-all ${viewMode === 'live'
+                                    ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)]'
+                                    : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                                    }`}
+                            >
+                                <Radio className="h-3 w-3" />
+                                LIVE
+                            </button>
+                            <button
+                                onClick={() => { setViewMode('history'); setIsLive(false); if (liveIntervalRef.current) { clearInterval(liveIntervalRef.current); liveIntervalRef.current = null } }}
+                                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-mono transition-all ${viewMode === 'history'
+                                    ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)]'
+                                    : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                                    }`}
+                            >
+                                <History className="h-3 w-3" />
+                                HISTORY
+                            </button>
+                        </div>
+
+                        {viewMode === 'live' && (
+                            <button
+                                onClick={toggleLive}
+                                disabled={!isRunning}
+                                className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-mono transition-all ${isLive && isRunning
+                                    ? 'bg-[var(--accent-glow)]/20 text-[var(--accent-glow)]'
+                                    : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                                    } ${!isRunning ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                                <span className={`h-1.5 w-1.5 rounded-full ${isLive && isRunning ? 'bg-[var(--accent-glow)]' : 'bg-[var(--text-muted)]'}`} />
+                                AUTO
+                            </button>
+                        )}
                     </div>
 
                     <div className="flex items-center gap-2">
+                        {viewMode === 'history' && (
+                            <>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setShowFilters(!showFilters)}
+                                    className={`text-xs h-7 font-mono gap-1 ${showFilters ? 'bg-[var(--accent-primary)]/10 border-[var(--accent-primary)]' : ''}`}
+                                >
+                                    <Filter className="h-3 w-3" />
+                                    FILTER
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={handleSave}
+                                    disabled={!isRunning || isMgmtLoading}
+                                    className="text-xs h-7 font-mono gap-1"
+                                >
+                                    <Save className="h-3 w-3" />
+                                    SAVE
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={handleExport}
+                                    disabled={!isRunning || isMgmtLoading}
+                                    className="text-xs h-7 font-mono gap-1"
+                                >
+                                    <Download className="h-3 w-3" />
+                                    EXPORT
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={handleClear}
+                                    disabled={!isRunning || isMgmtLoading}
+                                    className="text-xs h-7 font-mono gap-1 text-[var(--status-offline)] hover:bg-[var(--status-offline)]/10"
+                                >
+                                    <Trash2 className="h-3 w-3" />
+                                    CLEAR
+                                </Button>
+                            </>
+                        )}
                         <Button
                             size="sm"
                             variant="outline"
-                            onClick={fetchRequests}
+                            onClick={viewMode === 'live' ? fetchLiveRequests : fetchHistory}
                             disabled={!isRunning || isMgmtLoading}
                             className="text-xs h-7 font-mono gap-1"
                         >
@@ -148,6 +363,94 @@ export function RequestMonitor() {
                         </Button>
                     </div>
                 </div>
+
+                {/* Filter Panel */}
+                {showFilters && viewMode === 'history' && (
+                    <div className="mt-3 pt-3 border-t border-[var(--border-subtle)] grid grid-cols-2 md:grid-cols-5 gap-3">
+                        <div>
+                            <label className="block text-[10px] font-mono text-[var(--text-muted)] uppercase mb-1">Model</label>
+                            <select
+                                value={filterModel}
+                                onChange={(e) => setFilterModel(e.target.value)}
+                                className="w-full px-2 py-1.5 rounded border border-[var(--border-default)] bg-[var(--bg-elevated)] text-xs font-mono"
+                            >
+                                <option value="">All Models</option>
+                                {availableModels.map(m => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-mono text-[var(--text-muted)] uppercase mb-1">Provider</label>
+                            <select
+                                value={filterProvider}
+                                onChange={(e) => setFilterProvider(e.target.value)}
+                                className="w-full px-2 py-1.5 rounded border border-[var(--border-default)] bg-[var(--bg-elevated)] text-xs font-mono"
+                            >
+                                <option value="">All Providers</option>
+                                {availableProviders.map(p => <option key={p} value={p}>{p}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-mono text-[var(--text-muted)] uppercase mb-1">Status</label>
+                            <select
+                                value={filterStatus}
+                                onChange={(e) => setFilterStatus(e.target.value as 'all' | 'success' | 'error')}
+                                className="w-full px-2 py-1.5 rounded border border-[var(--border-default)] bg-[var(--bg-elevated)] text-xs font-mono"
+                            >
+                                <option value="all">All</option>
+                                <option value="success">Success (2xx)</option>
+                                <option value="error">Errors</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-mono text-[var(--text-muted)] uppercase mb-1">From</label>
+                            <input
+                                type="date"
+                                value={filterStartDate}
+                                onChange={(e) => setFilterStartDate(e.target.value)}
+                                className="w-full px-2 py-1.5 rounded border border-[var(--border-default)] bg-[var(--bg-elevated)] text-xs font-mono"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-mono text-[var(--text-muted)] uppercase mb-1">To</label>
+                            <input
+                                type="date"
+                                value={filterEndDate}
+                                onChange={(e) => setFilterEndDate(e.target.value)}
+                                className="w-full px-2 py-1.5 rounded border border-[var(--border-default)] bg-[var(--bg-elevated)] text-xs font-mono"
+                            />
+                        </div>
+                    </div>
+                )}
+
+                {/* History Stats */}
+                {viewMode === 'history' && historyStats && (
+                    <div className="mt-3 pt-3 border-t border-[var(--border-subtle)] grid grid-cols-3 md:grid-cols-6 gap-4 text-center">
+                        <div>
+                            <div className="text-lg font-bold text-[var(--text-primary)]">{historyStats.total_requests}</div>
+                            <div className="text-[10px] font-mono text-[var(--text-muted)] uppercase">Total</div>
+                        </div>
+                        <div>
+                            <div className="text-lg font-bold text-[var(--status-online)]">{historyStats.success_count}</div>
+                            <div className="text-[10px] font-mono text-[var(--text-muted)] uppercase">Success</div>
+                        </div>
+                        <div>
+                            <div className="text-lg font-bold text-[var(--status-offline)]">{historyStats.failure_count}</div>
+                            <div className="text-[10px] font-mono text-[var(--text-muted)] uppercase">Failed</div>
+                        </div>
+                        <div>
+                            <div className="text-lg font-bold text-[var(--text-primary)]">{(historyStats.total_tokens_in + historyStats.total_tokens_out).toLocaleString()}</div>
+                            <div className="text-[10px] font-mono text-[var(--text-muted)] uppercase">Tokens</div>
+                        </div>
+                        <div>
+                            <div className="text-lg font-bold text-emerald-400">${historyStats.total_cost_usd.toFixed(2)}</div>
+                            <div className="text-[10px] font-mono text-[var(--text-muted)] uppercase">Cost</div>
+                        </div>
+                        <div>
+                            <div className="text-lg font-bold text-emerald-400">${historyStats.savings.toFixed(2)}</div>
+                            <div className="text-[10px] font-mono text-[var(--text-muted)] uppercase">Saved</div>
+                        </div>
+                    </div>
+                )}
             </CardHeader>
 
             <CardContent className="p-0">
@@ -155,7 +458,7 @@ export function RequestMonitor() {
                     <table className="w-full text-left border-collapse font-mono text-xs">
                         <thead>
                             <tr className="bg-[var(--bg-panel)]/50 text-[var(--text-muted)] border-b border-[var(--border-subtle)]">
-                                <th className="px-4 py-2 font-medium">TIME</th>
+                                <th className="px-4 py-2 font-medium">{viewMode === 'history' ? 'DATE' : 'TIME'}</th>
                                 <th className="px-4 py-2 font-medium">MODEL</th>
                                 <th className="px-4 py-2 font-medium">PROVIDER</th>
                                 <th className="px-4 py-2 font-medium">STATUS</th>
@@ -168,13 +471,13 @@ export function RequestMonitor() {
                             {!isRunning ? (
                                 <tr>
                                     <td colSpan={7} className="p-8 text-center text-[var(--text-muted)]">
-                                        <p className="text-xs uppercase tracking-widest">⚠️ Engine Offline</p>
+                                        <p className="text-xs uppercase tracking-widest">Engine Offline</p>
                                     </td>
                                 </tr>
                             ) : requests.length === 0 ? (
                                 <tr>
                                     <td colSpan={7} className="p-8 text-center text-[var(--text-muted)]">
-                                        No requests recorded yet.
+                                        {viewMode === 'history' ? 'No request history found.' : 'No requests recorded yet.'}
                                     </td>
                                 </tr>
                             ) : (
@@ -185,7 +488,12 @@ export function RequestMonitor() {
                                             onClick={() => toggleRow(req.id)}
                                         >
                                             <td className="px-4 py-2.5 text-[var(--text-muted)] tabular-nums">
-                                                {formatTime(req.timestamp)}
+                                                {viewMode === 'history' ? (
+                                                    <div className="flex flex-col">
+                                                        <span>{formatDate(req.timestamp)}</span>
+                                                        <span className="text-[10px]">{formatTime(req.timestamp)}</span>
+                                                    </div>
+                                                ) : formatTime(req.timestamp)}
                                             </td>
                                             <td className="px-4 py-2.5 text-[var(--text-primary)] font-medium">
                                                 {req.model || '-'}
@@ -280,14 +588,57 @@ export function RequestMonitor() {
             </CardContent>
 
             <div className="px-3 py-1.5 bg-[var(--bg-panel)] border-t border-[var(--border-subtle)] flex items-center justify-between text-[10px] font-mono text-[var(--text-muted)]">
-                <span>{requests.length} requests tracked</span>
-                <span className="flex items-center gap-2">
-                    <span className={isLive ? 'text-[var(--accent-glow)]' : ''}>
-                        {isLive ? 'LIVE POLLING ON' : 'LIVE POLLING OFF'}
-                    </span>
-                    <span>|</span>
-                    <span>2s INTERVAL</span>
-                </span>
+                {viewMode === 'live' ? (
+                    <>
+                        <span>{requests.length} requests tracked</span>
+                        <span className="flex items-center gap-2">
+                            <span className={isLive ? 'text-[var(--accent-glow)]' : ''}>
+                                {isLive ? 'AUTO REFRESH ON' : 'AUTO REFRESH OFF'}
+                            </span>
+                            <span>|</span>
+                            <span>2s INTERVAL</span>
+                        </span>
+                    </>
+                ) : (
+                    <>
+                        <span>Showing {requests.length} of {totalCount} entries</span>
+                        {totalPages > 1 && (
+                            <div className="flex items-center gap-1">
+                                <button
+                                    onClick={() => setPage(1)}
+                                    disabled={page === 1}
+                                    className="p-1 rounded hover:bg-[var(--bg-elevated)] disabled:opacity-30"
+                                >
+                                    <ChevronsLeft className="h-3 w-3" />
+                                </button>
+                                <button
+                                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                                    disabled={page === 1}
+                                    className="p-1 rounded hover:bg-[var(--bg-elevated)] disabled:opacity-30"
+                                >
+                                    <ChevronLeft className="h-3 w-3" />
+                                </button>
+                                <span className="px-2">
+                                    Page {page} of {totalPages}
+                                </span>
+                                <button
+                                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                                    disabled={page === totalPages}
+                                    className="p-1 rounded hover:bg-[var(--bg-elevated)] disabled:opacity-30"
+                                >
+                                    <ChevronRight className="h-3 w-3" />
+                                </button>
+                                <button
+                                    onClick={() => setPage(totalPages)}
+                                    disabled={page === totalPages}
+                                    className="p-1 rounded hover:bg-[var(--bg-elevated)] disabled:opacity-30"
+                                >
+                                    <ChevronsRight className="h-3 w-3" />
+                                </button>
+                            </div>
+                        )}
+                    </>
+                )}
             </div>
         </Card>
     )
