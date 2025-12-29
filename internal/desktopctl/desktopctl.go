@@ -12,7 +12,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/buildinfo"
@@ -224,9 +223,7 @@ func startSubprocess(opts StartOptions) (Status, error) {
 	if strings.TrimSpace(opts.RepoRoot) != "" {
 		cmd.Dir = opts.RepoRoot
 	}
-	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	}
+	setSysProcAttr(cmd)
 	// Enable management endpoints for the local ProxyPilot UX by setting a per-user secret.
 	// This is used to unlock /v0/management routes while keeping remote management disabled by default.
 	pw, errPw := getOrCreateManagementPassword()
