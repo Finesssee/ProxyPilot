@@ -1,0 +1,38 @@
+{
+  "name": "ppswitch",
+  "version": "0.1.0",
+  "description": "ProxyPilot Configuration Switcher - Switch AI CLI agents between proxy and native modes",
+  "bin": {
+    "ppswitch": "bin/ppswitch"
+  },
+  "scripts": {
+    "postinstall": "bun run install.ts"
+  },
+  "keywords": [
+    "proxypilot",
+    "claude",
+    "gemini",
+    "codex",
+    "ai",
+    "cli",
+    "proxy",
+    "config",
+    "switcher"
+  ],
+  "author": "ProxyPilot",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/router-for-me/CLIProxyAPI"
+  },
+  "homepage": "https://github.com/router-for-me/CLIProxyAPI#ppswitch",
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}
