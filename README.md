@@ -168,9 +168,8 @@ All endpoints auto-translate between formats based on the target provider.
 
 | Binary | Description |
 |--------|-------------|
-| `proxypilot` | Main API proxy server |
-| `cliproxytray` | System tray application (Windows) |
-| `ppswitch` | Provider/model switching utility |
+| `proxypilot` | Main CLI with server and config switching |
+| `cliproxytray` | System tray app |
 
 ---
 
