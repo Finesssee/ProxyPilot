@@ -106,6 +106,9 @@ type Config struct {
 	// Payload defines default and override rules for provider payload parameters.
 	Payload PayloadConfig `yaml:"payload" json:"payload"`
 
+	// ThinkingBudget defines the default thinking budget settings for models that support reasoning.
+	ThinkingBudget ThinkingBudgetConfig `yaml:"thinking-budget" json:"thinking-budget"`
+
 	// IncognitoBrowser enables opening OAuth URLs in incognito/private browsing mode.
 	// This is useful when you want to login with a different account without logging out
 	// from your current session. Default: false.
@@ -198,6 +201,47 @@ type PayloadModelRule struct {
 	Name string `yaml:"name" json:"name"`
 	// Protocol restricts the rule to a specific translator format (e.g., "gemini", "responses").
 	Protocol string `yaml:"protocol" json:"protocol"`
+}
+
+// ThinkingBudgetConfig defines preset thinking budget settings for reasoning models.
+// These presets make it easy to configure thinking budgets without knowing exact token values.
+type ThinkingBudgetConfig struct {
+	// Mode is the thinking budget preset: "low", "medium", "high", or "custom".
+	// Default: "medium"
+	Mode string `yaml:"mode" json:"mode"`
+	// CustomTokens is the custom thinking budget in tokens (only used when Mode is "custom").
+	// Default: 16000
+	CustomTokens int `yaml:"custom-tokens" json:"custom_tokens"`
+	// Enabled controls whether thinking is enabled by default for supported models.
+	// Default: true
+	Enabled *bool `yaml:"enabled" json:"enabled"`
+}
+
+// ThinkingBudgetPresets maps preset modes to token budgets.
+var ThinkingBudgetPresets = map[string]int{
+	"low":    2048,
+	"medium": 8192,
+	"high":   32768,
+}
+
+// GetThinkingBudgetTokens returns the effective thinking budget in tokens.
+func (c *ThinkingBudgetConfig) GetThinkingBudgetTokens() int {
+	if c.Mode == "custom" && c.CustomTokens > 0 {
+		return c.CustomTokens
+	}
+	if budget, ok := ThinkingBudgetPresets[c.Mode]; ok {
+		return budget
+	}
+	// Default to medium
+	return ThinkingBudgetPresets["medium"]
+}
+
+// IsEnabled returns whether thinking is enabled (defaults to true).
+func (c *ThinkingBudgetConfig) IsEnabled() bool {
+	if c.Enabled == nil {
+		return true
+	}
+	return *c.Enabled
 }
 
 // ClaudeKey represents the configuration for a Claude API key,
