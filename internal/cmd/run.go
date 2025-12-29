@@ -25,6 +25,23 @@ import (
 //   - configPath: The path to the configuration file
 //   - localPassword: Optional password accepted for local management requests
 func StartService(cfg *config.Config, configPath string, localPassword string) {
+	StartServiceWithOptions(cfg, configPath, localPassword, true)
+}
+
+// StartServiceStandalone starts the service without keep-alive shutdown.
+// Use this for standalone server mode where no tray app is pinging.
+func StartServiceStandalone(cfg *config.Config, configPath string, localPassword string) {
+	StartServiceWithOptions(cfg, configPath, localPassword, false)
+}
+
+// StartServiceWithOptions builds and runs the proxy service with configurable keep-alive behavior.
+//
+// Parameters:
+//   - cfg: The application configuration
+//   - configPath: The path to the configuration file
+//   - localPassword: Optional password accepted for local management requests
+//   - shutdownOnKeepAliveTimeout: If true, shutdown when keep-alive times out (for subprocess mode)
+func StartServiceWithOptions(cfg *config.Config, configPath string, localPassword string, shutdownOnKeepAliveTimeout bool) {
 	builder := cliproxy.NewBuilder().
 		WithConfig(cfg).
 		WithConfigPath(configPath).
@@ -34,7 +51,7 @@ func StartService(cfg *config.Config, configPath string, localPassword string) {
 	defer cancel()
 
 	runCtx := ctxSignal
-	if localPassword != "" {
+	if localPassword != "" && shutdownOnKeepAliveTimeout {
 		var keepAliveCancel context.CancelFunc
 		runCtx, keepAliveCancel = context.WithCancel(ctxSignal)
 		builder = builder.WithServerOptions(api.WithKeepAliveEndpoint(10*time.Second, func() {
