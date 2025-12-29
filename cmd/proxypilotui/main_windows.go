@@ -194,10 +194,18 @@ func main() {
 			endpoint = "/v0/management/anthropic-auth-url"
 		case "qwen":
 			endpoint = "/v0/management/qwen-auth-url"
+		case "kiro":
+			endpoint = "/v0/management/kiro-auth-url"
 		default:
 			return fmt.Errorf("unknown provider: %s", provider)
 		}
 		return startOAuthFlow(configPath, endpoint)
+	})
+	_ = w.Bind("pp_import_amazonq", func() error {
+		return importAmazonQToken(configPath)
+	})
+	_ = w.Bind("pp_save_api_key", func(provider, apiKey string) error {
+		return saveAPIKey(configPath, provider, apiKey)
 	})
 	_ = w.Bind("pp_copy_diagnostics", func() error { return copyDiagnosticsToClipboard(configPath) })
 	_ = w.Bind("pp_get_management_key", func() (string, error) { return desktopctl.GetManagementPassword() })
@@ -444,6 +452,93 @@ func startOAuthFlow(configPath string, endpointPath string) error {
 	return openOAuthURL(out.URL, private)
 }
 
+func importAmazonQToken(configPath string) error {
+	st, _ := desktopctl.StatusFor(configPath)
+	if !st.Running || strings.TrimSpace(st.BaseURL) == "" {
+		return fmt.Errorf("proxy is not running")
+	}
+	key, err := desktopctl.GetManagementPassword()
+	if err != nil {
+		return err
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	req, err := http.NewRequest(http.MethodPost, st.BaseURL+"/v0/management/amazonq-import", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Management-Key", key)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var out map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if errMsg, ok := out["error"].(string); ok && errMsg != "" {
+			return fmt.Errorf("%s", errMsg)
+		}
+		if msg, ok := out["message"].(string); ok && msg != "" {
+			return fmt.Errorf("%s", msg)
+		}
+		return fmt.Errorf("import failed: %s", resp.Status)
+	}
+	return nil
+}
+
+func saveAPIKey(configPath, provider, apiKey string) error {
+	st, _ := desktopctl.StatusFor(configPath)
+	if !st.Running || strings.TrimSpace(st.BaseURL) == "" {
+		return fmt.Errorf("proxy is not running")
+	}
+	key, err := desktopctl.GetManagementPassword()
+	if err != nil {
+		return err
+	}
+
+	var endpoint string
+	switch provider {
+	case "minimax":
+		endpoint = "/v0/management/minimax-api-key"
+	case "zhipu":
+		endpoint = "/v0/management/zhipu-api-key"
+	default:
+		return fmt.Errorf("unknown provider: %s", provider)
+	}
+
+	body := fmt.Sprintf(`{"api_key":"%s"}`, apiKey)
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest(http.MethodPost, st.BaseURL+endpoint, strings.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Management-Key", key)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var out map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if errMsg, ok := out["error"].(string); ok && errMsg != "" {
+			return fmt.Errorf("%s", errMsg)
+		}
+		return fmt.Errorf("save failed: %s", resp.Status)
+	}
+	return nil
+}
+
 func openOAuthURL(url string, private bool) error {
 	if !private {
 		return desktopctl.OpenBrowser(url)
@@ -644,8 +739,12 @@ func controlCenterHTML() string {
           <button id="oauthCodex">Codex</button>
           <button id="oauthClaude">Claude</button>
           <button id="oauthQwen">Qwen</button>
+          <button id="oauthKiro">Kiro</button>
+          <button id="importAmazonQ">Amazon Q</button>
+          <button id="apiKeyMiniMax">MiniMax</button>
+          <button id="apiKeyZhipu">Zhipu</button>
         </div>
-        <div class="hint">These open the provider login flow in your browser and save auth files for ProxyPilot.</div>
+        <div class="hint">OAuth providers open browser login. Amazon Q imports from CLI. MiniMax/Zhipu require API keys.</div>
       </div>
 
       <div class="card" style="grid-column: 1 / -1">
@@ -895,6 +994,20 @@ func controlCenterHTML() string {
     $('oauthCodex').addEventListener('click', oauth('codex'));
     $('oauthClaude').addEventListener('click', oauth('claude'));
     $('oauthQwen').addEventListener('click', oauth('qwen'));
+    $('oauthKiro').addEventListener('click', oauth('kiro'));
+    $('importAmazonQ').addEventListener('click', async () => {
+      try { await window.pp_import_amazonq(); toast('Amazon Q token imported'); } catch(e) { toast(e.message||String(e)); }
+    });
+    $('apiKeyMiniMax').addEventListener('click', async () => {
+      const key = prompt('Enter your MiniMax API key:');
+      if (!key) return;
+      try { await window.pp_save_api_key('minimax', key); toast('MiniMax API key saved'); } catch(e) { toast(e.message||String(e)); }
+    });
+    $('apiKeyZhipu').addEventListener('click', async () => {
+      const key = prompt('Enter your Zhipu AI API key:');
+      if (!key) return;
+      try { await window.pp_save_api_key('zhipu', key); toast('Zhipu API key saved'); } catch(e) { toast(e.message||String(e)); }
+    });
 
     $('addMappingBtn').addEventListener('click', async () => {
       const from = $('mapFrom').value.trim();
