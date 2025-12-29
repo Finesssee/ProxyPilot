@@ -1,0 +1,38 @@
+{
+  "name": "proxypilot",
+  "version": "0.1.0",
+  "description": "ProxyPilot - Local API proxy for AI coding tools with CLI control",
+  "bin": {
+    "proxypilot": "bin/proxypilot"
+  },
+  "scripts": {
+    "postinstall": "bun run install.ts"
+  },
+  "keywords": [
+    "proxypilot",
+    "claude",
+    "gemini",
+    "codex",
+    "ai",
+    "cli",
+    "proxy",
+    "config",
+    "switcher"
+  ],
+  "author": "ProxyPilot",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Finesssee/ProxyPilot"
+  },
+  "homepage": "https://github.com/Finesssee/ProxyPilot",
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}

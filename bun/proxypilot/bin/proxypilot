@@ -1,0 +1,14 @@
+#!/usr/bin/env bun
+
+import { spawn } from "bun";
+import { join } from "path";
+
+const ext = process.platform === "win32" ? ".exe" : "";
+const binary = join(import.meta.dir, `proxypilot${ext}`);
+
+const proc = spawn([binary, ...process.argv.slice(2)], {
+  stdio: ["inherit", "inherit", "inherit"],
+});
+
+await proc.exited;
+process.exit(proc.exitCode ?? 0);
