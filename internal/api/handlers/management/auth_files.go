@@ -24,6 +24,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/claude"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/codex"
+	amazonqauth "github.com/router-for-me/CLIProxyAPI/v6/internal/auth/amazonq"
 	geminiAuth "github.com/router-for-me/CLIProxyAPI/v6/internal/auth/gemini"
 	kiroauth "github.com/router-for-me/CLIProxyAPI/v6/internal/auth/kiro"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/qwen"
@@ -2359,4 +2360,238 @@ func generateKiroPKCE() (verifier, challenge string, err error) {
 	challenge = base64.RawURLEncoding.EncodeToString(h[:])
 
 	return verifier, challenge, nil
+}
+
+// SaveMiniMaxAPIKey saves a MiniMax API key as an auth file.
+func (h *Handler) SaveMiniMaxAPIKey(c *gin.Context) {
+	var req struct {
+		APIKey string `json:"api_key"`
+		Label  string `json:"label"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	if req.APIKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "api_key is required"})
+		return
+	}
+
+	now := time.Now()
+	label := req.Label
+	if label == "" {
+		label = "minimax-api-key"
+	}
+	fileName := fmt.Sprintf("minimax-%s.json", now.Format("20060102-150405"))
+
+	record := &coreauth.Auth{
+		ID:        fileName,
+		Provider:  "minimax",
+		FileName:  fileName,
+		Label:     label,
+		Status:    coreauth.StatusActive,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Metadata: map[string]any{
+			"type":    "minimax",
+			"api_key": req.APIKey,
+		},
+		Attributes: map[string]string{
+			"source": "webui",
+		},
+	}
+
+	authPath := filepath.Join(h.cfg.AuthDir, fileName)
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to serialize auth record"})
+		return
+	}
+
+	if err := os.WriteFile(authPath, data, 0600); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save auth file"})
+		return
+	}
+
+	if h.authManager != nil {
+		if reloader, ok := interface{}(h.authManager).(interface{ ReloadAuthFiles() error }); ok {
+			_ = reloader.ReloadAuthFiles()
+		}
+	}
+
+	log.Infof("MiniMax API key saved: %s", fileName)
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "MiniMax API key saved", "filename": fileName})
+}
+
+// SaveZhipuAPIKey saves a Zhipu AI API key as an auth file.
+func (h *Handler) SaveZhipuAPIKey(c *gin.Context) {
+	var req struct {
+		APIKey string `json:"api_key"`
+		Label  string `json:"label"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	if req.APIKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "api_key is required"})
+		return
+	}
+
+	now := time.Now()
+	label := req.Label
+	if label == "" {
+		label = "zhipu-api-key"
+	}
+	fileName := fmt.Sprintf("zhipu-%s.json", now.Format("20060102-150405"))
+
+	record := &coreauth.Auth{
+		ID:        fileName,
+		Provider:  "zhipu",
+		FileName:  fileName,
+		Label:     label,
+		Status:    coreauth.StatusActive,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Metadata: map[string]any{
+			"type":    "zhipu",
+			"api_key": req.APIKey,
+		},
+		Attributes: map[string]string{
+			"source": "webui",
+		},
+	}
+
+	authPath := filepath.Join(h.cfg.AuthDir, fileName)
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to serialize auth record"})
+		return
+	}
+
+	if err := os.WriteFile(authPath, data, 0600); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save auth file"})
+		return
+	}
+
+	if h.authManager != nil {
+		if reloader, ok := interface{}(h.authManager).(interface{ ReloadAuthFiles() error }); ok {
+			_ = reloader.ReloadAuthFiles()
+		}
+	}
+
+	log.Infof("Zhipu API key saved: %s", fileName)
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Zhipu API key saved", "filename": fileName})
+}
+
+// ImportAmazonQToken imports token from Amazon Q CLI's SQLite database.
+// Amazon Q CLI stores tokens at ~/.local/share/amazon-q/data.sqlite3 (or WSL path on Windows).
+// This provides access to a separate usage quota pool from Kiro IDE.
+func (h *Handler) ImportAmazonQToken(c *gin.Context) {
+	log.Info("Importing Amazon Q CLI token...")
+
+	// Check if Amazon Q CLI tokens are available
+	if !amazonqauth.IsAvailable() {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Amazon Q CLI token not available",
+			"message": "Please run 'q login' in your terminal first to authenticate with Amazon Q CLI",
+		})
+		return
+	}
+
+	// Load the token
+	kiroToken, err := amazonqauth.LoadAmazonQToken()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to read Amazon Q CLI token",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// Extract email from JWT if available
+	email := kiroauth.ExtractEmailFromJWT(kiroToken.AccessToken)
+
+	// Create identifier for file naming
+	idPart := "amazonq-cli"
+	if email != "" {
+		idPart = fmt.Sprintf("amazonq-cli-%s", kiroauth.SanitizeEmailForFilename(email))
+	}
+
+	now := time.Now()
+	fileName := fmt.Sprintf("kiro-%s.json", idPart)
+
+	// Parse expires_at
+	expiresAt, err := time.Parse(time.RFC3339, kiroToken.ExpiresAt)
+	if err != nil {
+		expiresAt = now.Add(1 * time.Hour)
+	}
+
+	record := &coreauth.Auth{
+		ID:        fileName,
+		Provider:  "kiro", // Uses kiro provider since same API
+		FileName:  fileName,
+		Label:     "kiro-amazonq-cli",
+		Status:    coreauth.StatusActive,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Metadata: map[string]any{
+			"type":               "kiro",
+			"access_token":       kiroToken.AccessToken,
+			"refresh_token":      kiroToken.RefreshToken,
+			"expires_at":         kiroToken.ExpiresAt,
+			"auth_method":        kiroToken.AuthMethod,
+			"provider":           kiroToken.Provider,
+			"client_id":          kiroToken.ClientID,
+			"client_secret":      kiroToken.ClientSecret,
+			"email":              email,
+			"start_url":          kiroToken.StartURL,
+			"region":             kiroToken.Region,
+			"preferred_endpoint": "amazonq", // Force Amazon Q endpoint (CLI origin)
+		},
+		Attributes: map[string]string{
+			"source":             "amazonq-cli-import",
+			"email":              email,
+			"preferred_endpoint": "amazonq", // Force Amazon Q endpoint (CLI origin)
+		},
+		NextRefreshAfter: expiresAt.Add(-5 * time.Minute),
+	}
+
+	// Save the auth file
+	authPath := filepath.Join(h.cfg.AuthDir, fileName)
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to serialize auth record",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	if err := os.WriteFile(authPath, data, 0600); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to save auth file",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// Reload auth files
+	if h.authManager != nil {
+		if reloader, ok := interface{}(h.authManager).(interface{ ReloadAuthFiles() error }); ok {
+			_ = reloader.ReloadAuthFiles()
+		}
+	}
+
+	log.Infof("Amazon Q CLI token imported successfully: %s", fileName)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"message":  "Amazon Q CLI token imported successfully",
+		"email":    email,
+		"filename": fileName,
+		"note":     "Amazon Q CLI has separate usage quota from Kiro IDE",
+	})
 }
