@@ -5,12 +5,16 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	ppassets "github.com/router-for-me/CLIProxyAPI/v6/cmd/proxypilotui/assets"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
 )
+
+// ppMgmtKeyRegex matches existing pp-mgmt-key meta tags to be replaced
+var ppMgmtKeyRegex = regexp.MustCompile(`<meta\s+name=["']pp-mgmt-key["']\s+content=["'][^"']*["']\s*/?\s*>`)
 
 func (s *Server) registerProxyPilotDashboardRoutes() {
 	if s == nil || s.engine == nil {
@@ -45,8 +49,14 @@ func (s *Server) serveProxyPilotDashboard(c *gin.Context) {
 		key = strings.TrimSpace(os.Getenv("MANAGEMENT_PASSWORD"))
 	}
 	if key != "" && s.managementRoutesEnabled.Load() {
-		meta := `<meta name="pp-mgmt-key" content="` + escapeAttr(key) + `">`
-		html = strings.Replace(html, "</head>", meta+"</head>", 1)
+		newMeta := `<meta name="pp-mgmt-key" content="` + escapeAttr(key) + `">`
+		// Replace existing pp-mgmt-key meta tag (e.g., test placeholder) with actual key
+		if ppMgmtKeyRegex.MatchString(html) {
+			html = ppMgmtKeyRegex.ReplaceAllString(html, newMeta)
+		} else {
+			// No existing tag found, add before </head>
+			html = strings.Replace(html, "</head>", newMeta+"</head>", 1)
+		}
 	}
 
 	c.Header("Content-Type", "text/html; charset=utf-8")
