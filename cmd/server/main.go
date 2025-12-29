@@ -93,6 +93,8 @@ func main() {
 	var setupKilo bool
 	var setupRooCode bool
 	var setupAll bool
+	var switchAgent string
+	var switchMode string
 	var projectID string
 	var vertexImport string
 	var configPath string
@@ -128,6 +130,8 @@ func main() {
 	flag.BoolVar(&setupKilo, "setup-kilo", false, "Configure Kilo Code CLI to use ProxyPilot")
 	flag.BoolVar(&setupRooCode, "setup-roocode", false, "Configure RooCode (VS Code) to use ProxyPilot")
 	flag.BoolVar(&setupAll, "setup-all", false, "Configure all detected CLI agents (with backup)")
+	flag.StringVar(&switchAgent, "switch", "", "Switch agent config mode (e.g., --switch claude)")
+	flag.StringVar(&switchMode, "mode", "", "Switch mode: proxy, native, or status (default: status)")
 	flag.StringVar(&projectID, "project_id", "", "Project ID (Gemini only, not required)")
 	flag.StringVar(&configPath, "config", DefaultConfigPath, "Configure File Path")
 	flag.StringVar(&vertexImport, "vertex-import", "", "Import Vertex service account key JSON file")
@@ -158,6 +162,37 @@ func main() {
 			}
 			_, _ = fmt.Fprint(out, s+"\n")
 		})
+	}
+
+	// Check for subcommand-style switch command before flag.Parse()
+	// Supports: proxypilot switch [agent] [mode]
+	// agent can be: claude, gemini, codex, opencode, droid, cursor
+	// mode can be: proxy, native, status (default if omitted)
+	var subcommandSwitch bool
+	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "switch" {
+		subcommandSwitch = true
+		switchArgs := args[1:]
+		// Filter out any flags like --status from positional args
+		var positionalArgs []string
+		for _, arg := range switchArgs {
+			if arg == "--status" {
+				switchMode = "status"
+			} else if !strings.HasPrefix(arg, "-") {
+				positionalArgs = append(positionalArgs, arg)
+			}
+		}
+		// Parse positional arguments: [agent] [mode]
+		if len(positionalArgs) >= 1 {
+			switchAgent = positionalArgs[0]
+		}
+		if len(positionalArgs) >= 2 {
+			switchMode = positionalArgs[1]
+		}
+		// Default mode to "status" if not specified
+		if switchMode == "" {
+			switchMode = "status"
+		}
 	}
 
 	// Parse the command-line flags.
@@ -427,8 +462,13 @@ func main() {
 		cfg, err = config.LoadConfigOptional(configFilePath, isCloudDeploy)
 	}
 	if err != nil {
-		log.Errorf("failed to load config: %v", err)
-		return
+		// For switch command, config is optional - use defaults
+		if subcommandSwitch || switchAgent != "" {
+			cfg = &config.Config{Port: 8317}
+		} else {
+			log.Errorf("failed to load config: %v", err)
+			return
+		}
 	}
 	if cfg == nil {
 		cfg = &config.Config{}
@@ -578,6 +618,11 @@ func main() {
 		cmd.DoSetupRooCode(cfg)
 	} else if setupAll {
 		cmd.DoSetupAll(cfg)
+	} else if subcommandSwitch || switchAgent != "" || switchMode != "" {
+		// Handle switch command:
+		// - Subcommand style: proxypilot switch claude proxy
+		// - Flag style: proxypilot --switch claude --mode proxy
+		cmd.DoSwitch(cfg, switchAgent, switchMode)
 	} else {
 		// In cloud deploy mode without config file, just wait for shutdown signals
 		if isCloudDeploy && !configFileExists {
