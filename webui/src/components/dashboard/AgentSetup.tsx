@@ -58,7 +58,7 @@ export function AgentSetup() {
     }
 
     // Agents that use shell profile (need restart) vs config files (immediate)
-    const needsShellRestart = (id: string) => ['claude-code', 'aider', 'gemini-cli'].includes(id)
+    const needsShellRestart = (id: string) => ['claude-code', 'gemini-cli'].includes(id)
 
     const handleConfigure = async (agent: Agent) => {
         if (!agent.id) return
