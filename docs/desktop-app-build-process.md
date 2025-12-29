@@ -1,58 +1,60 @@
-# ProxyPilot Desktop App Build Process
+# ProxyPilot CLI + Tray Build Process
 
-Documentation of the desktop application build and release process established on December 27, 2025.
+Documentation of the CLI and system tray application build and release process.
 
 ## Overview
 
-ProxyPilot Desktop is a **single executable** that includes both the system tray UI and the proxy engine:
-- **ProxyPilot.exe** - System tray app with embedded WebView2 dashboard and embedded proxy engine
+ProxyPilot uses a **CLI + system tray architecture**:
+- **proxypilot.exe** - CLI executable with all proxy functionality
+- **ProxyPilot.exe** - System tray app that manages the CLI process and provides quick access to controls
+
+The dashboard is accessed via web browser at `http://127.0.0.1:<port>/proxypilot.html`.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                       ProxyPilot.exe                            │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │ System Tray │  │  WebView2   │  │   Embedded Assets       │  │
-│  │   (systray) │  │  Dashboard  │  │     (webui/dist)        │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
+│                     ProxyPilot System                           │
 │                                                                  │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │              Embedded Proxy Engine (goroutine)              ││
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  ││
-│  │  │Thinking Proxy│  │   Routing   │  │   Provider Auth     │  ││
-│  │  │  (port 8317) │  │   Engine    │  │    Management       │  ││
-│  │  └─────────────┘  └─────────────┘  └─────────────────────┘  ││
-│  └─────────────────────────────────────────────────────────────┘│
+│  ┌─────────────────────┐      ┌─────────────────────────────┐   │
+│  │   ProxyPilot.exe    │      │      proxypilot.exe         │   │
+│  │   (System Tray)     │─────▶│      (CLI / Engine)         │   │
+│  │                     │      │                             │   │
+│  │  - Start/Stop       │      │  - Proxy Engine (port 8317) │   │
+│  │  - Open Dashboard   │      │  - Web Dashboard Server     │   │
+│  │  - Copy API URL     │      │  - Provider Auth Mgmt       │   │
+│  │  - Autostart toggle │      │  - Routing Engine           │   │
+│  └─────────────────────┘      └─────────────────────────────┘   │
+│                                                                  │
+│                         ┌─────────────────────┐                  │
+│                         │   Web Browser       │                  │
+│                         │  (Dashboard UI)     │                  │
+│                         │  proxypilot.html    │                  │
+│                         └─────────────────────┘                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### In-Process Engine
+### CLI + Tray Separation
 
-The proxy engine runs as a goroutine within the same process, managed by `EmbeddedEngine`:
+The architecture separates concerns:
 
-```go
-// cmd/cliproxytray/engine.go
-type EmbeddedEngine struct {
-    mu        sync.Mutex
-    service   *cliproxy.Service
-    cancel    context.CancelFunc
-    running   bool
-    port      int
-    // ...
-}
+**proxypilot.exe (CLI)**:
+- All proxy engine functionality
+- Serves web dashboard at `/proxypilot.html`
+- Can run standalone from command line
+- Supports all CLI flags (`--help`, `--setup-claude`, etc.)
 
-func (e *EmbeddedEngine) Start(cfg *config.Config, configPath, password string) error
-func (e *EmbeddedEngine) Stop() error
-func (e *EmbeddedEngine) Restart(cfg *config.Config, configPath, password string) error
-func (e *EmbeddedEngine) Status() Status
-```
+**ProxyPilot.exe (Tray)**:
+- Lightweight system tray wrapper
+- Manages CLI process lifecycle (start/stop/restart)
+- Opens dashboard in default browser
+- Provides quick-access menu
 
-Benefits of single-binary architecture:
-- **Simpler deployment**: One file to distribute and install
-- **Smaller total size**: ~29MB vs ~46MB (shared Go runtime)
-- **Faster startup**: No process spawning overhead
-- **Easier debugging**: Single process to monitor
+Benefits of CLI + tray architecture:
+- **Flexibility**: Use CLI directly or via tray app
+- **No WebView2 dependency**: Dashboard runs in any browser
+- **Simpler debugging**: Inspect network/console in browser DevTools
+- **Cross-platform dashboard**: Same web UI works on all platforms
 
 ## Build Process
 
@@ -73,7 +75,7 @@ npm install
 npm run build
 ```
 
-This generates `webui/dist/` with the dashboard assets.
+This generates `webui/dist/` with the dashboard assets that are served by the CLI at `/proxypilot.html`.
 
 ### Step 2: Create Multi-Resolution Icon
 
@@ -106,10 +108,13 @@ goversioninfo -icon="../../static/icon.ico"
 
 This creates `resource.syso` files that Go automatically includes during build.
 
-### Step 4: Build Executable
+### Step 4: Build Executables
 
 ```bash
-# Build single-binary tray app (with -H windowsgui to hide console)
+# Build CLI executable
+GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/proxypilot.exe ./cmd/server
+
+# Build tray app (with -H windowsgui to hide console)
 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -H windowsgui" -o dist/ProxyPilot.exe ./cmd/cliproxytray
 ```
 
@@ -134,7 +139,7 @@ Output: `dist/ProxyPilot-0.1.0-Setup.exe`
     "ProductVersion": {"Major": 0, "Minor": 1, "Patch": 0, "Build": 0}
   },
   "StringFileInfo": {
-    "FileDescription": "ProxyPilot Desktop App",
+    "FileDescription": "ProxyPilot System Tray",
     "ProductName": "ProxyPilot",
     "ProductVersion": "0.1.0"
   },
@@ -142,12 +147,12 @@ Output: `dist/ProxyPilot-0.1.0-Setup.exe`
 }
 ```
 
-### Embedded Engine
+### Tray Process Manager
 
-**cmd/cliproxytray/engine.go** - Manages the in-process proxy service:
-- Uses `cliproxy.NewBuilder()` SDK to build the service
-- Runs in a goroutine with cancellable context
-- Thread-safe start/stop/restart operations
+**cmd/cliproxytray/engine.go** - Manages the CLI process:
+- Spawns/stops `proxypilot.exe` subprocess
+- Monitors process health
+- Passes configuration and management password
 
 ### Tray Icon Embedding
 
@@ -170,8 +175,8 @@ func ProxyPilotICO() []byte {
 ### Installer Script
 
 **installer/proxypilot.iss** - Inno Setup script that:
-- Installs ProxyPilot.exe to `%LOCALAPPDATA%\ProxyPilot`
-- Creates Start Menu and Desktop shortcuts
+- Installs `proxypilot.exe` and `ProxyPilot.exe` to `%LOCALAPPDATA%\ProxyPilot`
+- Creates Start Menu shortcut
 - Adds optional Windows startup entry
 - Copies config.example.yaml and creates config.yaml on first install
 - Uses ProxyPilot icon for installer and shortcuts
@@ -182,12 +187,12 @@ Simplified flat menu structure:
 
 ```
 ┌─────────────────────┐
-│ Open Dashboard      │  → Opens WebView2 window
+│ Open Dashboard      │  → Opens browser to proxypilot.html
 ├─────────────────────┤
-│ Start/Stop          │  → Toggle proxy engine
+│ Start/Stop          │  → Toggle proxy engine (CLI process)
 │ Copy API URL        │  → Copies http://127.0.0.1:8317/v1
 ├─────────────────────┤
-│ Quit                │  → Exit application
+│ Quit                │  → Stop engine and exit
 └─────────────────────┘
 ```
 
@@ -228,11 +233,11 @@ gh release upload v0.1.0 dist/ProxyPilot.exe
 3. Verify resource.syso was generated after icon update
 4. Rebuild the executable
 
-### WebView2 Dashboard Not Loading
+### Dashboard Not Loading in Browser
 
-1. Ensure WebView2 runtime is installed on the system
-2. Check that webui/dist/ assets are embedded (go:embed directive)
-3. Verify the asset server is starting on a free port
+1. Ensure the CLI process is running (check tray status)
+2. Verify the port is correct: `http://127.0.0.1:8317/proxypilot.html`
+3. Check for port conflicts with another application
 
 ### Tray Icon Shows Wrong Image
 
@@ -251,9 +256,11 @@ gh release upload v0.1.0 dist/ProxyPilot.exe
 ```
 ProxyPilot/
 ├── cmd/
+│   ├── server/
+│   │   └── main.go              # CLI entry point
 │   └── cliproxytray/
-│       ├── main_windows.go      # Tray app with embedded engine
-│       ├── engine.go            # EmbeddedEngine implementation
+│       ├── main_windows.go      # Tray app entry point
+│       ├── engine.go            # CLI process manager
 │       ├── versioninfo.json     # Version/icon config
 │       └── resource.syso        # Compiled resources
 ├── internal/
@@ -265,14 +272,21 @@ ProxyPilot/
 │   └── icon.png                 # Original PNG logo
 ├── webui/
 │   ├── src/                     # React dashboard source
-│   └── dist/                    # Built assets (embedded)
+│   └── dist/                    # Built assets (served by CLI)
 ├── installer/
 │   └── proxypilot.iss           # Inno Setup script
 └── dist/                        # Distribution files
-    └── ProxyPilot.exe           # Single-binary (~29MB)
+    ├── proxypilot.exe           # CLI executable
+    └── ProxyPilot.exe           # Tray app
 ```
 
 ## Version History
+
+- **v0.3.0** (2025-12-30) - CLI + Tray architecture
+  - Removed WebView2 dependency
+  - Dashboard served by CLI, opened in browser
+  - Tray app manages CLI subprocess
+  - Simplified deployment and debugging
 
 - **v0.2.0** (2025-12-27) - Single-binary architecture
   - Embedded proxy engine runs in-process
@@ -280,8 +294,7 @@ ProxyPilot/
   - Reduced total size from ~46MB to ~29MB
   - Faster startup with no process spawning
 
-- **v0.1.0** (2025-12-27) - Initial desktop app release
+- **v0.1.0** (2025-12-27) - Initial release
   - System tray with minimal menu
-  - Embedded WebView2 dashboard
   - Multi-resolution icon support
   - Single-file Windows installer

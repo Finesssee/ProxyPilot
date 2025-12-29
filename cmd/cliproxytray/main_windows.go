@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -22,7 +21,6 @@ import (
 
 	"github.com/getlantern/systray"
 	"github.com/jchv/go-webview2"
-	"github.com/router-for-me/CLIProxyAPI/v6/cmd/proxypilotui/assets"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/api/middleware"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/desktopctl"
@@ -45,16 +43,6 @@ var dashboardMu sync.Mutex
 var dashboardOpen bool
 
 func main() {
-	// Start embedded asset server for the dashboard UI
-	assetLn, err := net.Listen("tcp", "127.0.0.1:0")
-	if err == nil {
-		assetServerURL = "http://" + assetLn.Addr().String()
-		go func() {
-			fsys, _ := fs.Sub(assets.FS, ".")
-			http.Serve(assetLn, http.FileServer(http.FS(fsys)))
-		}()
-	}
-
 	var repoRoot string
 	var configPath string
 	flag.StringVar(&repoRoot, "repo", "", "Repo root (used to locate logs/)")

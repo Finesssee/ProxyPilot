@@ -44,7 +44,7 @@
 - 🧩 **Context Compression** - LLM-based summarization for long sessions (Factory.ai research)
 - 🤖 **Agentic Harness** - Guided workflow for coding agents (Anthropic research)
 - 💾 **Session Memory** - Persistent storage across conversation turns
-- 🎨 **Desktop App** - Native Windows control center with system tray
+- 🎨 **System Tray** - Native Windows tray app for quick access
 - 📡 **60+ Management APIs** - Full control via REST endpoints
 
 ---
@@ -169,9 +169,8 @@ All endpoints auto-translate between formats based on the target provider.
 | Binary | Description |
 |--------|-------------|
 | `proxypilot` | Main API proxy server |
-| `proxypilotui` | Desktop control center (Windows) |
 | `cliproxytray` | System tray application (Windows) |
-| `proxypilotpack` | Build and packaging tool |
+| `ppswitch` | Provider/model switching utility |
 
 ---
 

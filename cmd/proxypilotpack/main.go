@@ -125,10 +125,6 @@ func buildBinaries(repoRoot, binRoot string) error {
 	if runtime.GOOS != "windows" {
 		trayExe = filepath.Join(binRoot, "ProxyPilot")
 	}
-	uiExe := filepath.Join(binRoot, "ProxyPilotUI.exe")
-	if runtime.GOOS != "windows" {
-		uiExe = filepath.Join(binRoot, "ProxyPilotUI")
-	}
 
 	if err := run(repoRoot, "go", "build", "-o", proxyExe, "./cmd/server"); err != nil {
 		return err
@@ -142,13 +138,6 @@ func buildBinaries(repoRoot, binRoot string) error {
 		if err := run(repoRoot, "go", "build", "-o", trayExe, "./cmd/cliproxytray"); err != nil {
 			return err
 		}
-	}
-	if runtime.GOOS == "windows" {
-		if err := run(repoRoot, "go", "build", "-ldflags", "-H=windowsgui", "-o", uiExe, "./cmd/proxypilotui"); err != nil {
-			return err
-		}
-	} else {
-		// The UI binary is only supported on Windows for now; skip on other OSes.
 	}
 
 	if runtime.GOOS == "windows" {
@@ -169,7 +158,6 @@ func packageZip(repoRoot, binRoot, distRoot string) error {
 		dst string
 	}{
 		{src: filepath.Join(binRoot, "ProxyPilot.exe"), dst: "ProxyPilot.exe"},
-		{src: filepath.Join(binRoot, "ProxyPilotUI.exe"), dst: "ProxyPilotUI.exe"},
 		{src: filepath.Join(binRoot, "ProxyPilot.ico"), dst: "ProxyPilot.ico"},
 		{src: filepath.Join(binRoot, "proxypilot-engine.exe"), dst: "proxypilot-engine.exe"},
 		// Back-compat: keep a copy under the legacy name for older launchers/scripts.
@@ -223,12 +211,8 @@ func packageSetup(repoRoot, binRoot, distRoot string) error {
 
 	// Payload files
 	mgrExe := filepath.Join(binRoot, "ProxyPilot.exe")
-	uiExe := filepath.Join(binRoot, "ProxyPilotUI.exe")
 	srvExe := filepath.Join(binRoot, "proxypilot-engine.exe")
 	if err := copyFile(mgrExe, filepath.Join(staging, "ProxyPilot.exe")); err != nil {
-		return err
-	}
-	if err := copyFile(uiExe, filepath.Join(staging, "ProxyPilotUI.exe")); err != nil {
 		return err
 	}
 	if err := copyFile(srvExe, filepath.Join(staging, "proxypilot-engine.exe")); err != nil {
@@ -250,7 +234,6 @@ func packageSetup(repoRoot, binRoot, distRoot string) error {
 		"set \"DEST=%LOCALAPPDATA%\\ProxyPilot\"\r\n" +
 		"if not exist \"%DEST%\" mkdir \"%DEST%\" >nul 2>&1\r\n" +
 		"copy /Y \"%SRC%ProxyPilot.exe\" \"%DEST%\\ProxyPilot.exe\" >nul\r\n" +
-		"copy /Y \"%SRC%ProxyPilotUI.exe\" \"%DEST%\\ProxyPilotUI.exe\" >nul\r\n" +
 		"copy /Y \"%SRC%proxypilot-engine.exe\" \"%DEST%\\proxypilot-engine.exe\" >nul\r\n" +
 		"copy /Y \"%SRC%proxypilot-engine.exe\" \"%DEST%\\cliproxyapi-latest.exe\" >nul\r\n" +
 		"if exist \"%SRC%config.example.yaml\" copy /Y \"%SRC%config.example.yaml\" \"%DEST%\\config.example.yaml\" >nul\r\n" +
@@ -279,8 +262,8 @@ func packageSetup(repoRoot, binRoot, distRoot string) error {
 	}
 	// If config.example.yaml is absent, omit it to avoid IExpress build failure.
 	if _, err := os.Stat(filepath.Join(staging, "config.example.yaml")); errors.Is(err, os.ErrNotExist) {
-		sed = strings.ReplaceAll(sed, "%FILE3%=config.example.yaml\r\n", "")
-		sed = strings.ReplaceAll(sed, "FILE3=config.example.yaml\r\n", "")
+		sed = strings.ReplaceAll(sed, "%FILE2%=config.example.yaml\r\n", "")
+		sed = strings.ReplaceAll(sed, "FILE2=config.example.yaml\r\n", "")
 	}
 	if err := os.WriteFile(sedPath, []byte(sed), 0o644); err != nil {
 		return err
@@ -334,16 +317,14 @@ SourceFiles=SourceFiles
 SourceFiles0=%s
 [SourceFiles0]
 %%FILE0%%=ProxyPilot.exe
-%%FILE1%%=ProxyPilotUI.exe
-%%FILE2%%=proxypilot-engine.exe
-%%FILE3%%=config.example.yaml
-%%FILE4%%=install.cmd
+%%FILE1%%=proxypilot-engine.exe
+%%FILE2%%=config.example.yaml
+%%FILE3%%=install.cmd
 [Strings]
 FILE0=ProxyPilot.exe
-FILE1=ProxyPilotUI.exe
-FILE2=proxypilot-engine.exe
-FILE3=config.example.yaml
-FILE4=install.cmd
+FILE1=proxypilot-engine.exe
+FILE2=config.example.yaml
+FILE3=install.cmd
 `, outEsc, stagingEsc), nil
 }
 

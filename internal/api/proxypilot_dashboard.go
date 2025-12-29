@@ -1,16 +1,12 @@
 package api
 
 import (
-	"io"
 	"net/http"
 	"os"
-	"path"
 	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	ppassets "github.com/router-for-me/CLIProxyAPI/v6/cmd/proxypilotui/assets"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
 )
 
 // ppMgmtKeyRegex matches existing pp-mgmt-key meta tags to be replaced
@@ -36,12 +32,19 @@ func (s *Server) serveProxyPilotDashboard(c *gin.Context) {
 		return
 	}
 
-	index, err := fsReadFile("index.html")
-	if err != nil {
-		c.AbortWithStatus(http.StatusNotFound)
-		return
-	}
-	html := string(index)
+	// Dashboard assets are not available - return a placeholder message
+	html := `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ProxyPilot</title>
+</head>
+<body>
+<h1>ProxyPilot Dashboard</h1>
+<p>Dashboard UI assets are not available.</p>
+</body>
+</html>`
+
 	// Use localPassword from the server instance (set via WithLocalManagementPassword)
 	// Fall back to MANAGEMENT_PASSWORD env var for legacy subprocess mode
 	key := strings.TrimSpace(s.localPassword)
@@ -68,18 +71,8 @@ func (s *Server) serveProxyPilotAsset(c *gin.Context) {
 		c.AbortWithStatus(http.StatusForbidden)
 		return
 	}
-	fp := strings.TrimPrefix(c.Param("filepath"), "/")
-	if fp == "" {
-		c.AbortWithStatus(http.StatusNotFound)
-		return
-	}
-	name := path.Clean("assets/" + fp)
-	data, err := fsReadFile(name)
-	if err != nil {
-		c.AbortWithStatus(http.StatusNotFound)
-		return
-	}
-	writeAssetResponse(c, name, data)
+	// Assets not available
+	c.AbortWithStatus(http.StatusNotFound)
 }
 
 func (s *Server) serveProxyPilotViteIcon(c *gin.Context) {
@@ -87,12 +80,8 @@ func (s *Server) serveProxyPilotViteIcon(c *gin.Context) {
 		c.AbortWithStatus(http.StatusForbidden)
 		return
 	}
-	data, err := fsReadFile("vite.svg")
-	if err != nil {
-		c.AbortWithStatus(http.StatusNotFound)
-		return
-	}
-	writeAssetResponse(c, "vite.svg", data)
+	// Asset not available
+	c.AbortWithStatus(http.StatusNotFound)
 }
 
 func (s *Server) serveProxyPilotLogo(c *gin.Context) {
@@ -100,33 +89,8 @@ func (s *Server) serveProxyPilotLogo(c *gin.Context) {
 		c.AbortWithStatus(http.StatusForbidden)
 		return
 	}
-	data, err := fsReadFile("logo.png")
-	if err != nil {
-		c.AbortWithStatus(http.StatusNotFound)
-		return
-	}
-	writeAssetResponse(c, "logo.png", data)
-}
-
-func writeAssetResponse(c *gin.Context, name string, data []byte) {
-	ext := strings.TrimPrefix(path.Ext(name), ".")
-	if mt := misc.MimeTypes[strings.ToLower(ext)]; mt != "" {
-		c.Header("Content-Type", mt)
-	} else {
-		c.Header("Content-Type", "application/octet-stream")
-	}
-	c.Header("Cache-Control", "public, max-age=600")
-	c.Writer.WriteHeader(http.StatusOK)
-	_, _ = c.Writer.Write(data)
-}
-
-func fsReadFile(name string) ([]byte, error) {
-	f, err := ppassets.FS.Open(name)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-	return io.ReadAll(f)
+	// Asset not available
+	c.AbortWithStatus(http.StatusNotFound)
 }
 
 func isLocalClient(c *gin.Context) bool {

@@ -1,12 +1,12 @@
 # ProxyPilot
 
-ProxyPilot is a local “AI proxy + desktop UX” for agentic CLIs (Droid/Factory, Codex CLI, Warp).
+ProxyPilot is a local AI proxy with CLI + system tray interface for agentic tools (Droid/Factory, Codex CLI, Warp).
 
 This repo started as a fork of CLIProxyAPI, but is now branded as ProxyPilot. For compatibility, some internal names and headers still use `CLIProxyAPI` (e.g. `X-CLIProxyAPI-*`).
 
 ## What’s included
 
-- ProxyPilot tray app (Windows) to start/stop/restart the proxy engine, open the dashboard, open logs, and toggle autostart.
+- ProxyPilot tray app (Windows) to start/stop/restart the proxy engine, open the web dashboard in browser, open logs, and toggle autostart.
 - Prompt-budget middleware to reduce “prompt too long” failures in strict CLIs.
 - Long-session memory with pinned state + persistent TODO (local disk).
 - Optional auth debugging and cooldown reset endpoints for local troubleshooting.
