@@ -33,7 +33,7 @@
 
 ## Features
 
-- 🎯 **8 Auth Providers** - Claude, Codex (OpenAI), Gemini, Gemini CLI, Kiro (AWS), Qwen, MiniMax, Zhipu AI
+- 🎯 **9 Auth Providers** - Claude, Codex (OpenAI), Gemini, Kiro (AWS), Amazon Q CLI, Qwen, Antigravity, MiniMax, Zhipu AI
 - 🔄 **Universal API Translation** - Auto-converts between OpenAI, Anthropic, and Gemini formats
 - 🔧 **Tool Calling Repair** - Fixes tool/function call mismatches between providers automatically
 - 🧠 **Extended Thinking** - Full support for Claude and Gemini thinking models
@@ -56,9 +56,10 @@
 | Claude (Anthropic) | OAuth2 / API Key | Claude Opus 4.5, Sonnet 4.5, Haiku 4.5 |
 | Codex (OpenAI) | OAuth2 / API Key | GPT-5.2, GPT-5.2 Codex |
 | Gemini | OAuth2 / API Key | Gemini 3 Pro, Gemini 3 Flash |
-| Gemini CLI | OAuth2 | Cloud Code Assist models |
 | Kiro | OAuth2 + AWS SSO | AWS CodeWhisperer |
+| Amazon Q CLI | Import from CLI | Amazon Q Developer |
 | Qwen | OAuth2 | Qwen models |
+| Antigravity | OAuth2 | Gemini via Antigravity |
 | MiniMax | API Key | MiniMax M2, M2.1 models |
 | Zhipu AI | API Key | GLM-4.5, GLM-4.6, GLM-4.7 |
 | Custom | API Key | Any OpenAI-compatible endpoint |
@@ -98,13 +99,25 @@ go build -o proxypilot ./cmd/server
 Run OAuth login for your provider:
 
 ```bash
-./proxypilot --claude-login    # Claude
-./proxypilot --codex-login     # OpenAI/Codex
-./proxypilot --login           # Gemini
-./proxypilot --kiro-login      # Kiro/AWS
+# OAuth providers (opens browser)
+./proxypilot --claude-login        # Claude
+./proxypilot --codex-login         # OpenAI/Codex
+./proxypilot --login               # Gemini
+./proxypilot --kiro-login          # Kiro (Google OAuth)
+./proxypilot --kiro-aws-login      # Kiro (AWS Builder ID)
+./proxypilot --qwen-login          # Qwen
+./proxypilot --antigravity-login   # Antigravity
+
+# Import providers (from existing CLI tools)
+./proxypilot --amazonq-import      # Amazon Q CLI (run 'q login' first)
+./proxypilot --kiro-import         # Kiro IDE token
+
+# API key providers (prompts for key)
+./proxypilot --minimax-login       # MiniMax API key
+./proxypilot --zhipu-login         # Zhipu AI API key
 ```
 
-Your browser opens automatically. Tokens are stored and auto-refreshed.
+OAuth tokens are stored locally and auto-refreshed before expiry.
 
 ### Configure Your Tools
 
