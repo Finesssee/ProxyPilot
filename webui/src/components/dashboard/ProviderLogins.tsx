@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 const providers = [
   { id: 'claude', name: 'Claude', color: 'oklch(0.60 0.15 35)', icon: '🤖' },
   { id: 'gemini', name: 'Gemini', color: 'oklch(0.55 0.18 250)', icon: '✨' },
+  { id: 'gemini-cli', name: 'Gemini CLI', color: 'oklch(0.58 0.16 240)', icon: '🌐' },
   { id: 'codex', name: 'Codex', color: 'oklch(0.60 0.16 145)', icon: '💻' },
   { id: 'qwen', name: 'Qwen', color: 'oklch(0.60 0.14 280)', icon: '🔮' },
   { id: 'antigravity', name: 'Antigravity', color: 'oklch(0.65 0.20 320)', icon: '🚀' },
@@ -214,7 +215,8 @@ export function ProviderLogins() {
   // Auth status based on file names
   const authStatus: Record<ProviderId, boolean> = {
     claude: authFiles.some(f => f.toLowerCase().includes('claude')),
-    gemini: authFiles.some(f => f.toLowerCase().includes('gemini')),
+    gemini: authFiles.some(f => f.toLowerCase().includes('gemini') && !f.toLowerCase().includes('gemini-')),
+    'gemini-cli': authFiles.some(f => f.toLowerCase().includes('gemini-') && !f.toLowerCase().includes('antigravity')),
     codex: authFiles.some(f => f.toLowerCase().includes('codex')),
     qwen: authFiles.some(f => f.toLowerCase().includes('qwen')),
     antigravity: authFiles.some(f => f.toLowerCase().includes('antigravity')),

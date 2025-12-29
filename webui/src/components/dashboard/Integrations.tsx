@@ -26,7 +26,12 @@ export function Integrations() {
     setScanKey(prev => prev + 1)
     try {
       const data = await mgmtFetch('/v0/management/integrations/status')
-      setIntegrations(data.integrations || [])
+      // Map 'installed' from API to 'detected' for UI
+      const mapped = (data.integrations || []).map((i: any) => ({
+        ...i,
+        detected: i.installed ?? i.detected ?? false,
+      }))
+      setIntegrations(mapped)
     } catch (e) {
       if (!(e instanceof EngineOfflineError)) {
         console.error('Failed to fetch integrations:', e)
