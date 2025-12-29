@@ -1,0 +1,80 @@
+name: PPSwitch Release
+
+on:
+  push:
+    tags:
+      - 'ppswitch-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: darwin
+            arch: amd64
+            extension: ''
+          - os: darwin
+            arch: arm64
+            extension: ''
+          - os: linux
+            arch: amd64
+            extension: ''
+          - os: linux
+            arch: arm64
+            extension: ''
+          - os: windows
+            arch: amd64
+            extension: '.exe'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -ldflags="-s -w" -o ppswitch-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.extension }} ./cmd/ppswitch
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ppswitch-${{ matrix.os }}-${{ matrix.arch }}
+          path: ppswitch-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.extension }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          find artifacts -type f -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
