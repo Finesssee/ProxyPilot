@@ -59,12 +59,36 @@ GEMINI.md
 .bmad/*
 _bmad/*
 _bmad-output/*
-.mcp/cache/
+.mcp/*
+.cursor/*
+
+# Local settings (user-specific)
+*.local.json
+*.local.yaml
+*.local.toml
 
 # macOS
 .DS_Store
 ._*
 
+# Windows artifacts
+nul
+Thumbs.db
+desktop.ini
+
+# Backup/temp files
+*~
+*.bak
+*.tmp
+*.swp
+*.orig
+*.proxypilot-backup
+
+# Test scripts
+*.ahk
+tray_click_log.txt
+
+# Logs
 *.log
 *_out.txt
 
