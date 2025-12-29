@@ -1,10 +1,10 @@
 package integrations
 
 import (
-	"fmt"
+	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
+	"runtime"
 )
 
 type ClaudeIntegration struct{}
@@ -18,60 +18,126 @@ func (i *ClaudeIntegration) Meta() IntegrationStatus {
 }
 
 func (i *ClaudeIntegration) Detect() (bool, error) {
-	// Check for npm global install or binary
-	// On windows it's often in AppData/Roaming/npm/claude.cmd
-	// But let's check for config folder as a proxy for installation
-	configDir := filepath.Join(userHomeDir(), ".claude-code")
+	// Check for Claude Code config directory
+	configPath := getClaudeCodeConfigPath()
+	configDir := filepath.Dir(configPath)
 	return dirExists(configDir), nil
 }
 
 func (i *ClaudeIntegration) IsConfigured(proxyURL string) (bool, error) {
-	// Check PowerShell profile for ANTHROPIC_BASE_URL
-	profile := powerShellProfilePath()
-	if profile == "" || !fileExists(profile) {
+	configPath := getClaudeCodeConfigPath()
+	data, err := os.ReadFile(configPath)
+	if err != nil {
 		return false, nil
 	}
-	content, _ := os.ReadFile(profile)
-	return strings.Contains(string(content), "ANTHROPIC_BASE_URL") && strings.Contains(string(content), proxyURL), nil
+
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return false, nil
+	}
+
+	// Check for ProxyPilot marker or ANTHROPIC_BASE_URL in env
+	if _, hasMarker := config["_proxypilot_configured"]; hasMarker {
+		return true, nil
+	}
+
+	if env, ok := config["env"].(map[string]interface{}); ok {
+		if baseURL, ok := env["ANTHROPIC_BASE_URL"].(string); ok {
+			if baseURL == proxyURL || baseURL == proxyURL+"/v1" {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
 }
 
 func (i *ClaudeIntegration) Configure(proxyURL string) error {
-	profile := powerShellProfilePath()
-	if profile == "" {
-		return fmt.Errorf("could not locate PowerShell profile")
-	}
+	return configureClaudeCodeSettings(proxyURL)
+}
 
-	dir := filepath.Dir(profile)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+// getClaudeCodeConfigPath returns the path to Claude Code's settings.json
+func getClaudeCodeConfigPath() string {
+	home := userHomeDir()
+	if runtime.GOOS == "windows" {
+		// Windows: ~/.claude/settings.json
+		return filepath.Join(home, ".claude", "settings.json")
+	}
+	// macOS/Linux: ~/.claude/settings.json
+	return filepath.Join(home, ".claude", "settings.json")
+}
+
+// configureClaudeCodeSettings configures Claude Code via its native settings.json
+func configureClaudeCodeSettings(proxyURL string) error {
+	configPath := getClaudeCodeConfigPath()
+	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
 		return err
 	}
 
-	envVar := fmt.Sprintf(`$env:ANTHROPIC_BASE_URL = "%s/v1"`, proxyURL)
-	
-	var content string
-	if fileExists(profile) {
-		b, _ := os.ReadFile(profile)
-		content = string(b)
+	// Read existing config or create new one
+	var config map[string]interface{}
+	if existingData, err := os.ReadFile(configPath); err == nil {
+		json.Unmarshal(existingData, &config)
+	}
+	if config == nil {
+		config = make(map[string]interface{})
 	}
 
-	if strings.Contains(content, "ANTHROPIC_BASE_URL") {
-		// Replace existing
-		lines := strings.Split(content, "\n")
-		for idx, line := range lines {
-			if strings.Contains(line, "ANTHROPIC_BASE_URL") {
-				lines[idx] = envVar
-			}
-		}
-		content = strings.Join(lines, "\n")
+	// Get or create env section
+	var env map[string]interface{}
+	if existingEnv, ok := config["env"].(map[string]interface{}); ok {
+		env = existingEnv
 	} else {
-		content += "\n# ProxyPilot: Claude Code Integration\n" + envVar + "\n"
+		env = make(map[string]interface{})
 	}
 
-	return os.WriteFile(profile, []byte(content), 0644)
+	// Set ProxyPilot environment variables
+	env["ANTHROPIC_BASE_URL"] = proxyURL
+	env["ANTHROPIC_AUTH_TOKEN"] = "proxypilot-local"
+
+	config["env"] = env
+
+	// Add ProxyPilot marker
+	config["_proxypilot_configured"] = true
+
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configPath, data, 0644)
 }
 
-func powerShellProfilePath() string {
-	// Documents\PowerShell\Microsoft.PowerShell_profile.ps1
-	home := userHomeDir()
-	return filepath.Join(home, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1")
+// unconfigureClaudeCodeSettings removes ProxyPilot config from Claude Code settings.json
+func unconfigureClaudeCodeSettings() error {
+	configPath := getClaudeCodeConfigPath()
+
+	// Read existing config
+	existingData, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil // No config to unconfigure
+	}
+
+	var config map[string]interface{}
+	if err := json.Unmarshal(existingData, &config); err != nil {
+		return nil // Invalid JSON, nothing to do
+	}
+
+	// Remove ProxyPilot env vars while preserving others
+	if env, ok := config["env"].(map[string]interface{}); ok {
+		delete(env, "ANTHROPIC_BASE_URL")
+		delete(env, "ANTHROPIC_AUTH_TOKEN")
+		if len(env) == 0 {
+			delete(config, "env")
+		}
+	}
+
+	// Remove ProxyPilot marker
+	delete(config, "_proxypilot_configured")
+
+	// Write back
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configPath, data, 0644)
 }
