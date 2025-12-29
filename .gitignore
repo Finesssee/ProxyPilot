@@ -46,7 +46,7 @@ docs/*
 !docs/agentic-harness-demo.md
 !docs/long-context-features.md
 !docs/desktop-app-build-process.md
-!docs/ppswitch.md
+!docs/cli.md
 AGENTS.md
 CLAUDE.md
 GEMINI.md
