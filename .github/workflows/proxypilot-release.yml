@@ -40,6 +40,10 @@ jobs:
         with:
           go-version: '1.21'
 
+      - name: Remove Windows resources for non-Windows builds
+        if: matrix.os != 'windows'
+        run: rm -f cmd/server/*.syso
+
       - name: Build binary
         env:
           GOOS: ${{ matrix.os }}
