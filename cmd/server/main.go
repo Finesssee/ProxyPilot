@@ -19,6 +19,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/buildinfo"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/cmd"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/desktopctl"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/managementasset"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
@@ -78,11 +79,20 @@ func main() {
 	var kiroAWSLogin bool
 	var kiroAWSAuthCode bool
 	var kiroImport bool
+	var amazonqImport bool
+	var minimaxLogin bool
+	var zhipuLogin bool
 	// var githubCopilotLogin bool // REMOVED - GitHub Copilot excluded
 	var detectAgents bool
 	var setupClaude bool
 	var setupCodex bool
 	var setupDroid bool
+	var setupOpenCode bool
+	var setupGemini bool
+	var setupCursor bool
+	var setupKilo bool
+	var setupRooCode bool
+	var setupAll bool
 	var projectID string
 	var vertexImport string
 	var configPath string
@@ -104,11 +114,20 @@ func main() {
 	flag.BoolVar(&kiroAWSLogin, "kiro-aws-login", false, "Login to Kiro using AWS Builder ID (device code flow)")
 	flag.BoolVar(&kiroAWSAuthCode, "kiro-aws-authcode", false, "Login to Kiro using AWS Builder ID (authorization code flow, better UX)")
 	flag.BoolVar(&kiroImport, "kiro-import", false, "Import Kiro token from Kiro IDE (~/.aws/sso/cache/kiro-auth-token.json)")
+	flag.BoolVar(&amazonqImport, "amazonq-import", false, "Import Amazon Q CLI token from SQLite database")
+	flag.BoolVar(&minimaxLogin, "minimax-login", false, "Add MiniMax API key")
+	flag.BoolVar(&zhipuLogin, "zhipu-login", false, "Add Zhipu AI API key")
 	// GitHub Copilot login removed
 	flag.BoolVar(&detectAgents, "detect-agents", false, "Detect installed CLI agents")
 	flag.BoolVar(&setupClaude, "setup-claude", false, "Configure Claude Code to use ProxyPilot")
 	flag.BoolVar(&setupCodex, "setup-codex", false, "Configure Codex CLI to use ProxyPilot")
 	flag.BoolVar(&setupDroid, "setup-droid", false, "Configure Factory Droid to use ProxyPilot")
+	flag.BoolVar(&setupOpenCode, "setup-opencode", false, "Configure OpenCode to use ProxyPilot")
+	flag.BoolVar(&setupGemini, "setup-gemini", false, "Configure Gemini CLI to use ProxyPilot")
+	flag.BoolVar(&setupCursor, "setup-cursor", false, "Configure Cursor to use ProxyPilot")
+	flag.BoolVar(&setupKilo, "setup-kilo", false, "Configure Kilo Code CLI to use ProxyPilot")
+	flag.BoolVar(&setupRooCode, "setup-roocode", false, "Configure RooCode (VS Code) to use ProxyPilot")
+	flag.BoolVar(&setupAll, "setup-all", false, "Configure all detected CLI agents (with backup)")
 	flag.StringVar(&projectID, "project_id", "", "Project ID (Gemini only, not required)")
 	flag.StringVar(&configPath, "config", DefaultConfigPath, "Configure File Path")
 	flag.StringVar(&vertexImport, "vertex-import", "", "Import Vertex service account key JSON file")
@@ -533,6 +552,12 @@ func main() {
 		cmd.DoKiroAWSAuthCodeLogin(cfg, options)
 	} else if kiroImport {
 		cmd.DoKiroImport(cfg, options)
+	} else if amazonqImport {
+		cmd.DoAmazonQImport(cfg, options)
+	} else if minimaxLogin {
+		cmd.DoMiniMaxLogin(cfg, options)
+	} else if zhipuLogin {
+		cmd.DoZhipuLogin(cfg, options)
 	} else if detectAgents {
 		cmd.DoDetectAgents()
 	} else if setupClaude {
@@ -541,6 +566,18 @@ func main() {
 		cmd.DoSetupCodex(cfg)
 	} else if setupDroid {
 		cmd.DoSetupDroid(cfg)
+	} else if setupOpenCode {
+		cmd.DoSetupOpenCode(cfg)
+	} else if setupGemini {
+		cmd.DoSetupGeminiCLI(cfg)
+	} else if setupCursor {
+		cmd.DoSetupCursor(cfg)
+	} else if setupKilo {
+		cmd.DoSetupKiloCode(cfg)
+	} else if setupRooCode {
+		cmd.DoSetupRooCode(cfg)
+	} else if setupAll {
+		cmd.DoSetupAll(cfg)
 	} else {
 		// In cloud deploy mode without config file, just wait for shutdown signals
 		if isCloudDeploy && !configFileExists {
@@ -550,6 +587,24 @@ func main() {
 		}
 		// Start the main proxy service
 		managementasset.StartAutoUpdater(context.Background(), configFilePath)
-		cmd.StartService(cfg, configFilePath, password)
+		// Auto-generate management password if not provided
+		// This enables browser-based webui access without requiring the -password flag
+		autoGenPassword := false
+		if password == "" {
+			if pw, err := desktopctl.GetManagementPassword(); err == nil {
+				password = pw
+				autoGenPassword = true
+				log.Info("using auto-generated management password for webui access")
+			} else {
+				log.Warnf("failed to get management password: %v (webui may require manual authentication)", err)
+			}
+		}
+		// Use standalone mode (no keep-alive shutdown) when password was auto-generated
+		// Keep-alive shutdown is only needed when the tray app spawns the server as subprocess
+		if autoGenPassword {
+			cmd.StartServiceStandalone(cfg, configFilePath, password)
+		} else {
+			cmd.StartService(cfg, configFilePath, password)
+		}
 	}
 }
