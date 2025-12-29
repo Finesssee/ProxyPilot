@@ -23,9 +23,9 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/router-for-me/CLIProxyAPI"
+    "url": "https://github.com/Finesssee/ProxyPilot"
   },
-  "homepage": "https://github.com/router-for-me/CLIProxyAPI#ppswitch",
+  "homepage": "https://github.com/Finesssee/ProxyPilot#ppswitch",
   "os": [
     "darwin",
     "linux",
