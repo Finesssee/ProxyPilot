@@ -11,8 +11,11 @@ const providers = [
   { id: 'gemini', name: 'Gemini', color: 'oklch(0.55 0.18 250)', icon: '✨' },
   { id: 'codex', name: 'Codex', color: 'oklch(0.60 0.16 145)', icon: '💻' },
   { id: 'qwen', name: 'Qwen', color: 'oklch(0.60 0.14 280)', icon: '🔮' },
-  { id: 'anthropic', name: 'Anthropic', color: 'oklch(0.55 0.14 50)', icon: '🅰️' },
   { id: 'antigravity', name: 'Antigravity', color: 'oklch(0.65 0.20 320)', icon: '🚀' },
+  { id: 'kiro', name: 'Kiro', color: 'oklch(0.58 0.17 200)', icon: '🛸' },
+  { id: 'amazonq', name: 'Amazon Q', color: 'oklch(0.55 0.16 30)', icon: '📦', isImport: true },
+  { id: 'minimax', name: 'MiniMax', color: 'oklch(0.60 0.18 60)', icon: '🔶', isApiKey: true },
+  { id: 'zhipu', name: 'Zhipu', color: 'oklch(0.55 0.15 180)', icon: '🧠', isApiKey: true },
 ] as const
 
 type ProviderId = (typeof providers)[number]['id']
@@ -214,8 +217,11 @@ export function ProviderLogins() {
     gemini: authFiles.some(f => f.toLowerCase().includes('gemini')),
     codex: authFiles.some(f => f.toLowerCase().includes('codex')),
     qwen: authFiles.some(f => f.toLowerCase().includes('qwen')),
-    anthropic: authFiles.some(f => f.toLowerCase().includes('anthropic')),
     antigravity: authFiles.some(f => f.toLowerCase().includes('antigravity')),
+    kiro: authFiles.some(f => f.toLowerCase().includes('kiro')),
+    amazonq: authFiles.some(f => f.toLowerCase().includes('amazonq')),
+    minimax: authFiles.some(f => f.toLowerCase().includes('minimax')),
+    zhipu: authFiles.some(f => f.toLowerCase().includes('zhipu')),
   }
 
   // Load OAuth private setting on mount
@@ -272,6 +278,63 @@ export function ProviderLogins() {
       showToast(e instanceof Error ? e.message : String(e), 'error')
     } finally {
       setLoading(null)
+    }
+  }
+
+  const handleImport = async (provider: string) => {
+    setLoading(`oauth-${provider}`)
+    try {
+      if (provider === 'amazonq') {
+        const res = await mgmtFetch('/v0/management/amazonq-import', { method: 'POST' })
+        if (res.success) {
+          showToast(`Amazon Q CLI token imported: ${res.email || 'success'}`, 'success')
+          // Refresh auth files list
+          const authRes = await mgmtFetch('/v0/management/auth-files')
+          setAuthFileList(authRes.files || [])
+        } else {
+          showToast(res.message || 'Import failed', 'error')
+        }
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e), 'error')
+    } finally {
+      setLoading(null)
+    }
+  }
+
+  const handleApiKey = async (provider: string) => {
+    const apiKey = window.prompt(`Enter your ${provider === 'minimax' ? 'MiniMax' : 'Zhipu AI'} API key:`)
+    if (!apiKey) return
+
+    setLoading(`oauth-${provider}`)
+    try {
+      const endpoint = provider === 'minimax' ? '/v0/management/minimax-api-key' : '/v0/management/zhipu-api-key'
+      const res = await mgmtFetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: apiKey }),
+      })
+      if (res.success) {
+        showToast(`${provider === 'minimax' ? 'MiniMax' : 'Zhipu'} API key saved`, 'success')
+        const authRes = await mgmtFetch('/v0/management/auth-files')
+        setAuthFileList(authRes.files || [])
+      } else {
+        showToast(res.message || 'Save failed', 'error')
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e), 'error')
+    } finally {
+      setLoading(null)
+    }
+  }
+
+  const handleProviderClick = (provider: typeof providers[number]) => {
+    if ('isImport' in provider && provider.isImport) {
+      handleImport(provider.id)
+    } else if ('isApiKey' in provider && provider.isApiKey) {
+      handleApiKey(provider.id)
+    } else {
+      handleOAuth(provider.id)
     }
   }
 
@@ -397,7 +460,7 @@ export function ProviderLogins() {
                 isAuthenticated={authStatus[provider.id]}
                 isLoading={loading === `oauth-${provider.id}`}
                 isDisabled={!isRunning}
-                onClick={() => handleOAuth(provider.id)}
+                onClick={() => handleProviderClick(provider)}
               />
             ))
           )}
