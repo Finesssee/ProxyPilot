@@ -122,16 +122,36 @@ func (m LoginModel) Init() tea.Cmd {
 
 // checkAuthStatus checks the authentication status for all providers
 func (m LoginModel) checkAuthStatus() tea.Msg {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	providers := make([]ProviderInfo, len(m.providers))
 	copy(providers, m.providers)
 
-	// Get all stored auth records
-	auths, err := m.store.List(ctx)
-	if err != nil {
-		// Return providers with unknown status
+	// Run store.List in a goroutine to ensure timeout takes effect
+	// even if the underlying store doesn't respect context cancellation
+	type listResult struct {
+		auths []*coreauth.Auth
+		err   error
+	}
+	resultCh := make(chan listResult, 1)
+
+	go func() {
+		auths, err := m.store.List(ctx)
+		resultCh <- listResult{auths: auths, err: err}
+	}()
+
+	// Wait for either the result or timeout
+	var auths []*coreauth.Auth
+	select {
+	case result := <-resultCh:
+		if result.err != nil {
+			// Return providers with unknown status on error
+			return authStatusMsg{providers: providers}
+		}
+		auths = result.auths
+	case <-ctx.Done():
+		// Timeout occurred - return providers with unknown status
 		return authStatusMsg{providers: providers}
 	}
 
@@ -284,20 +304,24 @@ func (m LoginModel) View() string {
 func (m LoginModel) ViewWithSize(width, height int) string {
 	var b strings.Builder
 
-	// Section title (compact)
-	title := lipgloss.NewStyle().
-		Foreground(Accent).
-		Bold(true).
-		Render("Provider Authentication")
-	subtitle := lipgloss.NewStyle().
-		Foreground(TextMuted).
-		Render(" - Connect via OAuth")
-	b.WriteString(title + subtitle + "\n\n")
+	// Section title with underline
+	b.WriteString(RenderSectionTitle("Provider Authentication"))
+	b.WriteString("\n\n")
 
-	// Loading state
+	// Loading state with progress bar
 	if m.loading {
 		b.WriteString(lipgloss.NewStyle().Foreground(Accent).Render("◐") + " ")
 		b.WriteString(lipgloss.NewStyle().Foreground(TextMuted).Render("Scanning authentication status..."))
+		b.WriteString("\n")
+		// Add indeterminate progress bar
+		progressWidth := width - 4
+		if progressWidth > 40 {
+			progressWidth = 40
+		}
+		if progressWidth < 10 {
+			progressWidth = 10
+		}
+		b.WriteString(RenderProgressBar(0.5, progressWidth))
 		return b.String()
 	}
 
@@ -379,39 +403,19 @@ func (m LoginModel) renderProviderRowWithWidth(provider ProviderInfo, isSelected
 	}
 	name := nameStyle.Render(provider.Name)
 
-	// Status badge - use shorter text on narrow terminals
+	// Status badge - use enhanced filled badges
 	var status string
 	if provider.Authenticated {
 		if width > 50 {
-			status = lipgloss.NewStyle().
-				Foreground(BgDark).
-				Background(Green).
-				Bold(true).
-				Padding(0, 1).
-				Render(IconOnline + " CONNECTED")
+			status = SuccessBadgeFilled.Render("◉ READY")
 		} else {
-			status = lipgloss.NewStyle().
-				Foreground(BgDark).
-				Background(Green).
-				Bold(true).
-				Padding(0, 1).
-				Render(IconOnline)
+			status = SuccessBadgeFilled.Render("◉")
 		}
 	} else {
 		if width > 50 {
-			status = lipgloss.NewStyle().
-				Foreground(BgDark).
-				Background(Red).
-				Bold(true).
-				Padding(0, 1).
-				Render(IconOffline + " DISCONNECTED")
+			status = WarningBadgeFilled.Render("◯ SETUP")
 		} else {
-			status = lipgloss.NewStyle().
-				Foreground(BgDark).
-				Background(Red).
-				Bold(true).
-				Padding(0, 1).
-				Render(IconOffline)
+			status = WarningBadgeFilled.Render("◯")
 		}
 	}
 
@@ -444,22 +448,12 @@ func (m LoginModel) renderProviderRowWithWidth(provider ProviderInfo, isSelected
 // renderStatusBadge creates a styled status badge for auth state
 func (m LoginModel) renderStatusBadge(provider ProviderInfo) string {
 	if provider.Authenticated {
-		// Connected badge - NeonGreen with filled circle
-		return lipgloss.NewStyle().
-			Foreground(DeepBlack).
-			Background(NeonGreen).
-			Bold(true).
-			Padding(0, 1).
-			Render(IconOnline + " CONNECTED")
+		// Authenticated badge - green with filled circle
+		return SuccessBadgeFilled.Render("◉ READY")
 	}
 
-	// Disconnected badge - HotCoral with hollow circle
-	return lipgloss.NewStyle().
-		Foreground(TextBright).
-		Background(HotCoral).
-		Bold(true).
-		Padding(0, 1).
-		Render(IconOffline + " DISCONNECTED")
+	// Not authenticated badge - yellow with hollow circle
+	return WarningBadgeFilled.Render("◯ SETUP")
 }
 
 // renderKeyInfo displays masked key or email info
