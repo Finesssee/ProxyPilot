@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/cache"
 	"github.com/tidwall/gjson"
 )
 
@@ -101,6 +102,36 @@ func TestConvertClaudeRequestToAntigravity_ThinkingBlocks(t *testing.T) {
 	}
 	if firstPart.Get("thoughtSignature").String() != validSignature {
 		t.Errorf("Expected thoughtSignature '%s', got '%s'", validSignature, firstPart.Get("thoughtSignature").String())
+	}
+}
+
+func TestConvertClaudeRequestToAntigravity_ThinkingSignaturePrefersClient(t *testing.T) {
+	clientSignature := "clientSignature1234567890123456789012345678901234567890123456"
+	cachedSignature := "cachedSignature1234567890123456789012345678901234567890123456"
+	inputJSON := []byte(`{
+		"model": "claude-sonnet-4-5-thinking",
+		"messages": [
+			{"role": "user", "content": [{"type": "text", "text": "session-seed"}]},
+			{
+				"role": "assistant",
+				"content": [
+					{"type": "thinking", "thinking": "Let me think...", "signature": "` + clientSignature + `"},
+					{"type": "text", "text": "Answer"}
+				]
+			}
+		]
+	}`)
+
+	sessionID := deriveSessionID(inputJSON)
+	cache.CacheSignature(sessionID, "Let me think...", cachedSignature)
+	defer cache.ClearSignatureCache(sessionID)
+
+	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
+	outputStr := string(output)
+
+	firstPart := gjson.Get(outputStr, "request.contents.1.parts.0")
+	if firstPart.Get("thoughtSignature").String() != clientSignature {
+		t.Errorf("Expected client thoughtSignature '%s', got '%s'", clientSignature, firstPart.Get("thoughtSignature").String())
 	}
 }
 

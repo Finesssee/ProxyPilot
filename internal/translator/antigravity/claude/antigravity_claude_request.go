@@ -122,28 +122,29 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 					contentResult := contentResults[j]
 					contentTypeResult := contentResult.Get("type")
 					if contentTypeResult.Type == gjson.String && contentTypeResult.String() == "thinking" {
-						// Use GetThinkingText to handle wrapped thinking objects
-						thinkingText := util.GetThinkingText(contentResult)
+						thinkingText := contentResult.Get("thinking").String()
+						if thinkingText == "" {
+							thinkingText = util.GetThinkingText(contentResult)
+						}
 						signatureResult := contentResult.Get("signature")
 						clientSignature := ""
 						if signatureResult.Exists() && signatureResult.String() != "" {
 							clientSignature = signatureResult.String()
 						}
 
-						// Always try cached signature first (more reliable than client-provided)
-						// Client may send stale or invalid signatures from different sessions
+						// Prefer client-provided signature to avoid invalidating signed blocks.
 						signature := ""
-						if sessionID != "" && thinkingText != "" {
+						if cache.HasValidSignature(clientSignature) {
+							signature = clientSignature
+							log.Debugf("Using client-provided signature for thinking block")
+						}
+
+						// Fallback to cached signature only when client signature is missing/invalid.
+						if signature == "" && sessionID != "" && thinkingText != "" {
 							if cachedSig := cache.GetCachedSignature(sessionID, thinkingText); cachedSig != "" {
 								signature = cachedSig
 								log.Debugf("Using cached signature for thinking block")
 							}
-						}
-
-						// Fallback to client signature only if cache miss and client signature is valid
-						if signature == "" && cache.HasValidSignature(clientSignature) {
-							signature = clientSignature
-							log.Debugf("Using client-provided signature for thinking block")
 						}
 
 						// Store for subsequent tool_use in the same message
