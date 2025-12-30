@@ -3,10 +3,13 @@ package updates
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+
+	"github.com/ProtonMail/go-crypto/openpgp"
 )
 
 // VerifyResult contains the result of a verification check.
@@ -16,9 +19,8 @@ type VerifyResult struct {
 	Checksum string `json:"checksum,omitempty"`
 }
 
-// VerifyDownload verifies the downloaded file.
-// For now, this does basic checksum verification.
-// In the future, this can be extended to verify GPG signatures.
+// VerifyDownload verifies the downloaded file using GPG signature verification.
+// The binary must be signed with the embedded public key to be considered valid.
 func VerifyDownload(result *DownloadResult) (*VerifyResult, error) {
 	if result == nil || result.FilePath == "" {
 		return &VerifyResult{
@@ -53,33 +55,34 @@ func VerifyDownload(result *DownloadResult) (*VerifyResult, error) {
 		}, nil
 	}
 
-	// If we have a signature file, try to verify
+	// If we have a signature file, verify the GPG signature
 	if result.SignaturePath != "" {
 		sigValid, err := verifySignatureFile(result.FilePath, result.SignaturePath)
 		if err != nil {
-			// Signature verification failed - but file may still be valid
+			// Signature verification failed - file is NOT valid
 			return &VerifyResult{
-				Valid:    true, // Still valid, just no signature verification
-				Message:  fmt.Sprintf("signature verification skipped: %v", err),
+				Valid:    false,
+				Message:  fmt.Sprintf("signature verification failed: %v", err),
 				Checksum: checksum,
 			}, nil
 		}
 		if !sigValid {
 			return &VerifyResult{
 				Valid:   false,
-				Message: "signature verification failed",
+				Message: "signature verification failed: invalid signature",
 			}, nil
 		}
 		return &VerifyResult{
 			Valid:    true,
-			Message:  "signature verified successfully",
+			Message:  "GPG signature verified successfully",
 			Checksum: checksum,
 		}, nil
 	}
 
+	// No signature file provided - fail secure
 	return &VerifyResult{
-		Valid:    true,
-		Message:  "basic verification passed (no signature available)",
+		Valid:    false,
+		Message:  "no signature file available for verification",
 		Checksum: checksum,
 	}, nil
 }
@@ -99,25 +102,72 @@ func computeSHA256(filePath string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// verifySignatureFile attempts to verify a GPG/PGP signature.
-// This is a placeholder - real implementation would use golang.org/x/crypto/openpgp
-// or similar library with an embedded public key.
+// verifySignatureFile verifies a GPG detached signature against the binary file.
+// It uses the embedded public key to verify the signature.
 func verifySignatureFile(filePath, sigPath string) (bool, error) {
-	// Check signature file exists
+	// Check if public key is configured
+	if !IsKeyConfigured() {
+		return false, errors.New("GPG public key not configured: please replace the placeholder key with your actual signing key")
+	}
+
+	// Read the public key
+	keyring, err := openpgp.ReadArmoredKeyRing(strings.NewReader(GetPublicKey()))
+	if err != nil {
+		return false, fmt.Errorf("failed to read public key: %w", err)
+	}
+
+	// Open the binary file for verification
+	binaryFile, err := os.Open(filePath)
+	if err != nil {
+		return false, fmt.Errorf("failed to open binary file: %w", err)
+	}
+	defer binaryFile.Close()
+
+	// Read the signature file
 	sigData, err := os.ReadFile(sigPath)
 	if err != nil {
 		return false, fmt.Errorf("failed to read signature file: %w", err)
 	}
 
-	// For now, just check it's not empty and looks like a signature
 	sigStr := strings.TrimSpace(string(sigData))
 	if len(sigStr) < 64 {
-		return false, fmt.Errorf("signature file too short")
+		return false, errors.New("signature file is too short to be valid")
 	}
 
-	// TODO: Implement actual GPG signature verification
-	// This requires embedding a public key and using openpgp library
-	return false, fmt.Errorf("GPG signature verification not yet implemented")
+	// Determine if signature is armored (ASCII) or binary
+	if strings.HasPrefix(sigStr, "-----BEGIN PGP SIGNATURE-----") {
+		// Armored signature - use CheckArmoredDetachedSignature
+		signer, err := openpgp.CheckArmoredDetachedSignature(keyring, binaryFile, strings.NewReader(sigStr), nil)
+		if err != nil {
+			return false, fmt.Errorf("armored signature verification failed: %w", err)
+		}
+		if signer == nil {
+			return false, errors.New("signature is valid but signer not found in keyring")
+		}
+		return true, nil
+	}
+
+	// Binary signature - use CheckDetachedSignature
+	sigReader, err := os.Open(sigPath)
+	if err != nil {
+		return false, fmt.Errorf("failed to open signature file: %w", err)
+	}
+	defer sigReader.Close()
+
+	// Reset binary file position after the armored check read it
+	if _, err := binaryFile.Seek(0, io.SeekStart); err != nil {
+		return false, fmt.Errorf("failed to reset binary file position: %w", err)
+	}
+
+	signer, err := openpgp.CheckDetachedSignature(keyring, binaryFile, sigReader, nil)
+	if err != nil {
+		return false, fmt.Errorf("binary signature verification failed: %w", err)
+	}
+	if signer == nil {
+		return false, errors.New("signature is valid but signer not found in keyring")
+	}
+
+	return true, nil
 }
 
 // VerifyChecksum verifies a file against an expected SHA256 checksum.
