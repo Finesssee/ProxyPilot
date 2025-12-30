@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -159,6 +160,68 @@ var (
 	InfoBadge = lipgloss.NewStyle().
 		Foreground(Blue).
 		Bold(true)
+
+	// Enhanced status badges with backgrounds
+	// Success badge with filled background
+	SuccessBadgeFilled = lipgloss.NewStyle().
+		Foreground(BgDark).
+		Background(Green).
+		Bold(true).
+		Padding(0, 1)
+
+	// Error badge with filled background
+	ErrorBadgeFilled = lipgloss.NewStyle().
+		Foreground(BgDark).
+		Background(Red).
+		Bold(true).
+		Padding(0, 1)
+
+	// Warning badge with filled background
+	WarningBadgeFilled = lipgloss.NewStyle().
+		Foreground(BgDark).
+		Background(Yellow).
+		Bold(true).
+		Padding(0, 1)
+
+	// Info badge with filled background
+	InfoBadgeFilled = lipgloss.NewStyle().
+		Foreground(BgDark).
+		Background(Blue).
+		Bold(true).
+		Padding(0, 1)
+
+	// Connected status badge
+	ConnectedBadge = lipgloss.NewStyle().
+		Foreground(BgDark).
+		Background(Green).
+		Bold(true).
+		Padding(0, 1)
+
+	// Disconnected status badge
+	DisconnectedBadge = lipgloss.NewStyle().
+		Foreground(Text).
+		Background(BgSelected).
+		Padding(0, 1)
+
+	// Navigation card style for selected items
+	NavCardSelected = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(Accent).
+		Padding(0, 1)
+
+	// Section title underline style
+	SectionUnderlineStyle = lipgloss.NewStyle().
+		Foreground(Accent)
+
+	// Footer keyboard pill style
+	KeyboardPillStyle = lipgloss.NewStyle().
+		Foreground(BgDark).
+		Background(BorderDim).
+		Padding(0, 1)
+
+	// Dotted separator style
+	DottedSeparatorStyle = lipgloss.NewStyle().
+		Foreground(BorderDim)
 
 	// Help bar styles
 	HelpStyle = lipgloss.NewStyle().
@@ -325,7 +388,164 @@ var (
 	LogoStyle    = TitleStyle
 	LogoAccent   = lipgloss.NewStyle().Foreground(Accent).Bold(true)
 	VersionStyle = SubtitleStyle
+
+	// ─────────────────────────────────────────────────────────────────────────
+	// Tab styles for tabbed interfaces
+	// ─────────────────────────────────────────────────────────────────────────
+
+	// Active tab with accent background
+	TabActiveStyle = lipgloss.NewStyle().
+			Foreground(BgDark).
+			Background(Accent).
+			Bold(true).
+			Padding(0, 1)
+
+	// Inactive tab with muted styling
+	TabInactiveStyle = lipgloss.NewStyle().
+				Foreground(TextMuted).
+				Background(BgPanel).
+				Padding(0, 1)
+
+	// Tab container for grouping tabs
+	TabContainerStyle = lipgloss.NewStyle().
+				MarginBottom(1)
+
+	// ─────────────────────────────────────────────────────────────────────────
+	// Tooltip and popover styles
+	// ─────────────────────────────────────────────────────────────────────────
+
+	// Tooltip container
+	TooltipStyle = lipgloss.NewStyle().
+			Border(RoundedBorder).
+			BorderForeground(BorderBright).
+			Background(BgPanel).
+			Foreground(Text).
+			Padding(0, 1)
+
+	// Tooltip title
+	TooltipTitleStyle = lipgloss.NewStyle().
+				Foreground(Accent).
+				Bold(true)
+
+	// ─────────────────────────────────────────────────────────────────────────
+	// Loading and skeleton state styles
+	// ─────────────────────────────────────────────────────────────────────────
+
+	// Loading spinner container
+	LoadingContainerStyle = lipgloss.NewStyle().
+				Foreground(Accent)
+
+	// Loading text
+	LoadingTextStyle = lipgloss.NewStyle().
+				Foreground(TextMuted).
+				Italic(true)
+
+	// Skeleton placeholder for loading content
+	SkeletonStyle = lipgloss.NewStyle().
+			Foreground(BorderDim).
+			Background(BgPanel)
+
+	// ─────────────────────────────────────────────────────────────────────────
+	// Additional button variants
+	// ─────────────────────────────────────────────────────────────────────────
+
+	// Secondary button (outline style)
+	SecondaryButtonStyle = lipgloss.NewStyle().
+				Foreground(Accent).
+				Border(RoundedBorder).
+				BorderForeground(Accent).
+				Padding(0, 2)
+
+	// Ghost button (minimal style)
+	GhostButtonStyle = lipgloss.NewStyle().
+				Foreground(TextDim).
+				Padding(0, 2)
+
+	// Success button
+	SuccessButtonStyle = lipgloss.NewStyle().
+				Foreground(BgDark).
+				Background(Green).
+				Bold(true).
+				Padding(0, 2)
+
+	// ─────────────────────────────────────────────────────────────────────────
+	// Tag and chip styles
+	// ─────────────────────────────────────────────────────────────────────────
+
+	// Default tag/chip style
+	TagStyle = lipgloss.NewStyle().
+			Foreground(Text).
+			Background(BgSelected).
+			Padding(0, 1)
+
+	// Accent tag
+	TagAccentStyle = lipgloss.NewStyle().
+			Foreground(BgDark).
+			Background(Accent).
+			Bold(true).
+			Padding(0, 1)
+
+	// ─────────────────────────────────────────────────────────────────────────
+	// Divider styles
+	// ─────────────────────────────────────────────────────────────────────────
+
+	// Horizontal divider
+	DividerStyle = lipgloss.NewStyle().
+			Foreground(Border)
+
+	// Thick divider for emphasis
+	ThickDividerStyle = lipgloss.NewStyle().
+				Foreground(Accent)
 )
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// NAVIGATION ICONS - Screen-specific icons
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Navigation icons - unselected state
+var NavIcons = map[string]string{
+	"dashboard": "◈",
+	"server":    "▣",
+	"providers": "◎",
+	"agents":    "◬",
+	"usage":     "◔",
+	"logs":      "☰",
+	"mappings":  "⇄",
+	"setup":     "⚙",
+}
+
+// Navigation icons - selected state (filled variants)
+var NavIconsSelected = map[string]string{
+	"dashboard": "◆",
+	"server":    "■",
+	"providers": "●",
+	"agents":    "▲",
+	"usage":     "●",
+	"logs":      "≡",
+	"mappings":  "⇔",
+	"setup":     "✦",
+}
+
+// Superscript digits for key hints
+var SuperScriptMap = map[string]string{
+	"1": "¹", "2": "²", "3": "³", "4": "⁴",
+	"5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸",
+	"9": "⁹", "0": "⁰",
+}
+
+// GetNavIcon returns the navigation icon for a screen
+func GetNavIcon(screen string, selected bool) string {
+	screen = strings.ToLower(screen)
+	if selected {
+		if icon, ok := NavIconsSelected[screen]; ok {
+			return icon
+		}
+	}
+	if icon, ok := NavIcons[screen]; ok {
+		return icon
+	}
+	return "◆"
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ICONS - Simple, clean icons
@@ -364,6 +584,30 @@ const (
 	IconTerminal = ">"
 	IconCode     = "<>"
 	IconPulse    = "~"
+
+	// Trend indicators
+	TrendUp   = "▲"
+	TrendDown = "▼"
+	TrendFlat = "▬"
+
+	// Status pulse frames
+	PulseFrame1 = "●"
+	PulseFrame2 = "◉"
+	PulseFrame3 = "○"
+
+	// Line drawing
+	LineHeavy  = "━"
+	LineDashed = "┄"
+	LineDouble = "═"
+
+	// Progress bar
+	ProgressFilled = "━"
+	ProgressEmpty  = "─"
+	ProgressHead   = "●"
+
+	// Bar chart
+	BarFull  = "█"
+	BarEmpty = "░"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -446,6 +690,19 @@ func MagentaGradient(text string) string {
 	return lipgloss.NewStyle().Foreground(Secondary).Render(text)
 }
 
+// LetterSpace adds spacing between characters
+func LetterSpace(text string) string {
+	var result strings.Builder
+	runes := []rune(text)
+	for i, r := range runes {
+		result.WriteRune(r)
+		if i < len(runes)-1 {
+			result.WriteString(" ")
+		}
+	}
+	return result.String()
+}
+
 // FormatCount formats numbers with K/M suffix
 func FormatCount(count int64) string {
 	if count >= 1000000 {
@@ -461,4 +718,208 @@ func FormatCount(count int64) string {
 	return lipgloss.NewStyle().Foreground(Accent).Bold(true).Render(
 		fmt.Sprintf("%d", count),
 	)
+}
+
+// RenderKeyboardPill creates a styled keyboard shortcut pill
+func RenderKeyboardPill(key string) string {
+	return KeyboardPillStyle.Render(key)
+}
+
+// RenderDottedDivider creates a dotted line divider
+func RenderDottedDivider(width int) string {
+	return DottedSeparatorStyle.Render(strings.Repeat("┄", width))
+}
+
+// RenderSectionTitle creates a section title with ═══ underline
+func RenderSectionTitle(title string) string {
+	titleText := lipgloss.NewStyle().
+		Foreground(Accent).
+		Bold(true).
+		Render(title)
+	underlineLen := len(title)
+	if underlineLen < 4 {
+		underlineLen = 4
+	}
+	underline := lipgloss.NewStyle().
+		Foreground(Accent).
+		Render(strings.Repeat("═", underlineLen))
+	return titleText + "\n" + underline
+}
+
+// RenderProgressBar creates a progress bar: ━━━━●───
+func RenderProgressBar(percent float64, width int) string {
+	if width <= 0 {
+		width = 10
+	}
+	filled := int(percent * float64(width-1))
+	if filled < 0 {
+		filled = 0
+	}
+	if filled >= width {
+		filled = width - 1
+	}
+
+	filledStyle := lipgloss.NewStyle().Foreground(Accent)
+	emptyStyle := lipgloss.NewStyle().Foreground(BorderDim)
+
+	before := filledStyle.Render(strings.Repeat("━", filled))
+	head := filledStyle.Render("●")
+	after := emptyStyle.Render(strings.Repeat("─", width-filled-1))
+
+	return before + head + after
+}
+
+// RenderIndeterminateProgress renders an indeterminate loading animation
+func RenderIndeterminateProgress(width int, frame int) string {
+	if width < 5 {
+		width = 10
+	}
+	// Create a bouncing effect
+	position := frame % (width * 2)
+	if position >= width {
+		position = (width * 2) - position - 1
+	}
+
+	var result strings.Builder
+	for i := 0; i < width; i++ {
+		if i >= position && i < position+3 {
+			result.WriteString(ProgressBarStyle.Render("█"))
+		} else {
+			result.WriteString(ProgressTrackStyle.Render("░"))
+		}
+	}
+	return result.String()
+}
+
+// RenderConnectionStrength creates ▁▃▅▇ indicator
+func RenderConnectionStrength(level int) string {
+	bars := []string{"▁", "▃", "▅", "▇"}
+	var result strings.Builder
+
+	for i, bar := range bars {
+		if i < level {
+			result.WriteString(lipgloss.NewStyle().Foreground(Green).Render(bar))
+		} else {
+			result.WriteString(lipgloss.NewStyle().Foreground(BorderDim).Render(bar))
+		}
+	}
+	return result.String()
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ADDITIONAL RENDER HELPERS - Common UI patterns
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// RenderDivider creates a horizontal divider line
+func RenderDivider(width int) string {
+	return DividerStyle.Render(strings.Repeat("─", width))
+}
+
+// RenderThickDivider creates a thick horizontal divider line
+func RenderThickDivider(width int) string {
+	return ThickDividerStyle.Render(strings.Repeat("━", width))
+}
+
+// RenderStatusIndicator creates a status indicator with icon and text
+func RenderStatusIndicator(online bool) string {
+	if online {
+		return SuccessBadge.Render(IconOnline + " ONLINE")
+	}
+	return ErrorBadge.Render(IconOffline + " OFFLINE")
+}
+
+// RenderStatusDot creates a simple status dot indicator
+func RenderStatusDot(online bool) string {
+	if online {
+		return lipgloss.NewStyle().Foreground(Green).Bold(true).Render("●")
+	}
+	return lipgloss.NewStyle().Foreground(Red).Bold(true).Render("○")
+}
+
+// RenderTab creates a tab with appropriate styling based on active state
+func RenderTab(label string, active bool) string {
+	if active {
+		return TabActiveStyle.Render(label)
+	}
+	return TabInactiveStyle.Render(label)
+}
+
+// RenderTabs creates a row of tabs
+func RenderTabs(tabs []string, activeIndex int) string {
+	var rendered []string
+	for i, tab := range tabs {
+		rendered = append(rendered, RenderTab(tab, i == activeIndex))
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
+}
+
+// RenderLoadingText creates styled loading text with spinner placeholder
+func RenderLoadingText(message string) string {
+	spinner := LoadingContainerStyle.Render("◐")
+	text := LoadingTextStyle.Render(message)
+	return spinner + " " + text
+}
+
+// RenderSkeletonLine creates a skeleton placeholder line
+func RenderSkeletonLine(width int) string {
+	return SkeletonStyle.Render(strings.Repeat("░", width))
+}
+
+// RenderBarChart creates a simple bar chart with filled/empty chars
+func RenderBarChart(value, max int64, width int) string {
+	if max <= 0 || width <= 0 {
+		return ""
+	}
+	filled := int(float64(value) / float64(max) * float64(width))
+	if filled > width {
+		filled = width
+	}
+	if filled < 0 {
+		filled = 0
+	}
+
+	filledBar := lipgloss.NewStyle().Foreground(Accent).Render(strings.Repeat(BarFull, filled))
+	emptyBar := lipgloss.NewStyle().Foreground(BorderDim).Render(strings.Repeat(BarEmpty, width-filled))
+	return filledBar + emptyBar
+}
+
+// RenderPercentage formats a percentage with color based on threshold
+func RenderPercentage(value float64) string {
+	var color lipgloss.Color
+	switch {
+	case value >= 90:
+		color = Green
+	case value >= 70:
+		color = Yellow
+	case value >= 50:
+		color = Amber
+	default:
+		color = Red
+	}
+	return lipgloss.NewStyle().Foreground(color).Bold(true).Render(fmt.Sprintf("%.1f%%", value))
+}
+
+// RenderTrend creates a trend indicator (up, down, flat)
+func RenderTrend(delta float64) string {
+	if delta > 0 {
+		return lipgloss.NewStyle().Foreground(Green).Bold(true).Render(TrendUp)
+	} else if delta < 0 {
+		return lipgloss.NewStyle().Foreground(Red).Bold(true).Render(TrendDown)
+	}
+	return lipgloss.NewStyle().Foreground(TextMuted).Render(TrendFlat)
+}
+
+// RenderKeyValue creates a key: value pair with consistent styling
+func RenderKeyValue(key, value string) string {
+	keyStyled := lipgloss.NewStyle().Foreground(TextMuted).Render(key + ":")
+	valueStyled := lipgloss.NewStyle().Foreground(Text).Bold(true).Render(value)
+	return keyStyled + " " + valueStyled
+}
+
+// RenderTag creates a styled tag/chip
+func RenderTag(text string, accent bool) string {
+	if accent {
+		return TagAccentStyle.Render(text)
+	}
+	return TagStyle.Render(text)
 }
