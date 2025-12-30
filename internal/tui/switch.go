@@ -11,6 +11,10 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 )
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// SWITCH SCREEN - Cyberpunk Neon Agent Configuration Panel
+// ═══════════════════════════════════════════════════════════════════════════════
+
 // AgentItem represents a single agent in the switch list
 type AgentItem struct {
 	ID          string
@@ -39,6 +43,139 @@ type SwitchKeyMap struct {
 	Quit   key.Binding
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// AGENT TYPE ICONS - Violet accented symbols
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var agentIcons = map[string]string{
+	"claude":   "C",
+	"gemini":   "G",
+	"codex":    "X",
+	"opencode": "O",
+	"droid":    "D",
+	"cursor":   "R",
+	"kilo":     "K",
+	"roocode":  "P",
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SWITCH SCREEN STYLES - Using colors from styles.go
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var (
+	// Header with electric glow
+	switchHeaderStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(Accent).
+				Background(BgDark).
+				Padding(0, 1).
+				MarginBottom(1)
+
+	// Agent card - unselected
+	agentCardStyle = lipgloss.NewStyle().
+			Border(RoundedBorder).
+			BorderForeground(BorderDim).
+			Padding(0, 2).
+			Width(52).
+			MarginBottom(0)
+
+	// Agent card - selected with glowing accent border
+	agentCardSelectedStyle = lipgloss.NewStyle().
+				Border(RoundedBorder).
+				BorderForeground(Accent).
+				Padding(0, 2).
+				Width(52).
+				MarginBottom(0)
+
+	// Agent name - normal
+	agentNameStyle = lipgloss.NewStyle().
+			Foreground(Text).
+			Bold(true)
+
+	// Agent name - selected (glowing accent)
+	agentNameSelectedStyle = lipgloss.NewStyle().
+				Foreground(AccentBright).
+				Bold(true)
+
+	// Agent icon container with tertiary accent
+	agentIconStyle = lipgloss.NewStyle().
+			Foreground(BgDark).
+			Background(Tertiary).
+			Bold(true).
+			Padding(0, 1)
+
+	// Mode badge - PROXY (Green)
+	modeBadgeProxy = lipgloss.NewStyle().
+			Foreground(BgDark).
+			Background(Green).
+			Bold(true).
+			Padding(0, 1)
+
+	// Mode badge - DIRECT (Yellow/Amber)
+	modeBadgeDirect = lipgloss.NewStyle().
+			Foreground(BgDark).
+			Background(Yellow).
+			Bold(true).
+			Padding(0, 1)
+
+	// Mode badge - unavailable
+	modeBadgeUnavailable = lipgloss.NewStyle().
+				Foreground(TextMuted).
+				Background(BgPanel).
+				Padding(0, 1)
+
+	// Availability status - online
+	statusOnlineStyle = lipgloss.NewStyle().
+				Foreground(Green).
+				Bold(true)
+
+	// Availability status - offline
+	statusOfflineStyle = lipgloss.NewStyle().
+				Foreground(Red).
+				Bold(true)
+
+	// Toggle indicator
+	toggleIndicatorStyle = lipgloss.NewStyle().
+				Foreground(Secondary).
+				Bold(true)
+
+	// Success message
+	successMessageStyle = lipgloss.NewStyle().
+				Foreground(Green).
+				Bold(true).
+				Padding(0, 1)
+
+	// Error message
+	errorMessageStyle = lipgloss.NewStyle().
+				Foreground(Red).
+				Bold(true).
+				Padding(0, 1)
+
+	// Separator line
+	separatorStyle = lipgloss.NewStyle().
+			Foreground(Tertiary)
+
+	// Help section container
+	helpContainerStyle = lipgloss.NewStyle().
+				Border(RoundedBorder).
+				BorderForeground(BorderDim).
+				BorderTop(true).
+				BorderBottom(false).
+				BorderLeft(false).
+				BorderRight(false).
+				Padding(1, 0).
+				MarginTop(1)
+
+	// Cursor arrow
+	cursorArrowStyle = lipgloss.NewStyle().
+				Foreground(Secondary).
+				Bold(true)
+)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// KEY BINDINGS
+// ═══════════════════════════════════════════════════════════════════════════════
+
 // DefaultSwitchKeyMap returns the default key bindings
 func DefaultSwitchKeyMap() SwitchKeyMap {
 	return SwitchKeyMap{
@@ -60,6 +197,10 @@ func DefaultSwitchKeyMap() SwitchKeyMap {
 		),
 	}
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MODEL INITIALIZATION
+// ═══════════════════════════════════════════════════════════════════════════════
 
 // NewSwitchModel creates a new switch model
 func NewSwitchModel(cfg *config.Config) SwitchModel {
@@ -89,6 +230,10 @@ func (m *SwitchModel) refreshAgents() {
 		m.agents = append(m.agents, item)
 	}
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TEA MODEL IMPLEMENTATION
+// ═══════════════════════════════════════════════════════════════════════════════
 
 // Init implements tea.Model
 func (m SwitchModel) Init() tea.Cmd {
@@ -171,79 +316,244 @@ func (m *SwitchModel) toggleCurrent() {
 	m.refreshAgents()
 }
 
-// View implements tea.Model
+// ═══════════════════════════════════════════════════════════════════════════════
+// VIEW RENDERING - Premium Cyberpunk Interface
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// View implements tea.Model - Returns content only (no outer borders)
 func (m SwitchModel) View() string {
+	return m.ViewWithSize(m.width, m.height)
+}
+
+// ViewWithSize renders with explicit dimensions for responsive layout
+func (m SwitchModel) ViewWithSize(width, height int) string {
 	if m.quitting {
 		return ""
 	}
 
 	var b strings.Builder
 
-	// Title
-	title := TitleStyle.Render("Switch Agent Configuration")
-	b.WriteString(title)
-	b.WriteString("\n")
+	// Section title (compact)
+	title := lipgloss.NewStyle().
+		Foreground(Accent).
+		Bold(true).
+		Render("Agent Configuration")
+	subtitle := lipgloss.NewStyle().
+		Foreground(TextMuted).
+		Render(" - Toggle routing modes")
+	b.WriteString(title + subtitle + "\n\n")
 
-	// Separator line
-	separator := lipgloss.NewStyle().
-		Foreground(BorderColor).
-		Render(strings.Repeat("─", min(26, m.width-2)))
-	b.WriteString(separator)
-	b.WriteString("\n\n")
-
-	// Agent list
-	for i, agent := range m.agents {
-		cursor := "  "
-		if i == m.cursor {
-			cursor = "> "
-		}
-
-		// Format the mode badge
-		modeBadge := m.formatModeBadge(agent)
-
-		// Build the line
-		var line string
-		nameStyle := MenuItemStyle
-		if i == m.cursor {
-			nameStyle = SelectedItemStyle.Copy().PaddingLeft(0)
-		}
-
-		// Pad the name to align badges
-		paddedName := fmt.Sprintf("%-15s", agent.DisplayName)
-
-		if i == m.cursor {
-			cursorStr := CursorStyle.Render(cursor)
-			nameStr := nameStyle.Render(paddedName)
-			line = cursorStr + nameStr + " " + modeBadge
-		} else {
-			line = cursor + nameStyle.Render(paddedName) + " " + modeBadge
-		}
-
-		b.WriteString(line)
-		b.WriteString("\n")
+	// Calculate visible rows based on height
+	maxRows := height - 5
+	if maxRows < 4 {
+		maxRows = 4
+	}
+	if maxRows > len(m.agents) {
+		maxRows = len(m.agents)
 	}
 
-	// Status message (if any)
+	// Agent list - responsive rows
+	for i := 0; i < maxRows; i++ {
+		if i >= len(m.agents) {
+			break
+		}
+		agent := m.agents[i]
+		isSelected := i == m.cursor
+		row := m.renderAgentRowWithWidth(agent, isSelected, width)
+		b.WriteString(row + "\n")
+	}
+
+	// Status message
 	if m.message != "" {
 		b.WriteString("\n")
-		msgStyle := lipgloss.NewStyle().Foreground(InfoColor)
 		if strings.HasPrefix(m.message, "Error:") {
-			msgStyle = lipgloss.NewStyle().Foreground(ErrorColor)
+			b.WriteString(lipgloss.NewStyle().Foreground(Red).Render(IconCross + " " + m.message))
+		} else {
+			b.WriteString(lipgloss.NewStyle().Foreground(Green).Render(IconCheck + " " + m.message))
 		}
-		b.WriteString(msgStyle.Render(m.message))
-		b.WriteString("\n")
 	}
-
-	// Help footer
-	b.WriteString("\n")
-	helpText := m.renderHelp()
-	b.WriteString(helpText)
 
 	return b.String()
 }
 
-// formatModeBadge returns a styled mode badge for an agent
-func (m SwitchModel) formatModeBadge(agent AgentItem) string {
+// renderAgentRowWithWidth creates a row that adapts to available width
+func (m SwitchModel) renderAgentRowWithWidth(agent AgentItem, isSelected bool, width int) string {
+	// Cursor indicator
+	var cursor string
+	if isSelected {
+		cursor = lipgloss.NewStyle().Foreground(Accent).Bold(true).Render(IconChevron + " ")
+	} else {
+		cursor = "  "
+	}
+
+	// Agent icon
+	icon := agentIcons[agent.ID]
+	if icon == "" {
+		icon = "?"
+	}
+	iconRendered := lipgloss.NewStyle().
+		Foreground(BgDark).
+		Background(Tertiary).
+		Bold(true).
+		Padding(0, 1).
+		Render(icon)
+
+	// Calculate responsive widths
+	nameWidth := 14
+	if width > 60 {
+		nameWidth = 18
+	}
+
+	// Agent name
+	var nameStyle lipgloss.Style
+	if isSelected {
+		nameStyle = lipgloss.NewStyle().Foreground(AccentBright).Bold(true).Width(nameWidth)
+	} else {
+		nameStyle = lipgloss.NewStyle().Foreground(Text).Width(nameWidth)
+	}
+	name := nameStyle.Render(agent.DisplayName)
+
+	// Status badge (only show on wider terminals)
+	var status string
+	if width > 50 {
+		if agent.Available {
+			status = lipgloss.NewStyle().Foreground(Green).Render(IconOnline + " READY")
+		} else {
+			status = lipgloss.NewStyle().Foreground(Red).Render(IconOffline + " N/A  ")
+		}
+		status = lipgloss.NewStyle().Width(10).Render(status)
+	}
+
+	// Mode badge
+	modeBadge := m.renderModeBadge(agent)
+
+	// Compose row
+	row := cursor + iconRendered + " " + name
+	if status != "" {
+		row += " " + status
+	}
+	row += " " + modeBadge
+
+	// Selection highlight
+	if isSelected {
+		row = lipgloss.NewStyle().Background(BgSelected).Render(row)
+	}
+
+	return row
+}
+
+// renderAgentRow creates a simple row for the agent list (no card borders)
+func (m SwitchModel) renderAgentRow(agent AgentItem, isSelected bool) string {
+	// Cursor indicator
+	var cursor string
+	if isSelected {
+		cursor = lipgloss.NewStyle().Foreground(Accent).Bold(true).Render(IconChevron + " ")
+	} else {
+		cursor = "  "
+	}
+
+	// Agent icon
+	icon := agentIcons[agent.ID]
+	if icon == "" {
+		icon = "?"
+	}
+	iconRendered := lipgloss.NewStyle().
+		Foreground(BgDark).
+		Background(Tertiary).
+		Bold(true).
+		Padding(0, 1).
+		Render(icon)
+
+	// Agent name
+	var nameStyle lipgloss.Style
+	if isSelected {
+		nameStyle = lipgloss.NewStyle().Foreground(AccentBright).Bold(true).Width(16)
+	} else {
+		nameStyle = lipgloss.NewStyle().Foreground(Text).Width(16)
+	}
+	name := nameStyle.Render(agent.DisplayName)
+
+	// Status badge
+	var status string
+	if agent.Available {
+		status = lipgloss.NewStyle().Foreground(Green).Render(IconOnline + " READY")
+	} else {
+		status = lipgloss.NewStyle().Foreground(Red).Render(IconOffline + " N/A  ")
+	}
+	statusPadded := lipgloss.NewStyle().Width(10).Render(status)
+
+	// Mode badge
+	modeBadge := m.renderModeBadge(agent)
+
+	// Compose row
+	row := fmt.Sprintf("%s%s %s %s %s", cursor, iconRendered, name, statusPadded, modeBadge)
+
+	// Selection highlight
+	if isSelected {
+		row = lipgloss.NewStyle().Background(BgSelected).Render(row)
+	}
+
+	return row
+}
+
+// renderAgentCard creates a premium styled agent card (legacy, kept for standalone mode)
+func (m SwitchModel) renderAgentCard(agent AgentItem, isSelected bool) string {
+	// Get the icon for this agent type
+	icon := agentIcons[agent.ID]
+	if icon == "" {
+		icon = "?"
+	}
+
+	// Render icon with tertiary accent
+	iconRendered := agentIconStyle.Render(icon)
+
+	// Render agent name
+	var nameRendered string
+	if isSelected {
+		nameRendered = agentNameSelectedStyle.Render(agent.DisplayName)
+	} else {
+		nameRendered = agentNameStyle.Render(agent.DisplayName)
+	}
+
+	// Pad name for alignment
+	namePadded := lipgloss.NewStyle().Width(18).Render(nameRendered)
+
+	// Render availability badge
+	var availBadge string
+	if agent.Available {
+		availBadge = statusOnlineStyle.Render(IconOnline + " READY")
+	} else {
+		availBadge = statusOfflineStyle.Render(IconOffline + " N/A")
+	}
+	availPadded := lipgloss.NewStyle().Width(12).Render(availBadge)
+
+	// Render mode badge
+	modeBadge := m.renderModeBadge(agent)
+
+	// Build the card content
+	cardContent := fmt.Sprintf("%s  %s  %s  %s", iconRendered, namePadded, availPadded, modeBadge)
+
+	// Wrap in card container
+	var cardStyle lipgloss.Style
+	if isSelected {
+		cardStyle = agentCardSelectedStyle
+	} else {
+		cardStyle = agentCardStyle
+	}
+
+	// Add cursor indicator
+	var cursor string
+	if isSelected {
+		cursor = cursorArrowStyle.Render(IconChevron + " ")
+	} else {
+		cursor = "  "
+	}
+
+	return cursor + cardStyle.Render(cardContent)
+}
+
+// renderModeBadge returns a styled mode badge for an agent
+func (m SwitchModel) renderModeBadge(agent AgentItem) string {
 	if !agent.Available {
 		// Agent not found or has special status
 		msg := agent.Message
@@ -251,34 +561,45 @@ func (m SwitchModel) formatModeBadge(agent AgentItem) string {
 			msg = "NOT FOUND"
 		}
 		// Truncate long messages
-		if len(msg) > 20 {
-			msg = msg[:17] + "..."
+		if len(msg) > 15 {
+			msg = msg[:12] + "..."
 		}
-		return MutedBadge.Render(strings.ToUpper(msg))
+		return modeBadgeUnavailable.Render(strings.ToUpper(msg))
 	}
 
 	switch agent.Mode {
 	case cmd.ModeProxy:
-		return SuccessBadge.Render("PROXY")
+		// Proxy mode - Green with electric styling
+		return modeBadgeProxy.Render(IconBolt + " PROXY")
 	case cmd.ModeNative:
-		return WarningBadge.Render("NATIVE")
+		// Direct/Native mode - Yellow with clean styling
+		return modeBadgeDirect.Render(IconArrowRight + " DIRECT")
 	default:
-		return MutedBadge.Render("UNKNOWN")
+		return modeBadgeUnavailable.Render("UNKNOWN")
 	}
 }
 
-// renderHelp renders the help footer
-func (m SwitchModel) renderHelp() string {
-	keyStyle := HelpKeyStyle
-	descStyle := HelpDescStyle
-
-	help := []string{
-		keyStyle.Render("[Enter]") + " " + descStyle.Render("Toggle Mode"),
-		keyStyle.Render("[Esc]") + " " + descStyle.Render("Back"),
+// renderNeonHelp renders the help footer with cyberpunk neon styling
+func (m SwitchModel) renderNeonHelp() string {
+	// Build help items using styles from styles.go
+	items := []string{
+		HelpKeyStyle.Copy().Background(BgPanel).Padding(0, 1).Render("Enter") + " " + HelpDescStyle.Render("Toggle Mode"),
+		HelpKeyStyle.Copy().Background(BgPanel).Padding(0, 1).Render("j/k") + " " + HelpDescStyle.Render("Navigate"),
+		HelpKeyStyle.Copy().Background(BgPanel).Padding(0, 1).Render("Esc") + " " + HelpDescStyle.Render("Back"),
 	}
 
-	return HelpStyle.Render(strings.Join(help, "  "))
+	// Separator
+	sepLine := separatorStyle.Render(strings.Repeat("─", 54))
+
+	// Join items with spacing
+	helpLine := strings.Join(items, "    ")
+
+	return sepLine + "\n" + "  " + helpLine
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ENTRY POINT
+// ═══════════════════════════════════════════════════════════════════════════════
 
 // RunSwitchScreen runs the switch screen as a standalone TUI program
 func RunSwitchScreen(cfg *config.Config) error {

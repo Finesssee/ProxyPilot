@@ -13,6 +13,10 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/embedded"
 )
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// SERVER CONTROL PANEL - Cyberpunk Neon Edition
+// ═══════════════════════════════════════════════════════════════════════════════
+
 // ServerMenuOption represents an option in the server control menu
 type ServerMenuOption int
 
@@ -43,6 +47,133 @@ type serverActionResultMsg struct {
 
 // serverTickMsg is sent on each tick for polling server status
 type serverTickMsg time.Time
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CYBERPUNK STYLES - Neon-infused visual components
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var (
+	// Panel title with electric glow
+	serverTitleStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(Cyan).
+				Background(DarkSurface).
+				Padding(0, 2).
+				MarginBottom(1)
+
+	// Main control panel container
+	controlPanelStyle = lipgloss.NewStyle().
+				Border(CyberBorder).
+				BorderForeground(Cyan).
+				Background(DeepBlack).
+				Padding(1, 3).
+				MarginBottom(1)
+
+	// Status panel with neon border
+	statusPanelStyle = lipgloss.NewStyle().
+				Border(SoftBorder).
+				BorderForeground(Violet).
+				Background(DarkSurface).
+				Padding(1, 2).
+				MarginBottom(1)
+
+	// Glowing status indicator - RUNNING
+	runningBadgeStyle = lipgloss.NewStyle().
+				Foreground(DeepBlack).
+				Background(NeonGreen).
+				Bold(true).
+				Padding(0, 2)
+
+	// Glowing status indicator - STOPPED
+	stoppedBadgeStyle = lipgloss.NewStyle().
+				Foreground(TextBright).
+				Background(HotCoral).
+				Bold(true).
+				Padding(0, 2)
+
+	// Action buttons - Normal state
+	actionButtonStyle = lipgloss.NewStyle().
+				Foreground(TextMuted).
+				Padding(0, 1)
+
+	// Action buttons - Selected/Focused
+	actionButtonSelectedStyle = lipgloss.NewStyle().
+					Foreground(DeepBlack).
+					Background(Cyan).
+					Bold(true).
+					Padding(0, 2)
+
+	// Action buttons - Disabled
+	actionButtonDisabledStyle = lipgloss.NewStyle().
+					Foreground(TextDim).
+					Background(Surface).
+					Padding(0, 1)
+
+	// Cursor arrow with magenta glow
+	cursorActiveStyle = lipgloss.NewStyle().
+				Foreground(Magenta).
+				Bold(true)
+
+	// Data labels
+	labelStyle = lipgloss.NewStyle().
+			Foreground(TextMuted).
+			Width(14)
+
+	// Data values with cyan highlight
+	valueStyle = lipgloss.NewStyle().
+			Foreground(Cyan).
+			Bold(true)
+
+	// Success message style
+	successMsgStyle = lipgloss.NewStyle().
+			Foreground(NeonGreen).
+			Bold(true)
+
+	// Error message style
+	errorMsgStyle = lipgloss.NewStyle().
+			Foreground(HotCoral).
+			Bold(true)
+
+	// Warning message style
+	warningMsgStyle = lipgloss.NewStyle().
+			Foreground(Amber).
+			Bold(true)
+
+	// Info/uptime style
+	infoValueStyle = lipgloss.NewStyle().
+			Foreground(ElecBlue)
+
+	// Muted path/config style
+	pathStyle = lipgloss.NewStyle().
+			Foreground(TextDim).
+			Italic(true)
+
+	// Section header
+	sectionHeaderStyle = lipgloss.NewStyle().
+				Foreground(Violet).
+				Bold(true).
+				MarginTop(1).
+				MarginBottom(1)
+
+	// Help key highlight
+	helpKeyNeonStyle = lipgloss.NewStyle().
+				Foreground(Cyan).
+				Background(Surface).
+				Bold(true).
+				Padding(0, 1)
+
+	// Help description
+	helpDescNeonStyle = lipgloss.NewStyle().
+				Foreground(TextDim)
+
+	// Spinner with cyan glow
+	neonSpinnerStyle = lipgloss.NewStyle().
+				Foreground(Cyan)
+
+	// Decorative divider
+	dividerStyle = lipgloss.NewStyle().
+			Foreground(BorderDim)
+)
 
 // ServerModel represents the server control screen state
 type ServerModel struct {
@@ -98,8 +229,8 @@ func DefaultServerKeyMap() ServerKeyMap {
 // NewServerModel creates a new server control model
 func NewServerModel(configPath, password string) ServerModel {
 	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = SpinnerStyle
+	s.Spinner = spinner.Points
+	s.Style = neonSpinnerStyle
 
 	return ServerModel{
 		status: ServerControlStatus{
@@ -191,15 +322,15 @@ func (m ServerModel) Update(msg tea.Msg) (ServerModel, tea.Cmd) {
 	case serverActionResultMsg:
 		m.loading = false
 		if msg.success {
-			m.message = fmt.Sprintf("Server %s successfully", msg.action)
-			m.msgStyle = lipgloss.NewStyle().Foreground(SuccessColor)
+			m.message = fmt.Sprintf("%s Server %s successfully", IconCheck, msg.action)
+			m.msgStyle = successMsgStyle
 		} else {
 			errMsg := "unknown error"
 			if msg.err != nil {
 				errMsg = msg.err.Error()
 			}
-			m.message = fmt.Sprintf("Failed to %s server: %s", msg.action, errMsg)
-			m.msgStyle = lipgloss.NewStyle().Foreground(ErrorColor)
+			m.message = fmt.Sprintf("%s Failed to %s server: %s", IconCross, msg.action, errMsg)
+			m.msgStyle = errorMsgStyle
 		}
 		// Refresh status after action
 		cmds = append(cmds, m.pollServerStatus())
@@ -239,8 +370,8 @@ func (m ServerModel) handleSelection() (ServerModel, tea.Cmd) {
 			m.message = ""
 			return m, tea.Batch(m.spinner.Tick, m.startServer())
 		} else {
-			m.message = "Server is already running"
-			m.msgStyle = lipgloss.NewStyle().Foreground(WarningColor)
+			m.message = fmt.Sprintf("%s Server is already running", IconWarning)
+			m.msgStyle = warningMsgStyle
 		}
 
 	case ServerMenuOptionStop:
@@ -249,8 +380,8 @@ func (m ServerModel) handleSelection() (ServerModel, tea.Cmd) {
 			m.message = ""
 			return m, tea.Batch(m.spinner.Tick, m.stopServer())
 		} else {
-			m.message = "Server is not running"
-			m.msgStyle = lipgloss.NewStyle().Foreground(WarningColor)
+			m.message = fmt.Sprintf("%s Server is not running", IconWarning)
+			m.msgStyle = warningMsgStyle
 		}
 
 	case ServerMenuOptionBack:
@@ -301,140 +432,254 @@ func (m ServerModel) IsBackSelected() bool {
 func (m ServerModel) View() string {
 	var b strings.Builder
 
-	// Title
-	title := TitleStyle.Render("Server Control")
+	// ═══════════════════════════════════════════════════════════════════════
+	// HEADER - Cyberpunk title with neon glow
+	// ═══════════════════════════════════════════════════════════════════════
+	title := m.renderHeader()
 	b.WriteString(title)
-	b.WriteString("\n")
-
-	// Divider
-	dividerWidth := lipgloss.Width(title)
-	if dividerWidth < 20 {
-		dividerWidth = 20
-	}
-	b.WriteString(Dim(strings.Repeat("-", dividerWidth)))
 	b.WriteString("\n\n")
 
-	// Status panel
+	// ═══════════════════════════════════════════════════════════════════════
+	// STATUS PANEL - Server status with glowing indicators
+	// ═══════════════════════════════════════════════════════════════════════
 	statusPanel := m.renderStatusPanel()
 	b.WriteString(statusPanel)
 	b.WriteString("\n\n")
 
-	// Options menu
-	b.WriteString(Bold("Options"))
-	b.WriteString("\n")
-	b.WriteString(Dim(strings.Repeat("-", 10)))
-	b.WriteString("\n")
+	// ═══════════════════════════════════════════════════════════════════════
+	// ACTION BUTTONS - Neon-styled control options
+	// ═══════════════════════════════════════════════════════════════════════
+	actionsPanel := m.renderActionsPanel()
+	b.WriteString(actionsPanel)
 
-	for i, opt := range m.options {
-		cursor := "  "
-		style := MenuItemStyle
-
-		if i == m.cursor {
-			cursor = Primary("> ")
-			style = SelectedItemStyle
-		}
-
-		// Disable start option if running, disable stop if not running
-		optText := opt
-		if i == int(ServerMenuOptionStart) && m.status.Running {
-			style = DisabledItemStyle
-			optText = opt + " (running)"
-		} else if i == int(ServerMenuOptionStop) && !m.status.Running {
-			style = DisabledItemStyle
-			optText = opt + " (stopped)"
-		}
-
-		b.WriteString(cursor)
-		b.WriteString(style.Render(optText))
-		b.WriteString("\n")
-	}
-
-	// Loading indicator
+	// ═══════════════════════════════════════════════════════════════════════
+	// FEEDBACK - Loading/Status messages
+	// ═══════════════════════════════════════════════════════════════════════
 	if m.loading {
-		b.WriteString("\n")
-		b.WriteString(m.spinner.View())
-		b.WriteString(" Processing...")
+		b.WriteString("\n\n")
+		loadingText := fmt.Sprintf("  %s %s", m.spinner.View(), lipgloss.NewStyle().Foreground(Cyan).Render("Processing..."))
+		b.WriteString(loadingText)
 	}
 
-	// Status message
 	if m.message != "" && !m.loading {
-		b.WriteString("\n")
-		b.WriteString(m.msgStyle.Render(m.message))
+		b.WriteString("\n\n")
+		b.WriteString("  " + m.msgStyle.Render(m.message))
 	}
 
-	// Help text
+	// ═══════════════════════════════════════════════════════════════════════
+	// HELP BAR - Keyboard shortcuts
+	// ═══════════════════════════════════════════════════════════════════════
 	b.WriteString("\n\n")
-	help := m.renderHelp()
-	b.WriteString(HelpStyle.Render(help))
+	help := m.renderHelpBar()
+	b.WriteString(help)
 
-	return BoxStyle.Render(b.String())
+	return controlPanelStyle.Render(b.String())
 }
 
-// renderStatusPanel renders the server status information panel
+// renderHeader renders the cyberpunk header with decorative elements
+func (m ServerModel) renderHeader() string {
+	// Create decorative line
+	decorLine := lipgloss.NewStyle().Foreground(Violet).Render("━━━")
+
+	// Main title with glow effect
+	titleText := lipgloss.NewStyle().
+		Foreground(Cyan).
+		Bold(true).
+		Render(" SERVER CONTROL ")
+
+	// Accent decorations
+	leftDecor := lipgloss.NewStyle().Foreground(Magenta).Bold(true).Render("[ ")
+	rightDecor := lipgloss.NewStyle().Foreground(Magenta).Bold(true).Render(" ]")
+
+	header := decorLine + leftDecor + titleText + rightDecor + decorLine
+
+	// Subtitle
+	subtitle := lipgloss.NewStyle().
+		Foreground(TextDim).
+		Render("ProxyPilot Control Panel")
+
+	return header + "\n" + lipgloss.NewStyle().MarginLeft(4).Render(subtitle)
+}
+
+// renderStatusPanel renders the server status information panel with neon styling
 func (m ServerModel) renderStatusPanel() string {
 	var b strings.Builder
 
-	// Status header
-	b.WriteString(Bold("Server Status"))
+	// Section header with icon
+	sectionIcon := lipgloss.NewStyle().Foreground(ElecBlue).Render(IconServer)
+	sectionTitle := lipgloss.NewStyle().Foreground(Violet).Bold(true).Render(" STATUS MONITOR")
+	b.WriteString(sectionIcon + sectionTitle)
 	b.WriteString("\n")
-	b.WriteString(Dim(strings.Repeat("-", 15)))
+	b.WriteString(dividerStyle.Render(strings.Repeat("─", 40)))
 	b.WriteString("\n\n")
 
-	// Running status with badge
-	b.WriteString("  Status:      ")
+	// Status indicator with glowing badge
+	b.WriteString(labelStyle.Render("  Status"))
+	b.WriteString(lipgloss.NewStyle().Foreground(TextDim).Render(": "))
 	if m.status.Running {
-		b.WriteString(SuccessBadge.Render(" RUNNING "))
+		statusIcon := lipgloss.NewStyle().Foreground(NeonGreen).Render(IconOnline + " ")
+		b.WriteString(statusIcon)
+		b.WriteString(runningBadgeStyle.Render(" RUNNING "))
 	} else {
-		b.WriteString(ErrorBadge.Render(" STOPPED "))
+		statusIcon := lipgloss.NewStyle().Foreground(HotCoral).Render(IconOffline + " ")
+		b.WriteString(statusIcon)
+		b.WriteString(stoppedBadgeStyle.Render(" STOPPED "))
 	}
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 
-	// Port number
-	b.WriteString("  Port:        ")
-	b.WriteString(Primary(fmt.Sprintf("%d", m.status.Port)))
-	b.WriteString("\n")
+	// Port number with cyan highlight
+	b.WriteString(labelStyle.Render("  Port"))
+	b.WriteString(lipgloss.NewStyle().Foreground(TextDim).Render(": "))
+	portValue := fmt.Sprintf(":%d", m.status.Port)
+	b.WriteString(valueStyle.Render(portValue))
+	b.WriteString("\n\n")
+
+	// Endpoint display
+	b.WriteString(labelStyle.Render("  Endpoint"))
+	b.WriteString(lipgloss.NewStyle().Foreground(TextDim).Render(": "))
+	endpoint := fmt.Sprintf("http://localhost%s", portValue)
+	endpointStyle := lipgloss.NewStyle().Foreground(Cyan).Underline(true)
+	b.WriteString(endpointStyle.Render(endpoint))
+	b.WriteString("\n\n")
 
 	// Connected clients
-	b.WriteString("  Clients:     ")
-	clientsStr := fmt.Sprintf("%d connected", m.status.ConnectedCount)
+	b.WriteString(labelStyle.Render("  Clients"))
+	b.WriteString(lipgloss.NewStyle().Foreground(TextDim).Render(": "))
 	if m.status.ConnectedCount > 0 {
-		b.WriteString(Success(clientsStr))
+		clientStr := fmt.Sprintf("%d connected", m.status.ConnectedCount)
+		b.WriteString(lipgloss.NewStyle().Foreground(NeonGreen).Bold(true).Render(clientStr))
 	} else {
-		b.WriteString(Muted(clientsStr))
+		b.WriteString(lipgloss.NewStyle().Foreground(TextMuted).Render("0 connected"))
 	}
 	b.WriteString("\n")
 
 	// Uptime (if running)
 	if m.status.Running && !m.status.StartedAt.IsZero() {
 		uptime := time.Since(m.status.StartedAt)
-		b.WriteString("  Uptime:      ")
-		b.WriteString(Info(formatServerUptime(uptime)))
 		b.WriteString("\n")
+		b.WriteString(labelStyle.Render("  Uptime"))
+		b.WriteString(lipgloss.NewStyle().Foreground(TextDim).Render(": "))
+		b.WriteString(infoValueStyle.Render(formatServerUptime(uptime)))
 	}
 
 	// Config path
 	if m.status.ConfigPath != "" {
-		b.WriteString("  Config:      ")
+		b.WriteString("\n\n")
+		b.WriteString(labelStyle.Render("  Config"))
+		b.WriteString(lipgloss.NewStyle().Foreground(TextDim).Render(": "))
 		configDisplay := m.status.ConfigPath
-		if len(configDisplay) > 40 {
-			configDisplay = "..." + configDisplay[len(configDisplay)-37:]
+		if len(configDisplay) > 35 {
+			configDisplay = "..." + configDisplay[len(configDisplay)-32:]
 		}
-		b.WriteString(Muted(configDisplay))
+		b.WriteString(pathStyle.Render(configDisplay))
+	}
+
+	return statusPanelStyle.Render(b.String())
+}
+
+// renderActionsPanel renders the action buttons with neon styling
+func (m ServerModel) renderActionsPanel() string {
+	var b strings.Builder
+
+	// Section header
+	sectionIcon := lipgloss.NewStyle().Foreground(Magenta).Render(IconTerminal)
+	sectionTitle := lipgloss.NewStyle().Foreground(Violet).Bold(true).Render(" ACTIONS")
+	b.WriteString(sectionIcon + sectionTitle)
+	b.WriteString("\n")
+	b.WriteString(dividerStyle.Render(strings.Repeat("─", 40)))
+	b.WriteString("\n\n")
+
+	// Button icons
+	buttonIcons := []string{IconBolt, IconSquare, IconArrowLeft}
+
+	for i, opt := range m.options {
+		isSelected := i == m.cursor
+		isDisabled := false
+		displayText := opt
+
+		// Determine if option is disabled
+		if i == int(ServerMenuOptionStart) && m.status.Running {
+			isDisabled = true
+			displayText = opt + " (running)"
+		} else if i == int(ServerMenuOptionStop) && !m.status.Running {
+			isDisabled = true
+			displayText = opt + " (stopped)"
+		}
+
+		// Render cursor
+		if isSelected {
+			cursor := cursorActiveStyle.Render(IconChevron + " ")
+			b.WriteString("  " + cursor)
+		} else {
+			b.WriteString("    ")
+		}
+
+		// Render button icon
+		icon := buttonIcons[i]
+		if isSelected && !isDisabled {
+			iconStyle := lipgloss.NewStyle().Foreground(Cyan).Bold(true)
+			b.WriteString(iconStyle.Render(icon) + " ")
+		} else if isDisabled {
+			iconStyle := lipgloss.NewStyle().Foreground(TextDim)
+			b.WriteString(iconStyle.Render(icon) + " ")
+		} else {
+			iconStyle := lipgloss.NewStyle().Foreground(TextMuted)
+			b.WriteString(iconStyle.Render(icon) + " ")
+		}
+
+		// Render button text
+		var buttonStyle lipgloss.Style
+		if isDisabled {
+			buttonStyle = actionButtonDisabledStyle
+		} else if isSelected {
+			buttonStyle = actionButtonSelectedStyle
+		} else {
+			buttonStyle = actionButtonStyle
+		}
+
+		b.WriteString(buttonStyle.Render(displayText))
 		b.WriteString("\n")
 	}
 
-	return RoundedBorder.Render(b.String())
+	return b.String()
 }
 
-// renderHelp renders the help text
-func (m ServerModel) renderHelp() string {
-	parts := []string{
-		HelpKeyStyle.Render("^/v") + HelpDescStyle.Render(": navigate"),
-		HelpKeyStyle.Render("enter") + HelpDescStyle.Render(": select"),
-		HelpKeyStyle.Render("esc/b") + HelpDescStyle.Render(": back"),
-		HelpKeyStyle.Render("q") + HelpDescStyle.Render(": quit"),
-	}
-	return strings.Join(parts, "  ")
+// renderHelpBar renders the help text with neon styling
+func (m ServerModel) renderHelpBar() string {
+	var parts []string
+
+	// Navigation keys
+	navKey := helpKeyNeonStyle.Render("^/v")
+	navDesc := helpDescNeonStyle.Render(" navigate")
+	parts = append(parts, navKey+navDesc)
+
+	// Select key
+	selKey := helpKeyNeonStyle.Render("Enter")
+	selDesc := helpDescNeonStyle.Render(" select")
+	parts = append(parts, selKey+selDesc)
+
+	// Back key
+	backKey := helpKeyNeonStyle.Render("Esc")
+	backDesc := helpDescNeonStyle.Render(" back")
+	parts = append(parts, backKey+backDesc)
+
+	// Quit key
+	quitKey := helpKeyNeonStyle.Render("q")
+	quitDesc := helpDescNeonStyle.Render(" quit")
+	parts = append(parts, quitKey+quitDesc)
+
+	// Join with separator
+	separator := lipgloss.NewStyle().Foreground(BorderDim).Render(" | ")
+	helpLine := strings.Join(parts, separator)
+
+	// Wrap in subtle container
+	return lipgloss.NewStyle().
+		Foreground(TextDim).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderTop(true).
+		BorderForeground(BorderDim).
+		PaddingTop(1).
+		Render(helpLine)
 }
 
 // formatServerUptime formats a duration in a human-readable way
@@ -454,6 +699,10 @@ func formatServerUptime(d time.Duration) string {
 	hours = hours % 24
 	return fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SERVER SCREEN - Standalone wrapper for the server control panel
+// ═══════════════════════════════════════════════════════════════════════════════
 
 // ServerScreen wraps ServerModel to implement tea.Model for standalone use
 type ServerScreen struct {
@@ -503,7 +752,12 @@ func (s ServerScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View renders the server screen
 func (s ServerScreen) View() string {
 	if s.quitting {
-		return "Goodbye!\n"
+		// Styled goodbye message
+		goodbye := lipgloss.NewStyle().
+			Foreground(Cyan).
+			Bold(true).
+			Render("Goodbye!")
+		return goodbye + "\n"
 	}
 	return s.model.View()
 }

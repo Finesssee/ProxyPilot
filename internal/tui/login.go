@@ -13,6 +13,32 @@ import (
 	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 )
 
+// Provider brand colors are defined in styles.go
+
+// getProviderColor returns the brand color for a provider
+func getProviderColor(providerID string) lipgloss.Color {
+	switch providerID {
+	case "claude":
+		return ClaudeBrand
+	case "codex":
+		return CodexBrand
+	case "gemini":
+		return GeminiBrand
+	case "kiro":
+		return KiroBrand
+	case "qwen":
+		return QwenBrand
+	case "antigravity":
+		return AntigravityBrand
+	case "minimax":
+		return MiniMaxBrand
+	case "zhipu":
+		return ZhipuBrand
+	default:
+		return Cyan
+	}
+}
+
 // ProviderInfo holds display information for a provider
 type ProviderInfo struct {
 	ID            string
@@ -244,82 +270,247 @@ func (m LoginModel) startLogin(providerID string) tea.Cmd {
 	}
 }
 
-// View renders the login screen
+// ═══════════════════════════════════════════════════════════════════════════════
+// VIEW RENDERING - Returns content only (no outer borders)
+// The main TUI wraps this in a bordered panel
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// View renders the login screen content
 func (m LoginModel) View() string {
+	return m.ViewWithSize(m.width, m.height)
+}
+
+// ViewWithSize renders with explicit dimensions for responsive layout
+func (m LoginModel) ViewWithSize(width, height int) string {
 	var b strings.Builder
 
-	// Title
-	b.WriteString(TitleStyle.Render("Provider Login"))
-	b.WriteString("\n")
+	// Section title (compact)
+	title := lipgloss.NewStyle().
+		Foreground(Accent).
+		Bold(true).
+		Render("Provider Authentication")
+	subtitle := lipgloss.NewStyle().
+		Foreground(TextMuted).
+		Render(" - Connect via OAuth")
+	b.WriteString(title + subtitle + "\n\n")
 
-	// Divider
-	b.WriteString(lipgloss.NewStyle().Foreground(BorderColor).Render(strings.Repeat("\u2500", 40)))
-	b.WriteString("\n\n")
-
+	// Loading state
 	if m.loading {
-		b.WriteString(SpinnerStyle.Render("Loading authentication status..."))
-		b.WriteString("\n")
-	} else if m.loggingIn {
-		b.WriteString(SpinnerStyle.Render(fmt.Sprintf("Logging in to %s...", m.loginProvider)))
-		b.WriteString("\n")
-		b.WriteString(Muted("Please complete authentication in your browser."))
-		b.WriteString("\n")
-	} else {
-		// Provider list
-		for i, provider := range m.providers {
-			var line string
-			cursor := "  "
-			if i == m.cursor {
-				cursor = "> "
-			}
-
-			// Provider name
-			name := provider.Name
-
-			// Status indicator
-			var status string
-			if provider.Authenticated {
-				statusText := "Authenticated"
-				if provider.Email != "" {
-					statusText = provider.Email
-				}
-				status = Success(fmt.Sprintf("[%s %s]", "\u2713", statusText))
-			} else {
-				status = Error(fmt.Sprintf("[%s Not logged in]", "\u2717"))
-			}
-
-			// Pad the name for alignment
-			paddedName := fmt.Sprintf("%-15s", name)
-
-			if i == m.cursor {
-				line = CursorStyle.Render(cursor) + Primary(paddedName) + " " + status
-			} else {
-				line = Dim(cursor) + paddedName + " " + status
-			}
-
-			b.WriteString(line)
-			b.WriteString("\n")
-		}
+		b.WriteString(lipgloss.NewStyle().Foreground(Accent).Render("◐") + " ")
+		b.WriteString(lipgloss.NewStyle().Foreground(TextMuted).Render("Scanning authentication status..."))
+		return b.String()
 	}
 
-	// Message area
+	// Logging in state
+	if m.loggingIn {
+		providerColor := getProviderColor(m.loginProvider)
+		b.WriteString(lipgloss.NewStyle().Foreground(providerColor).Bold(true).Render("◐") + " ")
+		b.WriteString(lipgloss.NewStyle().Foreground(Text).Render(fmt.Sprintf("Authenticating with %s...", m.loginProvider)))
+		b.WriteString("\n")
+		b.WriteString(lipgloss.NewStyle().Foreground(TextMuted).Render("Complete authentication in your browser"))
+		return b.String()
+	}
+
+	// Calculate visible rows based on height
+	maxRows := height - 5
+	if maxRows < 4 {
+		maxRows = 4
+	}
+	if maxRows > len(m.providers) {
+		maxRows = len(m.providers)
+	}
+
+	// Provider list - responsive rows
+	for i := 0; i < maxRows; i++ {
+		if i >= len(m.providers) {
+			break
+		}
+		provider := m.providers[i]
+		isSelected := i == m.cursor
+		row := m.renderProviderRowWithWidth(provider, isSelected, width)
+		b.WriteString(row + "\n")
+	}
+
+	// Status message
 	if m.message != "" {
 		b.WriteString("\n")
 		if m.messageIsError {
-			b.WriteString(Error(m.message))
+			b.WriteString(lipgloss.NewStyle().Foreground(Red).Render(IconCross + " " + m.message))
 		} else {
-			b.WriteString(Success(m.message))
+			b.WriteString(lipgloss.NewStyle().Foreground(Green).Render(IconCheck + " " + m.message))
 		}
-		b.WriteString("\n")
 	}
-
-	// Help text
-	b.WriteString("\n")
-	helpText := "[Enter] Login  [r] Refresh  [Esc] Back  [q] Quit"
-	b.WriteString(HelpStyle.Render(helpText))
 
 	return b.String()
 }
+
+// renderProviderRow creates a simple row for the provider list
+func (m LoginModel) renderProviderRow(provider ProviderInfo, isSelected bool) string {
+	return m.renderProviderRowWithWidth(provider, isSelected, m.width)
+}
+
+// renderProviderRowWithWidth creates a row that adapts to available width
+func (m LoginModel) renderProviderRowWithWidth(provider ProviderInfo, isSelected bool, width int) string {
+	providerColor := getProviderColor(provider.ID)
+
+	// Cursor indicator
+	var cursor string
+	if isSelected {
+		cursor = lipgloss.NewStyle().Foreground(Accent).Bold(true).Render(IconChevron + " ")
+	} else {
+		cursor = "  "
+	}
+
+	// Calculate responsive widths based on available space
+	nameWidth := 12
+	if width > 60 {
+		nameWidth = 16
+	}
+	if width > 80 {
+		nameWidth = 18
+	}
+
+	// Provider name
+	var nameStyle lipgloss.Style
+	if isSelected {
+		nameStyle = lipgloss.NewStyle().Foreground(providerColor).Bold(true).Width(nameWidth)
+	} else {
+		nameStyle = lipgloss.NewStyle().Foreground(Text).Width(nameWidth)
+	}
+	name := nameStyle.Render(provider.Name)
+
+	// Status badge - use shorter text on narrow terminals
+	var status string
+	if provider.Authenticated {
+		if width > 50 {
+			status = lipgloss.NewStyle().
+				Foreground(BgDark).
+				Background(Green).
+				Bold(true).
+				Padding(0, 1).
+				Render(IconOnline + " CONNECTED")
+		} else {
+			status = lipgloss.NewStyle().
+				Foreground(BgDark).
+				Background(Green).
+				Bold(true).
+				Padding(0, 1).
+				Render(IconOnline)
+		}
+	} else {
+		if width > 50 {
+			status = lipgloss.NewStyle().
+				Foreground(BgDark).
+				Background(Red).
+				Bold(true).
+				Padding(0, 1).
+				Render(IconOffline + " DISCONNECTED")
+		} else {
+			status = lipgloss.NewStyle().
+				Foreground(BgDark).
+				Background(Red).
+				Bold(true).
+				Padding(0, 1).
+				Render(IconOffline)
+		}
+	}
+
+	// Email info - only show on wider terminals
+	var emailInfo string
+	if width > 70 && provider.Authenticated && provider.Email != "" {
+		// Truncate email if terminal is not wide enough
+		email := provider.Email
+		maxEmailLen := width - nameWidth - 30 // Reserve space for cursor, name, status
+		if maxEmailLen < 10 {
+			maxEmailLen = 10
+		}
+		if len(email) > maxEmailLen {
+			email = email[:maxEmailLen-3] + "..."
+		}
+		emailInfo = lipgloss.NewStyle().Foreground(TextMuted).Render(" " + email)
+	}
+
+	// Compose row
+	row := cursor + name + status + emailInfo
+
+	// Selection highlight
+	if isSelected {
+		row = lipgloss.NewStyle().Background(BgSelected).Render(row)
+	}
+
+	return row
+}
+
+// renderStatusBadge creates a styled status badge for auth state
+func (m LoginModel) renderStatusBadge(provider ProviderInfo) string {
+	if provider.Authenticated {
+		// Connected badge - NeonGreen with filled circle
+		return lipgloss.NewStyle().
+			Foreground(DeepBlack).
+			Background(NeonGreen).
+			Bold(true).
+			Padding(0, 1).
+			Render(IconOnline + " CONNECTED")
+	}
+
+	// Disconnected badge - HotCoral with hollow circle
+	return lipgloss.NewStyle().
+		Foreground(TextBright).
+		Background(HotCoral).
+		Bold(true).
+		Padding(0, 1).
+		Render(IconOffline + " DISCONNECTED")
+}
+
+// renderKeyInfo displays masked key or email info
+func (m LoginModel) renderKeyInfo(provider ProviderInfo) string {
+	keyStyle := lipgloss.NewStyle().Foreground(TextDim)
+	valueStyle := lipgloss.NewStyle().Foreground(TextMuted)
+
+	if provider.Email != "" {
+		// Show email
+		return keyStyle.Render("Email: ") + valueStyle.Render(provider.Email)
+	}
+
+	// Show masked key placeholder
+	maskedKey := "****-****-****-" + lipgloss.NewStyle().Foreground(Cyan).Render("****")
+	return keyStyle.Render("Token: ") + maskedKey
+}
+
+// renderActionHints creates the keyboard shortcut hints
+func (m LoginModel) renderActionHints() string {
+	keyStyle := lipgloss.NewStyle().
+		Foreground(Violet).
+		Background(Surface).
+		Bold(true).
+		Padding(0, 1)
+
+	descStyle := lipgloss.NewStyle().
+		Foreground(TextDim)
+
+	separator := lipgloss.NewStyle().Foreground(BorderDim).Render("  ")
+
+	hints := []struct {
+		key  string
+		desc string
+	}{
+		{"Enter", "Login"},
+		{"r", "Refresh"},
+		{"Esc", "Back"},
+		{"q", "Quit"},
+	}
+
+	var parts []string
+	for _, hint := range hints {
+		parts = append(parts, keyStyle.Render(hint.key)+descStyle.Render(" "+hint.desc))
+	}
+
+	return strings.Join(parts, separator)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PUBLIC ACCESSOR METHODS
+// ═══════════════════════════════════════════════════════════════════════════════
 
 // GetSelectedProvider returns the currently selected provider ID
 func (m LoginModel) GetSelectedProvider() string {

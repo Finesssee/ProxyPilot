@@ -368,23 +368,7 @@ func FormatDuration(d time.Duration) string {
 	return fmt.Sprintf("%ds", seconds)
 }
 
-// FormatCount formats a count with appropriate suffix (K, M, B).
-// Examples: "1,234", "12.3K", "1.5M"
-func FormatCount(n int64) string {
-	if n < 1000 {
-		return fmt.Sprintf("%d", n)
-	}
-
-	if n < 1000000 {
-		return fmt.Sprintf("%.1fK", float64(n)/1000)
-	}
-
-	if n < 1000000000 {
-		return fmt.Sprintf("%.1fM", float64(n)/1000000)
-	}
-
-	return fmt.Sprintf("%.1fB", float64(n)/1000000000)
-}
+// FormatCount is defined in styles.go - removed duplicate
 
 // FormatCountWithCommas formats a count with comma separators.
 // Examples: "1,234", "1,234,567"
