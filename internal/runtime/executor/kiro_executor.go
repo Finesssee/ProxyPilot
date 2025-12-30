@@ -3301,8 +3301,29 @@ func (e *KiroExecutor) isTokenExpired(accessToken string) bool {
 // NOTE: Tool calling support functions moved to internal/translator/kiro/claude/kiro_claude_tools.go
 // The executor now uses kiroclaude.* and kirocommon.* functions instead
 
-// Embed is a stub implementation for the ProviderExecutor interface.
-// Kiro does not currently support embeddings.
+// Embed returns an error because AWS CodeWhisperer/Amazon Q Developer does not provide
+// an embeddings API.
+//
+// Background:
+//   - The Kiro executor uses AWS CodeWhisperer (AmazonCodeWhispererStreamingService) and
+//     Amazon Q Developer (AmazonQDeveloperStreamingService) APIs for chat/code generation.
+//   - These services only expose GenerateAssistantResponse and SendMessage endpoints.
+//   - Text embeddings in AWS are provided through Amazon Bedrock (e.g., Amazon Titan
+//     Embeddings models), which requires separate AWS IAM authentication - not the OAuth
+//     tokens used by CodeWhisperer/Amazon Q.
+//
+// Alternatives for embeddings:
+//   - Use the Ollama executor with a local embedding model (e.g., nomic-embed-text,
+//     embeddinggemma) - this is the default for semantic memory in CLIProxyAPI.
+//   - Use the Gemini executor with text-embedding models if you have a Gemini API key.
+//   - Use the OpenAI-compatible executor with any OpenAI-compatible embeddings endpoint.
+//
+// The handler layer (sdk/api/handlers/openai/openai_embeddings_handlers.go) provides a
+// fallback that generates deterministic synthetic embeddings when real embeddings are
+// not available, keeping IDE features functional.
 func (e *KiroExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	return cliproxyexecutor.Response{}, cliproxyexecutor.ErrNotImplemented
+	return cliproxyexecutor.Response{}, statusErr{
+		code: http.StatusNotImplemented,
+		msg:  "embeddings not supported: AWS CodeWhisperer/Amazon Q Developer does not provide an embeddings API; use Ollama, Gemini, or OpenAI-compatible provider for embeddings",
+	}
 }
