@@ -201,6 +201,8 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	// Add middleware
 	engine.Use(logging.GinLogrusLogger())
 	engine.Use(logging.GinLogrusRecovery())
+	engine.Use(middleware.ConnectionTrackerMiddleware())
+	engine.Use(middleware.PrometheusMiddleware())
 	for _, mw := range optionState.extraMiddleware {
 		engine.Use(mw)
 	}
@@ -354,6 +356,9 @@ func (s *Server) setupRoutes() {
 	s.engine.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "port": s.cfg.Port})
 	})
+
+	// Prometheus metrics endpoint for observability
+	s.engine.GET("/metrics", middleware.MetricsHandler())
 
 	// Root-level API routes (mirrors /v1/* for clients that dont add /v1 prefix)
 	s.engine.GET("/models", AuthMiddleware(s.accessManager), s.unifiedModelsHandler(openaiHandlers, claudeCodeHandlers))
