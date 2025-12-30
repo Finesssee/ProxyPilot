@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/embedded"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -45,6 +46,9 @@ type Model struct {
 	quitting      bool
 	ready         bool
 	serverOn      bool
+	serverLoading bool
+	serverMessage string
+	serverMsgErr  bool
 	cfg           *config.Config
 	host          string
 	port          int
@@ -60,10 +64,48 @@ type Model struct {
 
 type TickMsg time.Time
 
+// serverStartResultMsg is sent when the server start operation completes
+type serverStartResultMsg struct {
+	success bool
+	err     error
+}
+
+// serverStopResultMsg is sent when the server stop operation completes
+type serverStopResultMsg struct {
+	success bool
+	err     error
+}
+
 func doTick() tea.Cmd {
 	return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
 		return TickMsg(t)
 	})
+}
+
+// startServerCmd returns a command that starts the embedded server
+func (m Model) startServerCmd() tea.Cmd {
+	return func() tea.Msg {
+		configPath := "config.yaml"
+		if existing := embedded.GlobalServer().ConfigPath(); existing != "" {
+			configPath = existing
+		}
+		err := embedded.StartGlobal(configPath, "")
+		return serverStartResultMsg{
+			success: err == nil,
+			err:     err,
+		}
+	}
+}
+
+// stopServerCmd returns a command that stops the embedded server
+func (m Model) stopServerCmd() tea.Cmd {
+	return func() tea.Msg {
+		err := embedded.StopGlobal()
+		return serverStopResultMsg{
+			success: err == nil,
+			err:     err,
+		}
+	}
 }
 
 func NewModel(cfg *config.Config, host string, port int) Model {
@@ -124,6 +166,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, doTick()
 
+	case serverStartResultMsg:
+		m.serverLoading = false
+		if msg.success {
+			m.serverOn = true
+			m.serverMessage = "Server started successfully"
+			m.serverMsgErr = false
+		} else {
+			errMsg := "unknown error"
+			if msg.err != nil {
+				errMsg = msg.err.Error()
+			}
+			m.serverMessage = "Failed to start: " + errMsg
+			m.serverMsgErr = true
+		}
+		// Refresh status after action
+		status := CheckServerRunning(m.host, m.port)
+		m.serverOn = status.Running
+		return m, nil
+
+	case serverStopResultMsg:
+		m.serverLoading = false
+		if msg.success {
+			m.serverOn = false
+			m.serverMessage = "Server stopped successfully"
+			m.serverMsgErr = false
+		} else {
+			errMsg := "unknown error"
+			if msg.err != nil {
+				errMsg = msg.err.Error()
+			}
+			m.serverMessage = "Failed to stop: " + errMsg
+			m.serverMsgErr = true
+		}
+		// Refresh status after action
+		status := CheckServerRunning(m.host, m.port)
+		m.serverOn = status.Running
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -140,16 +220,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if idx >= 0 && idx < len(m.menu) {
 				m.cursor = idx
 				m.screen = m.menu[idx].Screen
+				m.serverMessage = "" // Clear message when switching screens
 			}
 		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-				m.screen = m.menu[m.cursor].Screen
+			// Only handle sidebar navigation for screens without internal navigation
+			if m.screen != ScreenMappings && m.screen != ScreenLogs {
+				if m.cursor > 0 {
+					m.cursor--
+					m.screen = m.menu[m.cursor].Screen
+				}
 			}
 		case "down", "j":
-			if m.cursor < len(m.menu)-1 {
-				m.cursor++
-				m.screen = m.menu[m.cursor].Screen
+			// Only handle sidebar navigation for screens without internal navigation
+			if m.screen != ScreenMappings && m.screen != ScreenLogs {
+				if m.cursor < len(m.menu)-1 {
+					m.cursor++
+					m.screen = m.menu[m.cursor].Screen
+				}
 			}
 		case "esc":
 			m.screen = ScreenDashboard
@@ -157,6 +244,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			status := CheckServerRunning(m.host, m.port)
 			m.serverOn = status.Running
+			m.serverMessage = ""
+		case "s":
+			// Start server (only on Server screen)
+			if m.screen == ScreenServer && !m.serverLoading {
+				if m.serverOn {
+					m.serverMessage = "Server is already running"
+					m.serverMsgErr = false
+				} else {
+					m.serverLoading = true
+					m.serverMessage = ""
+					return m, m.startServerCmd()
+				}
+			}
+		case "x":
+			// Stop server (only on Server screen)
+			if m.screen == ScreenServer && !m.serverLoading {
+				if !m.serverOn {
+					m.serverMessage = "Server is not running"
+					m.serverMsgErr = false
+				} else {
+					m.serverLoading = true
+					m.serverMessage = ""
+					return m, m.stopServerCmd()
+				}
+			}
 		}
 	}
 
@@ -222,16 +334,18 @@ func (m Model) View() string {
 	}
 	mainHeight := m.height - 4
 
-	// Render components
-	header := m.renderHeader()
-	sidebar := m.renderSidebar(sidebarWidth, mainHeight-2)
-	content := m.renderContentView(contentWidth, mainHeight-2)
+	// Render components (header disabled due to ttyd rendering bug)
+	sidebar := m.renderSidebar(sidebarWidth, mainHeight)
+	content := m.renderContentView(contentWidth, mainHeight)
 	footer := m.renderFooter()
 
 	// Join sidebar and content
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, " ", content)
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, main, footer)
+	// Note: Header removed due to ttyd first-line rendering bug
+	// The first line of terminal output gets compressed to 1px height in some terminals
+	// Just use main layout (sidebar + content) with footer
+	return lipgloss.JoinVertical(lipgloss.Left, main, footer)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -239,60 +353,47 @@ func (m Model) View() string {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 func (m Model) renderHeader() string {
-	// Logo
-	logo := lipgloss.NewStyle().
-		Foreground(Accent).
-		Bold(true).
-		Render("◆ PROXYPILOT")
-
-	version := lipgloss.NewStyle().
-		Foreground(TextMuted).
-		Render(" v0.2")
+	// Simple decorative header line that renders reliably
+	// The complex header with logo/sparkline gets compressed in some terminals
+	// This creates a clean separator with status info on the right
 
 	// Status indicator
 	var status string
 	if m.serverOn {
-		pulse := []string{"●", "◉", "●", "○"}[m.tick%4]
-		status = lipgloss.NewStyle().Foreground(Green).Bold(true).Render(pulse + " ONLINE")
+		pulseFrames := []string{"●", "◉", "○", "◉"}
+		pulse := pulseFrames[m.tick%4]
+		status = lipgloss.NewStyle().Foreground(Green).Bold(true).Render(pulse)
 	} else {
-		status = lipgloss.NewStyle().Foreground(Red).Bold(true).Render("○ OFFLINE")
+		status = lipgloss.NewStyle().Foreground(Red).Bold(true).Render("○")
 	}
 
-	// Sparkline with block characters
+	// Simple sparkline (compressed)
 	sparkChars := []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
 	var spark strings.Builder
-	for _, v := range m.spark {
-		var color lipgloss.Color
-		switch {
-		case v < 2:
-			color = Blue
-		case v < 4:
-			color = Accent
-		case v < 6:
-			color = Green
-		default:
-			color = Yellow
-		}
-		spark.WriteString(lipgloss.NewStyle().Foreground(color).Render(sparkChars[v]))
+	// Only show last 20 values for a compact sparkline
+	start := 0
+	if len(m.spark) > 20 {
+		start = len(m.spark) - 20
+	}
+	for _, v := range m.spark[start:] {
+		spark.WriteString(lipgloss.NewStyle().Foreground(Accent).Render(sparkChars[v]))
 	}
 
-	// Compose header
-	leftSide := logo + version
-	rightSide := spark.String() + "  " + status
+	// Create a decorative line with status
+	lineChar := "─"
+	sparkline := spark.String()
+	rightPart := sparkline + " " + status
 
-	gap := m.width - lipgloss.Width(leftSide) - lipgloss.Width(rightSide) - 4
-	if gap < 0 {
-		gap = 0
+	// Calculate remaining width for the line
+	rightWidth := lipgloss.Width(rightPart)
+	lineWidth := m.width - rightWidth - 4
+	if lineWidth < 10 {
+		lineWidth = 10
 	}
 
-	content := "  " + leftSide + strings.Repeat(" ", gap) + rightSide + "  "
+	mainLine := lipgloss.NewStyle().Foreground(Border).Render(strings.Repeat(lineChar, lineWidth))
 
-	// Header bar with background and bottom border
-	return lipgloss.NewStyle().
-		Background(BgSurface).
-		Foreground(Text).
-		Width(m.width).
-		Render(content) + "\n"
+	return " " + mainLine + " " + rightPart + " \n"
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -302,38 +403,64 @@ func (m Model) renderHeader() string {
 func (m Model) renderSidebar(width, height int) string {
 	var items []string
 
+	// Calculate inner width for card (border takes 2 chars, padding takes 2 chars)
+	cardContentWidth := width - 6
+	if cardContentWidth < 8 {
+		cardContentWidth = 8
+	}
+
 	for i, item := range m.menu {
 		isSelected := i == m.cursor
 
-		key := lipgloss.NewStyle().
-			Foreground(TextMuted).
-			Render(fmt.Sprintf("[%s]", item.Key))
+		// Get icon based on selection state
+		icon := GetNavIcon(item.Title, isSelected)
+
+		// Get superscript key hint
+		superKey := SuperScriptMap[item.Key]
+		if superKey == "" {
+			superKey = item.Key
+		}
 
 		var row string
 		if isSelected {
-			// Selected: cyan cursor bar + highlighted background
-			cursor := lipgloss.NewStyle().
+			// Selected: card-style with rounded border
+			iconStyled := lipgloss.NewStyle().
 				Foreground(Accent).
 				Bold(true).
-				Render("▌")
-			title := lipgloss.NewStyle().
-				Background(BgSelected).
+				Render(icon)
+			titleStyled := lipgloss.NewStyle().
 				Foreground(Accent).
 				Bold(true).
-				Width(width - 7).
 				Render(item.Title)
-			row = cursor + " " + key + " " + title
+			superStyled := lipgloss.NewStyle().
+				Foreground(AccentDim).
+				Render(superKey)
+
+			// Build card content
+			cardContent := iconStyled + " " + titleStyled + " " + superStyled
+
+			// Render as card with rounded border
+			row = NavCardSelected.
+				Width(cardContentWidth).
+				Render(cardContent)
 		} else {
-			title := lipgloss.NewStyle().
+			// Unselected: icon + title + superscript key
+			iconStyled := lipgloss.NewStyle().
 				Foreground(TextDim).
-				Width(width - 7).
+				Render(icon)
+			titleStyled := lipgloss.NewStyle().
+				Foreground(TextDim).
 				Render(item.Title)
-			row = "  " + key + " " + title
+			superStyled := lipgloss.NewStyle().
+				Foreground(TextMuted).
+				Render(superKey)
+
+			row = "  " + iconStyled + " " + titleStyled + " " + superStyled
 		}
 		items = append(items, row)
 	}
 
-	// Pad to fill height
+	// Pad to fill height (account for selected item card taking 3 lines)
 	for len(items) < height-2 {
 		items = append(items, "")
 	}
@@ -632,11 +759,30 @@ func (m Model) renderServerView(width, height int) string {
 	b.WriteString(detailsCard)
 	b.WriteString("\n\n")
 
+	// ─── LOADING / MESSAGE ───
+	if m.serverLoading {
+		loadingStyle := lipgloss.NewStyle().Foreground(Accent)
+		b.WriteString(" " + m.spinner.View() + " " + loadingStyle.Render("Processing..."))
+		b.WriteString("\n\n")
+	} else if m.serverMessage != "" {
+		var msgStyle lipgloss.Style
+		if m.serverMsgErr {
+			msgStyle = lipgloss.NewStyle().Foreground(Red)
+		} else {
+			msgStyle = lipgloss.NewStyle().Foreground(Green)
+		}
+		b.WriteString(" " + msgStyle.Render(m.serverMessage))
+		b.WriteString("\n\n")
+	}
+
 	// ─── HELP HINT ───
 	hintStyle := lipgloss.NewStyle().Foreground(TextMuted)
 	keyStyle := lipgloss.NewStyle().Foreground(Accent).Bold(true)
 
-	hint := fmt.Sprintf(" %s %s", keyStyle.Render("r"), hintStyle.Render("refresh status"))
+	hint := fmt.Sprintf(" %s %s  %s %s  %s %s",
+		keyStyle.Render("r"), hintStyle.Render("refresh"),
+		keyStyle.Render("s"), hintStyle.Render("start"),
+		keyStyle.Render("x"), hintStyle.Render("stop"))
 	b.WriteString(hint)
 
 	return b.String()
@@ -691,33 +837,47 @@ func (m Model) renderSetupView(width, height int) string {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// FOOTER - Keybindings
+// FOOTER - Keybindings with dotted divider and keyboard pills
 // ═══════════════════════════════════════════════════════════════════════════════
 
 func (m Model) renderFooter() string {
-	keyStyle := lipgloss.NewStyle().Foreground(Accent).Bold(true)
+	// Dotted separator line at the top
+	divider := RenderDottedDivider(m.width)
+
 	descStyle := lipgloss.NewStyle().Foreground(TextMuted)
-	sep := lipgloss.NewStyle().Foreground(Border).Render(" │ ")
 
-	help := keyStyle.Render("↑↓") + descStyle.Render(" nav") + sep +
-		keyStyle.Render("1-8") + descStyle.Render(" jump") + sep +
-		keyStyle.Render("⏎") + descStyle.Render(" select") + sep +
-		keyStyle.Render("r") + descStyle.Render(" refresh") + sep +
-		keyStyle.Render("q") + descStyle.Render(" quit")
+	// Build help text with keyboard pills
+	help := " " + RenderKeyboardPill("↑↓") + descStyle.Render(" nav") + "  " +
+		RenderKeyboardPill("1-8") + descStyle.Render(" jump") + "  " +
+		RenderKeyboardPill("⏎") + descStyle.Render(" select") + "  " +
+		RenderKeyboardPill("r") + descStyle.Render(" refresh") + "  " +
+		RenderKeyboardPill("q") + descStyle.Render(" quit")
 
-	timeStr := lipgloss.NewStyle().Foreground(TextMuted).Render(time.Now().Format("15:04:05"))
+	// Time with blinking colon effect
+	now := time.Now()
+	var colonChar string
+	if m.tick%2 == 0 {
+		colonChar = ":"
+	} else {
+		colonChar = " "
+	}
+	timeStr := lipgloss.NewStyle().Foreground(TextMuted).Render(
+		fmt.Sprintf("%02d%s%02d%s%02d", now.Hour(), colonChar, now.Minute(), colonChar, now.Second()),
+	)
 
 	gap := m.width - lipgloss.Width(help) - lipgloss.Width(timeStr) - 4
 	if gap < 0 {
 		gap = 0
 	}
 
-	content := "  " + help + strings.Repeat(" ", gap) + timeStr + "  "
+	content := " " + help + strings.Repeat(" ", gap) + timeStr + "  "
 
-	return "\n" + lipgloss.NewStyle().
+	footerBar := lipgloss.NewStyle().
 		Background(BgSurface).
 		Width(m.width).
 		Render(content)
+
+	return divider + "\n" + footerBar
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
