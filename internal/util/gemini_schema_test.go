@@ -23,11 +23,13 @@ func TestCleanJSONSchemaForAntigravity_ConstToEnum(t *testing.T) {
 	expected := `{
 		"type": "object",
 		"properties": {
+			"_": { "type": "boolean" },
 			"kind": {
 				"type": "string",
 				"enum": ["InsightVizNode"]
 			}
-		}
+		},
+		"required": ["_"]
 	}`
 
 	result := CleanJSONSchemaForAntigravity(input)
@@ -123,14 +125,18 @@ func TestCleanJSONSchemaForAntigravity_AnyOfFlattening_SmartSelection(t *testing
 	expected := `{
 		"type": "object",
 		"properties": {
+			"_": { "type": "boolean" },
 			"query": {
 				"type": "object",
 				"description": "Accepts: null | object",
 				"properties": {
+					"_": { "type": "boolean" },
 					"kind": { "type": "string" }
-				}
+				},
+				"required": ["_"]
 			}
-		}
+		},
+		"required": ["_"]
 	}`
 
 	result := CleanJSONSchemaForAntigravity(input)
@@ -153,11 +159,13 @@ func TestCleanJSONSchemaForAntigravity_OneOfFlattening(t *testing.T) {
 	expected := `{
 		"type": "object",
 		"properties": {
+			"_": { "type": "boolean" },
 			"config": {
 				"type": "string",
 				"description": "Accepts: string | integer"
 			}
-		}
+		},
+		"required": ["_"]
 	}`
 
 	result := CleanJSONSchemaForAntigravity(input)
@@ -213,9 +221,11 @@ func TestCleanJSONSchemaForAntigravity_RefHandling(t *testing.T) {
 	}`
 
 	// After $ref is converted to placeholder object, empty schema placeholder is also added
+	// Root object gets "_" placeholder since it has properties but no required
 	expected := `{
 		"type": "object",
 		"properties": {
+			"_": { "type": "boolean" },
 			"customer": {
 				"type": "object",
 				"description": "See: User",
@@ -227,7 +237,8 @@ func TestCleanJSONSchemaForAntigravity_RefHandling(t *testing.T) {
 				},
 				"required": ["reason"]
 			}
-		}
+		},
+		"required": ["_"]
 	}`
 
 	result := CleanJSONSchemaForAntigravity(input)
@@ -254,9 +265,11 @@ func TestCleanJSONSchemaForAntigravity_RefHandling_DescriptionEscaping(t *testin
 	}`
 
 	// After $ref is converted, empty schema placeholder is also added
+	// Root object gets "_" placeholder since it has properties but no required
 	expected := `{
 		"type": "object",
 		"properties": {
+			"_": { "type": "boolean" },
 			"customer": {
 				"type": "object",
 				"description": "He said \"hi\"\\nsecond line (See: User)",
@@ -268,7 +281,8 @@ func TestCleanJSONSchemaForAntigravity_RefHandling_DescriptionEscaping(t *testin
 				},
 				"required": ["reason"]
 			}
-		}
+		},
+		"required": ["_"]
 	}`
 
 	result := CleanJSONSchemaForAntigravity(input)
@@ -562,14 +576,17 @@ func TestCleanJSONSchemaForAntigravity_AnyOfFlattening_PreservesDescription(t *t
 		}
 	}`
 
+	// Root object gets "_" placeholder since it has properties but no required
 	expected := `{
 		"type": "object",
 		"properties": {
+			"_": { "type": "boolean" },
 			"config": {
 				"type": "string",
 				"description": "Parent desc (Child desc) (Accepts: string | integer)"
 			}
-		}
+		},
+		"required": ["_"]
 	}`
 
 	result := CleanJSONSchemaForAntigravity(input)
@@ -633,9 +650,11 @@ func TestCleanJSONSchemaForAntigravity_PropertyNamesRemoval(t *testing.T) {
 	}`
 
 	// After cleanup, empty nested object gets placeholder property (Claude VALIDATED mode requirement)
+	// Root object gets "_" placeholder since it has properties but no required
 	expected := `{
 		"type": "object",
 		"properties": {
+			"_": { "type": "boolean" },
 			"metadata": {
 				"type": "object",
 				"properties": {
@@ -646,7 +665,8 @@ func TestCleanJSONSchemaForAntigravity_PropertyNamesRemoval(t *testing.T) {
 				},
 				"required": ["reason"]
 			}
-		}
+		},
+		"required": ["_"]
 	}`
 
 	result := CleanJSONSchemaForAntigravity(input)
