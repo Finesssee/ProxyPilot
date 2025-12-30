@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -57,30 +58,30 @@ type logsPulseMsg time.Time
 // ─────────────────────────────────────────────────────────────────────────────
 
 var (
-	// Error badge - Hot Coral with glow effect
+	// Error badge - White text on Red background for maximum contrast
 	logErrorBadge = lipgloss.NewStyle().
-			Foreground(DeepBlack).
-			Background(HotCoral).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(Red).
 			Bold(true).
 			Padding(0, 1)
 
-	// Warning badge - Warm Amber
+	// Warning badge - Dark text on Yellow background for readability
 	logWarnBadge = lipgloss.NewStyle().
 			Foreground(DeepBlack).
-			Background(Amber).
+			Background(Yellow).
 			Bold(true).
 			Padding(0, 1)
 
-	// Info badge - Electric Blue
+	// Info badge - Dark text on Blue background
 	logInfoBadge = lipgloss.NewStyle().
 			Foreground(DeepBlack).
-			Background(ElecBlue).
+			Background(Blue).
 			Bold(true).
 			Padding(0, 1)
 
-	// Debug badge - Soft Violet
+	// Debug badge - Dark text on Violet background
 	logDebugBadge = lipgloss.NewStyle().
-			Foreground(TextBright).
+			Foreground(DeepBlack).
 			Background(Violet).
 			Bold(true).
 			Padding(0, 1)
@@ -91,9 +92,10 @@ var (
 			Background(Surface).
 			Padding(0, 1)
 
-	// Timestamp style - Dim for subtle time display
+	// Timestamp style - Muted and italic for subtle time display
 	timestampStyle = lipgloss.NewStyle().
-			Foreground(TextDim)
+			Foreground(TextMuted).
+			Italic(true)
 
 	// Log message style
 	logMessageStyle = lipgloss.NewStyle().
@@ -205,22 +207,20 @@ func (m LogsModel) pulseCmd() tea.Cmd {
 	})
 }
 
-// refreshLogs fetches current logs
+// refreshLogs fetches current logs from the global ring buffer
 func (m LogsModel) refreshLogs() tea.Msg {
-	// TODO: Implement log ring buffer in logging package
-	// For now, show sample logs to demonstrate the UI
-	logs := []LogEntry{
-		{Timestamp: time.Now().Add(-10 * time.Minute), Level: "info", Message: "Initializing ProxyPilot server..."},
-		{Timestamp: time.Now().Add(-9 * time.Minute), Level: "debug", Message: "Loading configuration from config.yaml"},
-		{Timestamp: time.Now().Add(-8 * time.Minute), Level: "info", Message: "Server started on :8317"},
-		{Timestamp: time.Now().Add(-7 * time.Minute), Level: "info", Message: "Claude provider initialized successfully"},
-		{Timestamp: time.Now().Add(-6 * time.Minute), Level: "warn", Message: "Rate limit threshold approaching for claude-sonnet"},
-		{Timestamp: time.Now().Add(-5 * time.Minute), Level: "info", Message: "Gemini provider initialized successfully"},
-		{Timestamp: time.Now().Add(-4 * time.Minute), Level: "debug", Message: "Health check endpoint responding normally"},
-		{Timestamp: time.Now().Add(-3 * time.Minute), Level: "info", Message: "Management API enabled on /api/v1"},
-		{Timestamp: time.Now().Add(-2 * time.Minute), Level: "error", Message: "Connection refused to backup endpoint"},
-		{Timestamp: time.Now().Add(-1 * time.Minute), Level: "warn", Message: "Retry attempt 1/3 for backup connection"},
-		{Timestamp: time.Now(), Level: "info", Message: "Ready to accept connections"},
+	// Fetch real logs from the global ring buffer
+	entries := logging.GlobalBuffer.GetEntries()
+
+	// Convert logging.LogEntry to TUI LogEntry format
+	logs := make([]LogEntry, len(entries))
+	for i, entry := range entries {
+		logs[i] = LogEntry{
+			Timestamp: entry.Timestamp,
+			Level:     entry.Level, // Already normalized (warning -> warn) in ring buffer
+			Message:   entry.Message,
+			Fields:    entry.Fields,
+		}
 	}
 
 	return logsRefreshMsg{logs: logs}
@@ -369,15 +369,13 @@ func (m LogsModel) View() string {
 func (m LogsModel) ViewWithSize(width, height int) string {
 	var b strings.Builder
 
-	// Section title
-	title := lipgloss.NewStyle().
-		Foreground(Accent).
-		Bold(true).
-		Render("Logs")
+	// Section title with styled header
+	b.WriteString(RenderSectionTitle("Logs"))
 	subtitle := lipgloss.NewStyle().
 		Foreground(TextMuted).
-		Render(" - Real-time stream")
-	b.WriteString(title + subtitle + "\n\n")
+		Italic(true).
+		Render("Real-time stream")
+	b.WriteString("\n" + subtitle + "\n\n")
 
 	// Filter tabs
 	b.WriteString(m.renderFilterTabs())
@@ -489,16 +487,22 @@ func (m LogsModel) renderStatusBar() string {
 
 	countText := lipgloss.NewStyle().Foreground(TextMuted).Render(fmt.Sprintf("Showing %d entries", filteredCount))
 
-	// Auto-scroll indicator
+	// Auto-scroll indicator with pulsing animation when enabled
 	var scrollText string
 	if m.autoScroll {
-		scrollText = lipgloss.NewStyle().Foreground(Green).Render("● AUTO")
+		// Pulsing green indicator when auto-scroll is enabled
+		pulseColor := pulseColors[m.pulseFrame%len(pulseColors)]
+		indicator := lipgloss.NewStyle().Foreground(pulseColor).Bold(true).Render("●")
+		label := lipgloss.NewStyle().Foreground(NeonGreen).Bold(true).Render(" AUTO ")
+		arrow := lipgloss.NewStyle().Foreground(pulseColor).Render("↓")
+		scrollText = indicator + label + arrow
 	} else {
+		// Muted paused indicator
 		scrollText = lipgloss.NewStyle().Foreground(TextMuted).Render("○ PAUSED")
 	}
 
 	// Last refresh
-	refreshText := lipgloss.NewStyle().Foreground(TextMuted).Render(fmt.Sprintf("Updated: %s", m.lastRefresh.Format("15:04:05")))
+	refreshText := lipgloss.NewStyle().Foreground(TextMuted).Italic(true).Render(fmt.Sprintf("Updated: %s", m.lastRefresh.Format("15:04:05")))
 
 	sep := lipgloss.NewStyle().Foreground(BorderDim).Render(" │ ")
 	return countText + sep + scrollText + sep + refreshText
