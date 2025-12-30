@@ -64,12 +64,16 @@ func (m *LogFormatter) Format(entry *log.Entry) ([]byte, error) {
 
 // SetupBaseLogger configures the shared logrus instance and Gin writers.
 // It is safe to call multiple times; initialization happens only once.
+// The global ring buffer is automatically added as a hook to capture all logs.
 func SetupBaseLogger() {
 	setupOnce.Do(func() {
 		log.SetOutput(os.Stdout)
 		log.SetLevel(log.InfoLevel)
 		log.SetReportCaller(true)
 		log.SetFormatter(&LogFormatter{})
+
+		// Add the global ring buffer as a hook to capture all logs for the TUI
+		log.AddHook(GlobalBuffer)
 
 		ginInfoWriter = log.StandardLogger().Writer()
 		gin.DefaultWriter = ginInfoWriter
