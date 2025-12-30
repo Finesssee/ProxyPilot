@@ -334,10 +334,7 @@ func (m SwitchModel) ViewWithSize(width, height int) string {
 	var b strings.Builder
 
 	// Section title (compact)
-	title := lipgloss.NewStyle().
-		Foreground(Accent).
-		Bold(true).
-		Render("Agent Configuration")
+	title := RenderSectionTitle("Agent Configuration")
 	subtitle := lipgloss.NewStyle().
 		Foreground(TextMuted).
 		Render(" - Toggle routing modes")
@@ -417,9 +414,9 @@ func (m SwitchModel) renderAgentRowWithWidth(agent AgentItem, isSelected bool, w
 	var status string
 	if width > 50 {
 		if agent.Available {
-			status = lipgloss.NewStyle().Foreground(Green).Render(IconOnline + " READY")
+			status = lipgloss.NewStyle().Foreground(Green).Bold(true).Render("◉ READY")
 		} else {
-			status = lipgloss.NewStyle().Foreground(Red).Render(IconOffline + " N/A  ")
+			status = lipgloss.NewStyle().Foreground(Red).Bold(true).Render("✗ N/A  ")
 		}
 		status = lipgloss.NewStyle().Width(10).Render(status)
 	}
@@ -476,9 +473,9 @@ func (m SwitchModel) renderAgentRow(agent AgentItem, isSelected bool) string {
 	// Status badge
 	var status string
 	if agent.Available {
-		status = lipgloss.NewStyle().Foreground(Green).Render(IconOnline + " READY")
+		status = lipgloss.NewStyle().Foreground(Green).Bold(true).Render("◉ READY")
 	} else {
-		status = lipgloss.NewStyle().Foreground(Red).Render(IconOffline + " N/A  ")
+		status = lipgloss.NewStyle().Foreground(Red).Bold(true).Render("✗ N/A  ")
 	}
 	statusPadded := lipgloss.NewStyle().Width(10).Render(status)
 
@@ -521,9 +518,9 @@ func (m SwitchModel) renderAgentCard(agent AgentItem, isSelected bool) string {
 	// Render availability badge
 	var availBadge string
 	if agent.Available {
-		availBadge = statusOnlineStyle.Render(IconOnline + " READY")
+		availBadge = lipgloss.NewStyle().Foreground(Green).Bold(true).Render("◉ READY")
 	} else {
-		availBadge = statusOfflineStyle.Render(IconOffline + " N/A")
+		availBadge = lipgloss.NewStyle().Foreground(Red).Bold(true).Render("✗ N/A")
 	}
 	availPadded := lipgloss.NewStyle().Width(12).Render(availBadge)
 
@@ -555,27 +552,19 @@ func (m SwitchModel) renderAgentCard(agent AgentItem, isSelected bool) string {
 // renderModeBadge returns a styled mode badge for an agent
 func (m SwitchModel) renderModeBadge(agent AgentItem) string {
 	if !agent.Available {
-		// Agent not found or has special status
-		msg := agent.Message
-		if msg == "" {
-			msg = "NOT FOUND"
-		}
-		// Truncate long messages
-		if len(msg) > 15 {
-			msg = msg[:12] + "..."
-		}
-		return modeBadgeUnavailable.Render(strings.ToUpper(msg))
+		// Agent not found or has special status - use ErrorBadgeFilled
+		return ErrorBadgeFilled.Render("✗ N/A")
 	}
 
 	switch agent.Mode {
 	case cmd.ModeProxy:
-		// Proxy mode - Green with electric styling
-		return modeBadgeProxy.Render(IconBolt + " PROXY")
+		// Proxy mode - Green filled badge with filled circle
+		return SuccessBadgeFilled.Render("◉ PROXY")
 	case cmd.ModeNative:
-		// Direct/Native mode - Yellow with clean styling
-		return modeBadgeDirect.Render(IconArrowRight + " DIRECT")
+		// Direct/Native mode - Yellow/Warning filled badge with hollow circle
+		return WarningBadgeFilled.Render("◯ DIRECT")
 	default:
-		return modeBadgeUnavailable.Render("UNKNOWN")
+		return ErrorBadgeFilled.Render("✗ N/A")
 	}
 }
 
