@@ -166,16 +166,14 @@ func (m UsageModel) View() string {
 func (m UsageModel) ViewWithSize(width, height int) string {
 	var b strings.Builder
 
-	// Section title with tabs
-	title := lipgloss.NewStyle().
-		Foreground(Accent).
-		Bold(true).
-		Render("Usage Statistics")
+	// Section title with styled header
+	b.WriteString(RenderSectionTitle("Usage Statistics"))
 	refreshTime := m.lastRefresh.Format("15:04:05")
 	subtitle := lipgloss.NewStyle().
 		Foreground(TextMuted).
-		Render(fmt.Sprintf(" - Last sync: %s", refreshTime))
-	b.WriteString(title + subtitle + "\n\n")
+		Italic(true).
+		Render(fmt.Sprintf("Last sync: %s", refreshTime))
+	b.WriteString("\n" + subtitle + "\n\n")
 
 	// Tabs
 	b.WriteString(m.renderTabs())
@@ -264,14 +262,14 @@ func (m UsageModel) renderOverview(width, height int) string {
 		}
 	}
 
-	// Create neon stat cards
+	// Create stat cards using theme colors
 	cards := []string{
-		m.renderStatCard("TOTAL REQUESTS", formatLargeNumber(m.totalRequests), Cyan, "pulse", cardWidth),
-		m.renderStatCard("TODAY", formatLargeNumber(m.requestsToday), ElecBlue, "bolt", cardWidth),
-		m.renderStatCard("SUCCESS RATE", fmt.Sprintf("%.1f%%", successRate), NeonGreen, "check", cardWidth),
+		m.renderStatCard("TOTAL REQUESTS", formatLargeNumber(m.totalRequests), Accent, "pulse", cardWidth),
+		m.renderStatCard("TODAY", formatLargeNumber(m.requestsToday), Blue, "bolt", cardWidth),
+		m.renderStatCard("SUCCESS RATE", fmt.Sprintf("%.1f%%", successRate), Green, "check", cardWidth),
 		m.renderStatCard("FAILED", formatLargeNumber(m.failureCount), func() lipgloss.Color {
 			if m.failureCount > 0 {
-				return HotCoral
+				return Red
 			}
 			return TextDim
 		}(), "warn", cardWidth),
@@ -363,9 +361,9 @@ func (m UsageModel) renderStatCard(label, value string, color lipgloss.Color, ic
 		valueStyle.Render(value),
 	)
 
-	// Card with neon border
+	// Card with themed border
 	cardStyle := lipgloss.NewStyle().
-		Border(SoftBorder).
+		Border(RoundedBorder).
 		BorderForeground(color).
 		Padding(1, 2).
 		Width(width)
@@ -377,19 +375,8 @@ func (m UsageModel) renderStatCard(label, value string, color lipgloss.Color, ic
 func (m UsageModel) renderBreakdown(width int) string {
 	var b strings.Builder
 
-	// Section header
-	sectionHeader := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(Violet).
-		Render("REQUEST BREAKDOWN")
-
-	divider := lipgloss.NewStyle().
-		Foreground(BorderDim).
-		Render(strings.Repeat("─", width-20))
-
-	b.WriteString(sectionHeader)
-	b.WriteString("\n")
-	b.WriteString(divider)
+	// Section header using consistent styling
+	b.WriteString(RenderSectionTitle("Request Breakdown"))
 	b.WriteString("\n\n")
 
 	if m.totalRequests > 0 {
@@ -399,11 +386,11 @@ func (m UsageModel) renderBreakdown(width int) string {
 		successBars := int(successPct * float64(barWidth))
 		failBars := barWidth - successBars
 
-		// Create gradient progress bar
-		successBar := m.createGradientBar(successBars, []lipgloss.Color{NeonGreen, GreenMid, GreenDark})
+		// Create gradient progress bar using theme colors
+		successBar := m.createGradientBar(successBars, []lipgloss.Color{Green, GreenMid, GreenDark})
 		failBar := ""
 		if failBars > 0 {
-			failBar = lipgloss.NewStyle().Foreground(HotCoral).Render(strings.Repeat("█", failBars))
+			failBar = lipgloss.NewStyle().Foreground(Red).Render(strings.Repeat("█", failBars))
 		}
 
 		// Progress bar with glow effect
@@ -413,11 +400,11 @@ func (m UsageModel) renderBreakdown(width int) string {
 
 		b.WriteString(fmt.Sprintf("  %s%s%s%s\n", barContainer, successBar, failBar, barContainer))
 
-		// Legend with neon indicators
-		successIndicator := lipgloss.NewStyle().Foreground(NeonGreen).Bold(true).Render("●")
-		failIndicator := lipgloss.NewStyle().Foreground(HotCoral).Bold(true).Render("●")
-		successLabel := lipgloss.NewStyle().Foreground(TextBright).Render(fmt.Sprintf("Success: %s", formatLargeNumber(m.successCount)))
-		failLabel := lipgloss.NewStyle().Foreground(TextBright).Render(fmt.Sprintf("Failed: %s", formatLargeNumber(m.failureCount)))
+		// Legend with themed indicators
+		successIndicator := lipgloss.NewStyle().Foreground(Green).Bold(true).Render("●")
+		failIndicator := lipgloss.NewStyle().Foreground(Red).Bold(true).Render("●")
+		successLabel := lipgloss.NewStyle().Foreground(Text).Render(fmt.Sprintf("Success: %s", formatLargeNumber(m.successCount)))
+		failLabel := lipgloss.NewStyle().Foreground(Text).Render(fmt.Sprintf("Failed: %s", formatLargeNumber(m.failureCount)))
 		separator := lipgloss.NewStyle().Foreground(BorderDim).Render("  │  ")
 
 		b.WriteString(fmt.Sprintf("\n  %s %s%s%s %s\n",
@@ -501,21 +488,21 @@ func (m UsageModel) renderByModel(width, height int) string {
 		tokensColWidth = 8
 	}
 
-	// Table header with neon accents
+	// Table header with themed accents
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(Cyan).
+		Foreground(Accent).
 		Width(modelColWidth)
 
 	countHeaderStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(Magenta).
+		Foreground(Secondary).
 		Width(countColWidth).
 		Align(lipgloss.Right)
 
 	tokensHeaderStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(Violet).
+		Foreground(Tertiary).
 		Width(tokensColWidth).
 		Align(lipgloss.Right)
 
@@ -525,10 +512,10 @@ func (m UsageModel) renderByModel(width, height int) string {
 	b.WriteString(tokensHeaderStyle.Render("TOKENS"))
 	b.WriteString("\n")
 
-	// Neon divider - adapt to total width
+	// Divider using theme accent
 	dividerWidth := modelColWidth + countColWidth + tokensColWidth + barWidth + 2
 	divider := lipgloss.NewStyle().
-		Foreground(Violet).
+		Foreground(Accent).
 		Render(strings.Repeat("━", dividerWidth))
 	b.WriteString(divider)
 	b.WriteString("\n")
@@ -564,37 +551,37 @@ func (m UsageModel) renderByModel(width, height int) string {
 		}
 
 		// Subtle row highlight for alternating rows
-		rowBg := DeepBlack
+		rowBg := BgSurface
 		if i%2 == 1 {
-			rowBg = DarkSurface
+			rowBg = BgPanel
 		}
 
 		modelStyle := lipgloss.NewStyle().
-			Foreground(TextBright).
+			Foreground(Text).
 			Background(rowBg).
 			Width(modelColWidth)
 
 		countStyle := lipgloss.NewStyle().
-			Foreground(Cyan).
+			Foreground(Accent).
 			Bold(true).
 			Background(rowBg).
 			Width(countColWidth).
 			Align(lipgloss.Right)
 
 		tokensStyle := lipgloss.NewStyle().
-			Foreground(ElecBlue).
+			Foreground(Blue).
 			Background(rowBg).
 			Width(tokensColWidth).
 			Align(lipgloss.Right)
 
-		// Request count bar indicator
+		// Request count bar indicator with filled/empty characters
 		maxRequests := models[0].requests
 		barLen := 0
 		if maxRequests > 0 {
 			barLen = int(float64(model.requests) / float64(maxRequests) * float64(barWidth))
 		}
-		bar := lipgloss.NewStyle().Foreground(Cyan).Render(strings.Repeat("▪", barLen))
-		emptyBar := lipgloss.NewStyle().Foreground(BorderDim).Render(strings.Repeat("▪", barWidth-barLen))
+		bar := lipgloss.NewStyle().Foreground(Accent).Render(strings.Repeat("█", barLen))
+		emptyBar := lipgloss.NewStyle().Foreground(BorderDim).Render(strings.Repeat("░", barWidth-barLen))
 
 		b.WriteString(modelStyle.Render(modelName))
 		b.WriteString(countStyle.Render(formatLargeNumber(model.requests)))
@@ -630,30 +617,13 @@ func (m UsageModel) renderHistory(width, height int) string {
 		barWidth = 50 // Maximum bar width
 	}
 
-	// Section header
-	sectionHeader := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(Magenta).
-		Render("ACTIVITY TIMELINE")
-
+	// Section header using consistent styling
+	b.WriteString(RenderSectionTitle("Activity Timeline"))
 	subtitle := lipgloss.NewStyle().
-		Foreground(TextDim).
-		Render(" // Last 7 days")
-
-	// Divider adapts to width
-	dividerWidth := width - 4
-	if dividerWidth < 30 {
-		dividerWidth = 30
-	}
-	divider := lipgloss.NewStyle().
-		Foreground(Violet).
-		Render(strings.Repeat("━", dividerWidth))
-
-	b.WriteString(sectionHeader)
-	b.WriteString(subtitle)
-	b.WriteString("\n")
-	b.WriteString(divider)
-	b.WriteString("\n\n")
+		Foreground(TextMuted).
+		Italic(true).
+		Render("Last 7 days")
+	b.WriteString("\n" + subtitle + "\n\n")
 
 	// Find max for scaling
 	maxDaily := int64(0)
@@ -669,15 +639,15 @@ func (m UsageModel) renderHistory(width, height int) string {
 		Width(12)
 
 	todayStyle := lipgloss.NewStyle().
-		Foreground(Cyan).
+		Foreground(Accent).
 		Bold(true).
 		Width(12)
 
 	// Get last 7 days
 	today := time.Now()
 
-	// Gradient colors for the bars
-	barColors := []lipgloss.Color{Cyan, ElecBlue, Violet, Magenta}
+	// Gradient colors for the bars using theme colors
+	barColors := []lipgloss.Color{Accent, Blue, Secondary, Tertiary}
 
 	for i := 0; i < 7; i++ {
 		date := today.AddDate(0, 0, -i)
@@ -712,7 +682,7 @@ func (m UsageModel) renderHistory(width, height int) string {
 		countDisplay := lipgloss.NewStyle().
 			Foreground(func() lipgloss.Color {
 				if count > 0 {
-					return TextBright
+					return Text
 				}
 				return TextDim
 			}()).
@@ -720,8 +690,8 @@ func (m UsageModel) renderHistory(width, height int) string {
 			Align(lipgloss.Right).
 			Render(formatLargeNumber(count))
 
-		// Timeline connector
-		connector := lipgloss.NewStyle().Foreground(Violet).Render("│")
+		// Timeline connector using theme color
+		connector := lipgloss.NewStyle().Foreground(Accent).Render("│")
 
 		b.WriteString(fmt.Sprintf("  %s %s %s%s %s\n",
 			formattedDate,
@@ -764,15 +734,15 @@ func (m UsageModel) renderEmptyState(title, message string) string {
 	return b.String()
 }
 
-// renderHelp renders the help footer with cyber styling
+// renderHelp renders the help footer with themed styling
 func (m UsageModel) renderHelp() string {
-	// Help bar with neon key hints
+	// Help bar with themed key hints
 	divider := lipgloss.NewStyle().
 		Foreground(BorderDim).
 		Render(strings.Repeat("─", 56))
 
 	keyStyle := lipgloss.NewStyle().
-		Foreground(Violet).
+		Foreground(Accent).
 		Bold(true)
 
 	descStyle := lipgloss.NewStyle().
