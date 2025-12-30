@@ -21,13 +21,13 @@ const (
 
 // SwitchResult contains the result of a switch operation
 type SwitchResult struct {
-	Agent       string
-	Success     bool
-	Mode        SwitchMode
-	Message     string
-	ConfigPath  string
-	NativePath  string
-	ProxyPath   string
+	Agent      string
+	Success    bool
+	Mode       SwitchMode
+	Message    string
+	ConfigPath string
+	NativePath string
+	ProxyPath  string
 }
 
 // AgentSwitchConfig holds paths for an agent's config files
@@ -203,11 +203,23 @@ func SwitchToProxy(cfg *config.Config, agent string) SwitchResult {
 		if port == 0 {
 			port = 8317
 		}
+
+		// Generate extension-specific instructions using detailed config generators
+		var message string
+		switch agentCfg.Name {
+		case "Kilo Code":
+			message = GetKiloCodeInstructions(port)
+		case "RooCode":
+			message = GetRooCodeInstructions(port)
+		default:
+			message = fmt.Sprintf("%s requires manual configuration:\n  1. Open settings in the extension\n  2. Select 'OpenAI Compatible' provider\n  3. Set Base URL: http://127.0.0.1:%d/v1\n  4. Set API Key: proxypal-local", agentCfg.Name, port)
+		}
+
 		return SwitchResult{
 			Agent:   agentCfg.Name,
 			Success: true,
 			Mode:    ModeProxy,
-			Message: fmt.Sprintf("%s requires manual configuration:\n  1. Open settings in the extension\n  2. Select 'OpenAI Compatible' provider\n  3. Set Base URL: http://127.0.0.1:%d/v1\n  4. Set API Key: proxypal-local", agentCfg.Name, port),
+			Message: message,
 		}
 	}
 
@@ -391,6 +403,12 @@ func generateProxyConfig(cfg *config.Config, agentCfg *AgentSwitchConfig) error 
 		return generateDroidProxyConfig(agentCfg, port)
 	case "Cursor":
 		return generateCursorProxyConfig(agentCfg, port)
+	case "Kilo Code", "RooCode":
+		// VS Code extensions require manual configuration - return instructions as error
+		// This case is typically not reached due to early return in SwitchToProxy,
+		// but is included for completeness and programmatic access
+		return fmt.Errorf("VS Code extension %s requires manual configuration. Use 'proxypilot switch %s proxy' for instructions",
+			agentCfg.Name, strings.ToLower(strings.ReplaceAll(agentCfg.Name, " ", "")))
 	default:
 		return fmt.Errorf("proxy config generation not implemented for %s", agentCfg.Name)
 	}
@@ -556,6 +574,180 @@ func generateCursorProxyConfig(agentCfg *AgentSwitchConfig, port int) error {
 	settings["models"] = models
 
 	return writeJSONFile(agentCfg.ProxyPath, settings)
+}
+
+// KiloCodeConfig holds the configuration instructions for Kilo Code VS Code extension
+type KiloCodeConfig struct {
+	BaseURL          string
+	APIKey           string
+	SettingsPath     string
+	VSCodeConfigPath string
+	Instructions     string
+}
+
+// generateKiloCodeProxyConfig generates configuration instructions for Kilo Code VS Code extension.
+// Since Kilo Code stores its settings in VS Code's globalStorage, we cannot auto-configure it.
+// Instead, this function returns detailed instructions for manual configuration.
+func generateKiloCodeProxyConfig(port int) KiloCodeConfig {
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d/v1", port)
+	apiKey := "proxypal-local"
+
+	// Determine VS Code settings paths based on OS
+	home, _ := os.UserHomeDir()
+	var vscodePath, settingsPath string
+
+	// Check for VS Code settings.json path
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		// Windows
+		vscodePath = filepath.Join(appData, "Code", "User", "settings.json")
+		settingsPath = filepath.Join(appData, "Code", "User", "globalStorage", "kilocode.kilo-code", "settings", "cline_mcp_settings.json")
+	} else if home != "" {
+		// macOS/Linux
+		if _, err := os.Stat(filepath.Join(home, "Library")); err == nil {
+			// macOS
+			vscodePath = filepath.Join(home, "Library", "Application Support", "Code", "User", "settings.json")
+			settingsPath = filepath.Join(home, "Library", "Application Support", "Code", "User", "globalStorage", "kilocode.kilo-code", "settings", "cline_mcp_settings.json")
+		} else {
+			// Linux
+			vscodePath = filepath.Join(home, ".config", "Code", "User", "settings.json")
+			settingsPath = filepath.Join(home, ".config", "Code", "User", "globalStorage", "kilocode.kilo-code", "settings", "cline_mcp_settings.json")
+		}
+	}
+
+	instructions := fmt.Sprintf(`Kilo Code VS Code Extension Configuration
+==========================================
+
+Kilo Code is a VS Code extension that requires manual configuration.
+Follow these steps to configure it for ProxyPilot:
+
+1. Open VS Code and go to the Kilo Code extension settings
+   - Click the Kilo Code icon in the sidebar
+   - Click the settings gear icon
+
+2. Add a new API Provider:
+   - Click "Edit API Configuration" or similar
+   - Select "OpenAI Compatible" or "OpenRouter" as the provider type
+
+3. Configure the provider with these settings:
+   - Base URL: %s
+   - API Key: %s
+
+4. Alternatively, add this to your VS Code settings.json:
+
+   "kilocode.apiProvider": "openai-compatible",
+   "kilocode.openaiCompatible.baseUrl": "%s",
+   "kilocode.openaiCompatible.apiKey": "%s"
+
+5. Select a model from the available list or configure a custom model
+
+Note: The exact settings keys may vary by Kilo Code version.
+Check the extension documentation for the latest configuration options.
+
+Settings file locations:
+- VS Code settings: %s
+- Kilo Code storage: %s
+`, baseURL, apiKey, baseURL, apiKey, vscodePath, settingsPath)
+
+	return KiloCodeConfig{
+		BaseURL:          baseURL,
+		APIKey:           apiKey,
+		SettingsPath:     settingsPath,
+		VSCodeConfigPath: vscodePath,
+		Instructions:     instructions,
+	}
+}
+
+// GetKiloCodeInstructions returns formatted instructions for configuring Kilo Code
+func GetKiloCodeInstructions(port int) string {
+	cfg := generateKiloCodeProxyConfig(port)
+	return cfg.Instructions
+}
+
+// RooCodeConfig holds the configuration instructions for RooCode VS Code extension
+type RooCodeConfig struct {
+	BaseURL          string
+	APIKey           string
+	SettingsPath     string
+	VSCodeConfigPath string
+	Instructions     string
+}
+
+// generateRooCodeProxyConfig generates configuration instructions for RooCode VS Code extension.
+// Since RooCode stores its settings in VS Code's globalStorage, we cannot auto-configure it.
+// Instead, this function returns detailed instructions for manual configuration.
+func generateRooCodeProxyConfig(port int) RooCodeConfig {
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d/v1", port)
+	apiKey := "proxypal-local"
+
+	// Determine VS Code settings paths based on OS
+	home, _ := os.UserHomeDir()
+	var vscodePath, settingsPath string
+
+	// Check for VS Code settings.json path
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		// Windows
+		vscodePath = filepath.Join(appData, "Code", "User", "settings.json")
+		settingsPath = filepath.Join(appData, "Code", "User", "globalStorage", "rooveterinaryinc.roo-cline", "settings", "cline_mcp_settings.json")
+	} else if home != "" {
+		// macOS/Linux
+		if _, err := os.Stat(filepath.Join(home, "Library")); err == nil {
+			// macOS
+			vscodePath = filepath.Join(home, "Library", "Application Support", "Code", "User", "settings.json")
+			settingsPath = filepath.Join(home, "Library", "Application Support", "Code", "User", "globalStorage", "rooveterinaryinc.roo-cline", "settings", "cline_mcp_settings.json")
+		} else {
+			// Linux
+			vscodePath = filepath.Join(home, ".config", "Code", "User", "settings.json")
+			settingsPath = filepath.Join(home, ".config", "Code", "User", "globalStorage", "rooveterinaryinc.roo-cline", "settings", "cline_mcp_settings.json")
+		}
+	}
+
+	instructions := fmt.Sprintf(`RooCode VS Code Extension Configuration
+========================================
+
+RooCode is a VS Code extension that requires manual configuration.
+Follow these steps to configure it for ProxyPilot:
+
+1. Open VS Code and go to the RooCode extension settings
+   - Click the RooCode icon in the sidebar
+   - Click the settings gear icon
+
+2. Add a new API Provider:
+   - Click "Edit API Configuration" or similar
+   - Select "OpenAI Compatible" or "OpenRouter" as the provider type
+
+3. Configure the provider with these settings:
+   - Base URL: %s
+   - API Key: %s
+
+4. Alternatively, add this to your VS Code settings.json:
+
+   "roo-cline.apiProvider": "openai-compatible",
+   "roo-cline.openaiCompatible.baseUrl": "%s",
+   "roo-cline.openaiCompatible.apiKey": "%s"
+
+5. Select a model from the available list or configure a custom model
+
+Note: The exact settings keys may vary by RooCode version.
+Check the extension documentation for the latest configuration options.
+
+Settings file locations:
+- VS Code settings: %s
+- RooCode storage: %s
+`, baseURL, apiKey, baseURL, apiKey, vscodePath, settingsPath)
+
+	return RooCodeConfig{
+		BaseURL:          baseURL,
+		APIKey:           apiKey,
+		SettingsPath:     settingsPath,
+		VSCodeConfigPath: vscodePath,
+		Instructions:     instructions,
+	}
+}
+
+// GetRooCodeInstructions returns formatted instructions for configuring RooCode
+func GetRooCodeInstructions(port int) string {
+	cfg := generateRooCodeProxyConfig(port)
+	return cfg.Instructions
 }
 
 // copyFile copies a file from src to dst
