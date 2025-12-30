@@ -1,6 +1,9 @@
 # Binaries
 cli-proxy-api
 cliproxy
+proxypilot-linux
+proxypilot-darwin
+proxypilot-windows
 *.exe
 
 # Configuration
