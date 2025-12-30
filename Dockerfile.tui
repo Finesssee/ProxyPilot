@@ -1,0 +1,15 @@
+FROM alpine:latest
+
+# Install ttyd
+RUN apk add --no-cache ttyd
+
+# Set working directory
+WORKDIR /app
+
+# Copy the binary (we'll mount it instead for dev)
+# The binary will be mounted at runtime
+
+EXPOSE 7681
+
+# Run ttyd with the mounted binary
+CMD ["ttyd", "-p", "7681", "-W", "./proxypilot", "tui"]
