@@ -70,7 +70,7 @@ func CheckServerRunning(host string, port int) ServerStatus {
 		Port: port,
 	}
 
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 
 	// Try TCP connection with short timeout
 	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
