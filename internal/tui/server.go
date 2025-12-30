@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/api/middleware"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/embedded"
 )
 
@@ -271,7 +272,7 @@ func (m ServerModel) pollServerStatus() tea.Cmd {
 		status := ServerControlStatus{
 			Running:        server.IsRunning(),
 			Port:           server.Port(),
-			ConnectedCount: 0, // TODO: Implement actual connection tracking
+			ConnectedCount: int(middleware.ActiveConnections.Count()),
 			StartedAt:      server.StartedAt(),
 			ConfigPath:     server.ConfigPath(),
 		}
