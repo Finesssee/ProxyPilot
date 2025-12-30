@@ -173,15 +173,12 @@ func (m MappingsModel) ViewWithSize(width, height int) string {
 	// Calculate responsive column widths based on available width
 	aliasWidth, providerWidth, modelWidth := m.calculateColumnWidths(width)
 
-	// Section title (compact)
-	title := lipgloss.NewStyle().
-		Foreground(Accent).
-		Bold(true).
-		Render("Model Mappings")
+	// Section title with thick underline
+	b.WriteString(RenderSectionTitle("Model Mappings"))
 	subtitle := lipgloss.NewStyle().
 		Foreground(TextMuted).
-		Render(" - Alias → Provider Model")
-	b.WriteString(title + subtitle + "\n\n")
+		Render(" Alias → Provider Model")
+	b.WriteString(subtitle + "\n\n")
 
 	// Table header with responsive widths
 	headerAlias := lipgloss.NewStyle().Width(aliasWidth).Foreground(Accent).Bold(true).Render("  ALIAS")
@@ -189,9 +186,9 @@ func (m MappingsModel) ViewWithSize(width, height int) string {
 	headerModel := lipgloss.NewStyle().Width(modelWidth).Foreground(Accent).Bold(true).Render("MODEL")
 	b.WriteString(headerAlias + headerProvider + headerModel + "\n")
 
-	// Divider width matches total table width
-	dividerWidth := aliasWidth + providerWidth + modelWidth
-	b.WriteString(lipgloss.NewStyle().Foreground(BorderDim).Render(strings.Repeat("─", dividerWidth)) + "\n")
+	// Thick underline divider after header
+	totalWidth := aliasWidth + providerWidth + modelWidth
+	b.WriteString(lipgloss.NewStyle().Foreground(Accent).Render(strings.Repeat("━", totalWidth)) + "\n")
 
 	// Calculate max visible rows based on height
 	// Reserve lines for: title (2), header (1), divider (1), scroll indicator (2)
@@ -273,8 +270,8 @@ func (m MappingsModel) renderMappingRowWithWidths(mapping ModelMapping, isSelect
 	}
 	alias := aliasStyle.Render(mapping.Alias)
 
-	// Provider badge
-	providerBadge := m.renderProviderBadge(mapping.Provider)
+	// Provider badge - pass isSelected for glow effect
+	providerBadge := m.renderProviderBadge(mapping.Provider, isSelected)
 	providerCell := lipgloss.NewStyle().Width(providerWidth).Render(providerBadge)
 
 	// Model name - truncate based on available width
@@ -283,13 +280,19 @@ func (m MappingsModel) renderMappingRowWithWidths(mapping ModelMapping, isSelect
 	if len(modelName) > maxModelLen {
 		modelName = modelName[:maxModelLen-3] + "..."
 	}
-	modelStyle := lipgloss.NewStyle().Foreground(TextMuted).Width(modelWidth)
+	var modelStyle lipgloss.Style
+	if isSelected {
+		// Glow effect for selected row - use AccentBright and Bold
+		modelStyle = lipgloss.NewStyle().Foreground(AccentBright).Bold(true).Width(modelWidth)
+	} else {
+		modelStyle = lipgloss.NewStyle().Foreground(TextMuted).Width(modelWidth)
+	}
 	model := modelStyle.Render(modelName)
 
 	// Compose row
 	row := cursor + alias + providerCell + model
 
-	// Selection highlight
+	// Selection highlight with BgSelected background
 	if isSelected {
 		row = lipgloss.NewStyle().Background(BgSelected).Render(row)
 	}
@@ -298,29 +301,45 @@ func (m MappingsModel) renderMappingRowWithWidths(mapping ModelMapping, isSelect
 }
 
 // renderProviderBadge creates a styled badge for each provider
-func (m MappingsModel) renderProviderBadge(provider string) string {
+// When isSelected is true, uses AccentBright for glow effect
+func (m MappingsModel) renderProviderBadge(provider string, isSelected bool) string {
 	var badgeStyle lipgloss.Style
 	var icon string
 
+	// When selected, use AccentBright for glow effect
+	if isSelected {
+		badgeStyle = lipgloss.NewStyle().
+			Foreground(AccentBright).
+			Bold(true)
+	} else {
+		switch provider {
+		case "Claude":
+			badgeStyle = lipgloss.NewStyle().
+				Foreground(ClaudeBrand).
+				Bold(true)
+		case "Codex":
+			badgeStyle = lipgloss.NewStyle().
+				Foreground(CodexBrand).
+				Bold(true)
+		case "Gemini":
+			badgeStyle = lipgloss.NewStyle().
+				Foreground(GeminiBrand).
+				Bold(true)
+		default:
+			badgeStyle = lipgloss.NewStyle().
+				Foreground(TextMuted)
+		}
+	}
+
+	// Set icon based on provider
 	switch provider {
 	case "Claude":
-		badgeStyle = lipgloss.NewStyle().
-			Foreground(ClaudeBrand).
-			Bold(true)
 		icon = IconDiamond + " "
 	case "Codex":
-		badgeStyle = lipgloss.NewStyle().
-			Foreground(CodexBrand).
-			Bold(true)
 		icon = IconCircle + " "
 	case "Gemini":
-		badgeStyle = lipgloss.NewStyle().
-			Foreground(GeminiBrand).
-			Bold(true)
 		icon = IconStar + " "
 	default:
-		badgeStyle = lipgloss.NewStyle().
-			Foreground(TextMuted)
 		icon = IconSquare + " "
 	}
 
@@ -344,7 +363,7 @@ func (m MappingsModel) renderHelp() string {
 		Foreground(BorderDim)
 
 	// Build help text
-	help := dividerStyle.Render(strings.Repeat("─", 50)) + "\n"
+	help := dividerStyle.Render(strings.Repeat("━", 50)) + "\n"
 	help += keyStyle.Render("["+IconArrowUp+"/"+IconArrowDown+"]") + " " + descStyle.Render("Navigate") + sepStyle
 	help += keyStyle.Render("[j/k]") + " " + descStyle.Render("Navigate") + sepStyle
 	help += keyStyle.Render("[g/G]") + " " + descStyle.Render("Top/Bottom") + sepStyle
