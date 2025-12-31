@@ -326,11 +326,62 @@ func checkHarnessFilesExist(dir string) bool {
 	return false
 }
 
+// projectIndicators are files/dirs that indicate an established codebase.
+// If any of these exist, we skip the INITIALIZER harness to avoid polluting real projects.
+var projectIndicators = []string{
+	".git",
+	"package.json",
+	"go.mod",
+	"Cargo.toml",
+	"pyproject.toml",
+	"requirements.txt",
+	"pom.xml",
+	"build.gradle",
+	"Makefile",
+	"CMakeLists.txt",
+	".sln",
+	"composer.json",
+	"Gemfile",
+	"mix.exs",
+	"pubspec.yaml",
+	"deno.json",
+	"bun.lockb",
+}
+
+// isEstablishedProject checks if the directory contains common project indicators.
+// Returns true if this appears to be an existing codebase (not a fresh project).
+func isEstablishedProject(rootDir string) bool {
+	if rootDir == "" {
+		// Check current working directory
+		cwd, err := os.Getwd()
+		if err != nil {
+			return false
+		}
+		rootDir = cwd
+	}
+
+	for _, indicator := range projectIndicators {
+		target := filepath.Join(rootDir, indicator)
+		if info, err := os.Stat(target); err == nil {
+			// Exists - could be file or directory
+			_ = info
+			return true
+		}
+	}
+	return false
+}
+
 func detectHarnessState(body []byte, c *gin.Context, rootDir string) string {
 	// Simple heuristic:
 	// If the conversation contains references to "claude-progress.txt" or "feature_list.json",
 	// it's likely already in the harness flow -> CODING.
 	// If it's very short (just the user prompt) and lacks those, -> INITIALIZER.
+	// BUT: If the directory is an established project, skip harness entirely -> PASSIVE.
+
+	// First check: Is this an established codebase? If so, don't inject harness prompts.
+	if isEstablishedProject(rootDir) {
+		return "PASSIVE"
+	}
 
 	raw := string(body)
 	if strings.Contains(raw, "claude-progress.txt") || strings.Contains(raw, "feature_list.json") {
