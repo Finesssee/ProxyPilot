@@ -154,18 +154,7 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, auth *cliproxyauth.Au
 				log.Debugf("antigravity executor: rate limited on base url %s, retrying with fallback base url: %s", baseURL, baseURLs[idx+1])
 				continue
 			}
-			var retryAfter *time.Duration
-			if val := httpResp.Header.Get("Retry-After"); val != "" {
-				if seconds, err := strconv.Atoi(val); err == nil && seconds > 0 {
-					d := time.Duration(seconds) * time.Second
-					retryAfter = &d
-				} else if t, err := time.Parse(time.RFC1123, val); err == nil {
-					d := time.Until(t)
-					if d > 0 {
-						retryAfter = &d
-					}
-				}
-			}
+			retryAfter := antigravityRetryAfter(httpResp.StatusCode, httpResp.Header, bodyBytes)
 			err = statusErr{code: httpResp.StatusCode, msg: formatErrorMessage(bodyBytes, auth), retryAfter: retryAfter}
 			return resp, err
 		}
@@ -278,7 +267,8 @@ func (e *AntigravityExecutor) executeClaudeNonStream(ctx context.Context, auth *
 				log.Debugf("antigravity executor: rate limited on base url %s, retrying with fallback base url: %s", baseURL, baseURLs[idx+1])
 				continue
 			}
-			err = statusErr{code: httpResp.StatusCode, msg: string(bodyBytes)}
+			retryAfter := antigravityRetryAfter(httpResp.StatusCode, httpResp.Header, bodyBytes)
+			err = statusErr{code: httpResp.StatusCode, msg: string(bodyBytes), retryAfter: retryAfter}
 			return resp, err
 		}
 
@@ -626,7 +616,8 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 				log.Debugf("antigravity executor: rate limited on base url %s, retrying with fallback base url: %s", baseURL, baseURLs[idx+1])
 				continue
 			}
-			err = statusErr{code: httpResp.StatusCode, msg: formatErrorMessage(bodyBytes, auth)}
+			retryAfter := antigravityRetryAfter(httpResp.StatusCode, httpResp.Header, bodyBytes)
+			err = statusErr{code: httpResp.StatusCode, msg: formatErrorMessage(bodyBytes, auth), retryAfter: retryAfter}
 			return nil, err
 		}
 
@@ -859,7 +850,8 @@ func (e *AntigravityExecutor) CountTokens(ctx context.Context, auth *cliproxyaut
 			log.Debugf("antigravity executor: rate limited on base url %s, retrying with fallback base url: %s", baseURL, baseURLs[idx+1])
 			continue
 		}
-		return cliproxyexecutor.Response{}, statusErr{code: httpResp.StatusCode, msg: string(bodyBytes)}
+		retryAfter := antigravityRetryAfter(httpResp.StatusCode, httpResp.Header, bodyBytes)
+		return cliproxyexecutor.Response{}, statusErr{code: httpResp.StatusCode, msg: string(bodyBytes), retryAfter: retryAfter}
 	}
 
 	switch {
@@ -1427,11 +1419,16 @@ func truncateConversation(payload []byte, modelID string, metadata map[string]an
 		for i := 0; i < keepIdx; i++ {
 			msg := arr[i]
 			role := msg.Get("role").String()
-			// Extract text content
+			// Extract text content (skip thinking parts to avoid leaking internal reasoning)
 			var textBuilder strings.Builder
 			parts := msg.Get("parts")
 			if parts.IsArray() {
 				for _, p := range parts.Array() {
+					// Skip thinking/thought parts - these are internal reasoning
+					// and should not be captured into memory/summary
+					if p.Get("thought").Bool() {
+						continue
+					}
 					if t := p.Get("text").String(); t != "" {
 						textBuilder.WriteString(t)
 						textBuilder.WriteString("\n")
@@ -1685,6 +1682,33 @@ func antigravityBaseURLFallbackOrder(auth *cliproxyauth.Auth) []string {
 		antigravitySandboxBaseURLDaily,
 		antigravityBaseURLProd,
 	}
+}
+
+func antigravityRetryAfter(statusCode int, headers http.Header, body []byte) *time.Duration {
+	if statusCode != http.StatusTooManyRequests {
+		return nil
+	}
+	if headers != nil {
+		if val := headers.Get("Retry-After"); val != "" {
+			if seconds, err := strconv.Atoi(val); err == nil && seconds > 0 {
+				d := time.Duration(seconds) * time.Second
+				return &d
+			}
+			if t, err := time.Parse(time.RFC1123, val); err == nil {
+				d := time.Until(t)
+				if d > 0 {
+					return &d
+				}
+			}
+		}
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	if retryAfter, err := parseRetryDelay(body); err == nil && retryAfter != nil {
+		return retryAfter
+	}
+	return nil
 }
 
 func resolveCustomAntigravityBaseURL(auth *cliproxyauth.Auth) string {

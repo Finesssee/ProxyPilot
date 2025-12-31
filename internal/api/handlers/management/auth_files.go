@@ -405,6 +405,14 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
 			entry["account"] = account
 		}
 	}
+	if strings.EqualFold(strings.TrimSpace(auth.Provider), "antigravity") && auth.Metadata != nil {
+		if tierID, ok := auth.Metadata["tier_id"]; ok {
+			entry["tier_id"] = tierID
+		}
+		if tiers, ok := auth.Metadata["allowed_tiers"]; ok {
+			entry["allowed_tiers"] = tiers
+		}
+	}
 	if !auth.CreatedAt.IsZero() {
 		entry["created_at"] = auth.CreatedAt
 	}
@@ -1574,13 +1582,19 @@ func (h *Handler) RequestAntigravityToken(c *gin.Context) {
 		}
 
 		projectID := ""
+		tierID := ""
+		allowedTiers := []map[string]any(nil)
 		if strings.TrimSpace(tokenResp.AccessToken) != "" {
-			fetchedProjectID, errProject := sdkAuth.FetchAntigravityProjectID(ctx, tokenResp.AccessToken, httpClient)
+			accountInfo, errProject := sdkAuth.FetchAntigravityAccountInfo(ctx, tokenResp.AccessToken, httpClient)
 			if errProject != nil {
-				log.Warnf("antigravity: failed to fetch project ID: %v", errProject)
-			} else {
-				projectID = fetchedProjectID
-				log.Infof("antigravity: obtained project ID %s", projectID)
+				log.Warnf("antigravity: failed to fetch account info: %v", errProject)
+			} else if accountInfo != nil {
+				projectID = accountInfo.ProjectID
+				tierID = accountInfo.TierID
+				allowedTiers = accountInfo.AllowedTiers
+				if projectID != "" {
+					log.Infof("antigravity: obtained project ID %s", projectID)
+				}
 			}
 		}
 
@@ -1598,6 +1612,12 @@ func (h *Handler) RequestAntigravityToken(c *gin.Context) {
 		}
 		if projectID != "" {
 			metadata["project_id"] = projectID
+		}
+		if tierID != "" {
+			metadata["tier_id"] = tierID
+		}
+		if len(allowedTiers) > 0 {
+			metadata["allowed_tiers"] = allowedTiers
 		}
 
 		fileName := sanitizeAntigravityFileName(email)

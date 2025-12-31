@@ -171,15 +171,21 @@ waitForCallback:
 		}
 	}
 
-	// Fetch project ID via loadCodeAssist (same approach as Gemini CLI)
+	// Fetch project/tier info via loadCodeAssist (same approach as Gemini CLI)
 	projectID := ""
+	tierID := ""
+	allowedTiers := []map[string]any(nil)
 	if tokenResp.AccessToken != "" {
-		fetchedProjectID, errProject := fetchAntigravityProjectID(ctx, tokenResp.AccessToken, httpClient)
+		accountInfo, errProject := fetchAntigravityAccountInfo(ctx, tokenResp.AccessToken, httpClient)
 		if errProject != nil {
-			log.Warnf("antigravity: failed to fetch project ID: %v", errProject)
-		} else {
-			projectID = fetchedProjectID
-			log.Infof("antigravity: obtained project ID %s", projectID)
+			log.Warnf("antigravity: failed to fetch account info: %v", errProject)
+		} else if accountInfo != nil {
+			projectID = accountInfo.ProjectID
+			tierID = accountInfo.TierID
+			allowedTiers = accountInfo.AllowedTiers
+			if projectID != "" {
+				log.Infof("antigravity: obtained project ID %s", projectID)
+			}
 		}
 	}
 
@@ -197,6 +203,12 @@ waitForCallback:
 	}
 	if projectID != "" {
 		metadata["project_id"] = projectID
+	}
+	if tierID != "" {
+		metadata["tier_id"] = tierID
+	}
+	if len(allowedTiers) > 0 {
+		metadata["allowed_tiers"] = allowedTiers
 	}
 
 	fileName := sanitizeAntigravityFileName(email)
@@ -363,14 +375,30 @@ const (
 	antigravityClientMetadata = `{"ideType":"IDE_UNSPECIFIED","platform":"PLATFORM_UNSPECIFIED","pluginType":"GEMINI"}`
 )
 
-// FetchAntigravityProjectID exposes project discovery for external callers.
-func FetchAntigravityProjectID(ctx context.Context, accessToken string, httpClient *http.Client) (string, error) {
-	return fetchAntigravityProjectID(ctx, accessToken, httpClient)
+// AntigravityAccountInfo captures metadata returned by loadCodeAssist.
+type AntigravityAccountInfo struct {
+	ProjectID    string
+	TierID       string
+	AllowedTiers []map[string]any
 }
 
-// fetchAntigravityProjectID retrieves the project ID for the authenticated user via loadCodeAssist.
+// FetchAntigravityProjectID exposes project discovery for external callers.
+func FetchAntigravityProjectID(ctx context.Context, accessToken string, httpClient *http.Client) (string, error) {
+	info, err := fetchAntigravityAccountInfo(ctx, accessToken, httpClient)
+	if err != nil {
+		return "", err
+	}
+	return info.ProjectID, nil
+}
+
+// FetchAntigravityAccountInfo exposes project and tier discovery for external callers.
+func FetchAntigravityAccountInfo(ctx context.Context, accessToken string, httpClient *http.Client) (*AntigravityAccountInfo, error) {
+	return fetchAntigravityAccountInfo(ctx, accessToken, httpClient)
+}
+
+// fetchAntigravityAccountInfo retrieves the project/tier metadata for the authenticated user via loadCodeAssist.
 // This uses the same approach as Gemini CLI to get the cloudaicompanionProject.
-func fetchAntigravityProjectID(ctx context.Context, accessToken string, httpClient *http.Client) (string, error) {
+func fetchAntigravityAccountInfo(ctx context.Context, accessToken string, httpClient *http.Client) (*AntigravityAccountInfo, error) {
 	// Call loadCodeAssist to get the project
 	loadReqBody := map[string]any{
 		"metadata": map[string]string{
@@ -382,13 +410,13 @@ func fetchAntigravityProjectID(ctx context.Context, accessToken string, httpClie
 
 	rawBody, errMarshal := json.Marshal(loadReqBody)
 	if errMarshal != nil {
-		return "", fmt.Errorf("marshal request body: %w", errMarshal)
+		return nil, fmt.Errorf("marshal request body: %w", errMarshal)
 	}
 
 	endpointURL := fmt.Sprintf("%s/%s:loadCodeAssist", antigravityAPIEndpoint, antigravityAPIVersion)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL, strings.NewReader(string(rawBody)))
 	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
@@ -398,7 +426,7 @@ func fetchAntigravityProjectID(ctx context.Context, accessToken string, httpClie
 
 	resp, errDo := httpClient.Do(req)
 	if errDo != nil {
-		return "", fmt.Errorf("execute request: %w", errDo)
+		return nil, fmt.Errorf("execute request: %w", errDo)
 	}
 	defer func() {
 		if errClose := resp.Body.Close(); errClose != nil {
@@ -408,34 +436,78 @@ func fetchAntigravityProjectID(ctx context.Context, accessToken string, httpClie
 
 	bodyBytes, errRead := io.ReadAll(resp.Body)
 	if errRead != nil {
-		return "", fmt.Errorf("read response: %w", errRead)
+		return nil, fmt.Errorf("read response: %w", errRead)
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return "", fmt.Errorf("request failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
 	}
 
 	var loadResp map[string]any
 	if errDecode := json.Unmarshal(bodyBytes, &loadResp); errDecode != nil {
-		return "", fmt.Errorf("decode response: %w", errDecode)
+		return nil, fmt.Errorf("decode response: %w", errDecode)
 	}
 
-	// Extract projectID from response
-	projectID := ""
-	if id, ok := loadResp["cloudaicompanionProject"].(string); ok {
-		projectID = strings.TrimSpace(id)
+	info := parseAntigravityAccountInfo(loadResp)
+	if info.ProjectID == "" {
+		return nil, fmt.Errorf("no cloudaicompanionProject in response")
 	}
-	if projectID == "" {
+
+	return info, nil
+}
+
+func parseAntigravityAccountInfo(loadResp map[string]any) *AntigravityAccountInfo {
+	info := &AntigravityAccountInfo{TierID: "legacy-tier"}
+	if loadResp == nil {
+		return info
+	}
+	if id, ok := loadResp["cloudaicompanionProject"].(string); ok {
+		info.ProjectID = strings.TrimSpace(id)
+	}
+	if info.ProjectID == "" {
 		if projectMap, ok := loadResp["cloudaicompanionProject"].(map[string]any); ok {
 			if id, okID := projectMap["id"].(string); okID {
-				projectID = strings.TrimSpace(id)
+				info.ProjectID = strings.TrimSpace(id)
 			}
 		}
 	}
-
-	if projectID == "" {
-		return "", fmt.Errorf("no cloudaicompanionProject in response")
+	if tiers, okTiers := loadResp["allowedTiers"].([]any); okTiers {
+		for _, rawTier := range tiers {
+			tier, okTier := rawTier.(map[string]any)
+			if !okTier {
+				continue
+			}
+			entry := map[string]any{}
+			if id, okID := tier["id"].(string); okID {
+				id = strings.TrimSpace(id)
+				if id != "" {
+					entry["id"] = id
+				}
+			}
+			if name, okName := tier["name"].(string); okName {
+				name = strings.TrimSpace(name)
+				if name != "" {
+					entry["name"] = name
+				}
+			}
+			if display, okDisplay := tier["displayName"].(string); okDisplay {
+				display = strings.TrimSpace(display)
+				if display != "" {
+					entry["display_name"] = display
+				}
+			}
+			if isDefault, okDefault := tier["isDefault"].(bool); okDefault {
+				entry["is_default"] = isDefault
+				if isDefault {
+					if id, okID := entry["id"].(string); okID && id != "" {
+						info.TierID = id
+					}
+				}
+			}
+			if len(entry) > 0 {
+				info.AllowedTiers = append(info.AllowedTiers, entry)
+			}
+		}
 	}
-
-	return projectID, nil
+	return info
 }
