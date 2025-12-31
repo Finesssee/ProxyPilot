@@ -66,6 +66,17 @@ When conversation exceeds 75% of the model's context window:
 | `CLIPROXY_TOKEN_AWARE_ENABLED` | `true` | Enable token-based compression |
 | `CLIPROXY_LLM_SUMMARY_ENABLED` | `true` | Use LLM for summaries (vs regex fallback) |
 | `CLIPROXY_COMPRESSION_THRESHOLD` | `0.75` | Trigger at this % of context |
+| `CLIPROXY_SUMMARY_MODEL` | `gemini-3-flash` | Model used for summarization |
+
+### Summary Model Selection
+
+ProxyPilot uses a dedicated model for context summarization:
+
+- **Primary**: `gemini-3-flash` via Antigravity provider
+- **Fallback**: `gemini-3-flash-preview` (on model-not-found errors)
+- **Final fallback**: Regex-based extraction (on any LLM failure)
+
+This separation keeps summarization costs low while maintaining quality. The fallback chain ensures summarization never blocks the main request.
 
 ### Disable
 
@@ -320,6 +331,14 @@ engine.Use(middleware.AgenticHarnessMiddleware())
 ---
 
 ## Changelog
+
+### 2025-12-31
+
+- **Enhanced**: Multi-format response parsing (OpenAI, Claude, Gemini)
+- **Added**: `SummaryModelFallbackExecutor` for model fallback (`gemini-3-flash` → `gemini-3-flash-preview`)
+- **Added**: `CLIPROXY_SUMMARY_MODEL` env var for custom summary model
+- **Added**: Dual output format (`summary.md` + `summary.json`)
+- **Added**: 30+ unit tests for response parsing and model fallback
 
 ### 2025-12-27
 

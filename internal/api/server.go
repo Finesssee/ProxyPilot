@@ -7,6 +7,7 @@ package api
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -33,6 +34,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers/gemini"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers/openai"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
 	sdkConfig "github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
@@ -234,6 +236,15 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 		wd = configFilePath
 	}
 
+	// Add context compression middleware for Claude Code / Codex CLI
+	// Trims long conversations and uses LLM summarization (Factory.ai pattern)
+	engine.Use(middleware.CodexPromptBudgetMiddlewareWithRootDir(wd))
+
+	wd, err = os.Getwd()
+	if err != nil {
+		wd = configFilePath
+	}
+
 	envAdminPassword, envAdminPasswordSet := os.LookupEnv("MANAGEMENT_PASSWORD")
 	envAdminPassword = strings.TrimSpace(envAdminPassword)
 	envManagementSecret := envAdminPasswordSet && envAdminPassword != ""
@@ -260,6 +271,14 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	}
 	managementasset.SetCurrentConfig(cfg)
 	auth.SetQuotaCooldownDisabled(cfg.DisableCooling)
+
+	// Initialize LLM summarizer with auth manager for Factory.ai-style context compression
+	if authManager != nil {
+		// Get providers for the summary model (antigravity preferred for gemini-3-flash)
+		summaryProviders := util.GetProviderName("gemini-3-flash")
+		middleware.InitSummarizerWithAuthManager(&authManagerAdapter{authManager}, summaryProviders)
+	}
+
 	// Initialize management handler
 	s.mgmt = managementHandlers.NewHandler(cfg, configFilePath, authManager)
 	if optionState.localPassword != "" {
@@ -1116,4 +1135,54 @@ func AuthMiddleware(manager *sdkaccess.Manager) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Authentication service error"})
 		}
 	}
+}
+
+// authManagerAdapter adapts *auth.Manager to the memory.CoreManagerExecutor interface.
+// This bridges the typed signature to the interface{} signature expected by the summarizer.
+type authManagerAdapter struct {
+	manager *auth.Manager
+}
+
+// Execute implements memory.CoreManagerExecutor by delegating to the typed manager.
+// It converts the interface{} types to/from the concrete executor types.
+func (a *authManagerAdapter) Execute(ctx context.Context, providers []string, req interface{}, opts interface{}) (interface{}, error) {
+	if a.manager == nil {
+		return nil, errors.New("auth manager adapter: manager is nil")
+	}
+
+	// Convert the memory package types to cliproxyexecutor types
+	// The req comes from memory.ExecutorRequest which has Model, Payload, Metadata
+	// The opts comes from memory.ExecutorOptions which has Stream, Headers
+	var execReq cliproxyexecutor.Request
+	var execOpts cliproxyexecutor.Options
+
+	// Handle req conversion via JSON marshaling for flexibility
+	if req != nil {
+		reqBytes, err := json.Marshal(req)
+		if err != nil {
+			return nil, fmt.Errorf("auth manager adapter: failed to marshal request: %w", err)
+		}
+		if err := json.Unmarshal(reqBytes, &execReq); err != nil {
+			return nil, fmt.Errorf("auth manager adapter: failed to unmarshal request: %w", err)
+		}
+	}
+
+	// Handle opts conversion
+	if opts != nil {
+		optsBytes, err := json.Marshal(opts)
+		if err != nil {
+			return nil, fmt.Errorf("auth manager adapter: failed to marshal options: %w", err)
+		}
+		if err := json.Unmarshal(optsBytes, &execOpts); err != nil {
+			return nil, fmt.Errorf("auth manager adapter: failed to unmarshal options: %w", err)
+		}
+	}
+
+	resp, err := a.manager.Execute(ctx, providers, execReq, execOpts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return the response as interface{}
+	return resp, nil
 }

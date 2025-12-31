@@ -909,7 +909,8 @@ func (s *FileStore) ReadStructuredSummary(session string) (*StructuredSummary, e
 	return ParseStructuredSummary(content)
 }
 
-// WriteStructuredSummary persists a structured summary for a session
+// WriteStructuredSummary persists a structured summary for a session.
+// It writes both summary.md (human-readable) and summary.json (machine-readable).
 func (s *FileStore) WriteStructuredSummary(session string, summary *StructuredSummary) error {
 	if s == nil || s.BaseDir == "" {
 		return errors.New("memory store not configured")
@@ -924,8 +925,19 @@ func (s *FileStore) WriteStructuredSummary(session string, summary *StructuredSu
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+
+	// Write human-readable markdown
 	content := RenderStructuredSummary(summary)
-	return os.WriteFile(filepath.Join(dir, "summary.md"), []byte(content), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "summary.md"), []byte(content), 0o644); err != nil {
+		return err
+	}
+
+	// Write machine-readable JSON
+	jsonBytes, err := json.MarshalIndent(summary, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "summary.json"), jsonBytes, 0o644)
 }
 
 // BuildAnchoredSummaryWithLLM generates a structured summary using LLM when available,

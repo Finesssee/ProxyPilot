@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 // SummarizerExecutor defines the interface for executing summarization requests
@@ -126,34 +127,180 @@ func buildSummarizationPayload(model, prompt string) []byte {
 }
 
 // extractAssistantContent parses the response payload and extracts the assistant's
-// message content from an OpenAI-compatible response format.
+// message content from multiple API response formats (OpenAI, Claude, Gemini).
 func extractAssistantContent(payload []byte) (string, error) {
 	if len(payload) == 0 {
 		return "", errors.New("empty response payload")
 	}
 
+	// Try OpenAI format first (most common after translation)
+	if content := tryOpenAIFormat(payload); content != "" {
+		return content, nil
+	}
+
+	// Try Claude/Anthropic format
+	if content := tryClaudeFormat(payload); content != "" {
+		return content, nil
+	}
+
+	// Try Gemini format
+	if content := tryGeminiFormat(payload); content != "" {
+		return content, nil
+	}
+
+	// Try raw text extraction as last resort
+	if content := tryRawTextExtraction(payload); content != "" {
+		return content, nil
+	}
+
+	return "", errors.New("failed to extract content from response")
+}
+
+// tryOpenAIFormat attempts to parse OpenAI chat completion response format.
+func tryOpenAIFormat(payload []byte) string {
 	var response struct {
 		Choices []struct {
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
+			// Also check delta for streaming responses
+			Delta struct {
+				Content string `json:"content"`
+			} `json:"delta"`
+			// Text field for completions API
+			Text string `json:"text"`
 		} `json:"choices"`
 	}
 
 	if err := json.Unmarshal(payload, &response); err != nil {
-		return "", fmt.Errorf("failed to parse response: %w", err)
+		return ""
 	}
 
 	if len(response.Choices) == 0 {
-		return "", errors.New("no choices in response")
+		return ""
 	}
 
-	content := response.Choices[0].Message.Content
-	if content == "" {
-		return "", errors.New("empty content in response")
+	choice := response.Choices[0]
+	if choice.Message.Content != "" {
+		return choice.Message.Content
+	}
+	if choice.Delta.Content != "" {
+		return choice.Delta.Content
+	}
+	if choice.Text != "" {
+		return choice.Text
 	}
 
-	return content, nil
+	return ""
+}
+
+// tryClaudeFormat attempts to parse Claude/Anthropic Messages API response format.
+func tryClaudeFormat(payload []byte) string {
+	var response struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		// Also check completion field for legacy format
+		Completion string `json:"completion"`
+	}
+
+	if err := json.Unmarshal(payload, &response); err != nil {
+		return ""
+	}
+
+	// Check content blocks (modern format)
+	for _, block := range response.Content {
+		if block.Type == "text" && block.Text != "" {
+			return block.Text
+		}
+	}
+
+	// Check legacy completion field
+	if response.Completion != "" {
+		return response.Completion
+	}
+
+	return ""
+}
+
+// tryGeminiFormat attempts to parse Gemini API response format.
+func tryGeminiFormat(payload []byte) string {
+	var response struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+			// Output field for some Gemini responses
+			Output string `json:"output"`
+		} `json:"candidates"`
+		// Text field for simple responses
+		Text string `json:"text"`
+	}
+
+	if err := json.Unmarshal(payload, &response); err != nil {
+		return ""
+	}
+
+	// Check candidates array
+	if len(response.Candidates) > 0 {
+		candidate := response.Candidates[0]
+		// Check parts
+		for _, part := range candidate.Content.Parts {
+			if part.Text != "" {
+				return part.Text
+			}
+		}
+		// Check output field
+		if candidate.Output != "" {
+			return candidate.Output
+		}
+	}
+
+	// Check top-level text field
+	if response.Text != "" {
+		return response.Text
+	}
+
+	return ""
+}
+
+// tryRawTextExtraction attempts to extract text from unknown response formats.
+// It looks for common text-containing fields.
+func tryRawTextExtraction(payload []byte) string {
+	var generic map[string]interface{}
+	if err := json.Unmarshal(payload, &generic); err != nil {
+		// If not JSON, check if it's plain text
+		text := strings.TrimSpace(string(payload))
+		if len(text) > 0 && len(text) < 50000 && !strings.HasPrefix(text, "{") && !strings.HasPrefix(text, "[") {
+			return text
+		}
+		return ""
+	}
+
+	// Check common field names
+	for _, key := range []string{"content", "text", "message", "response", "output", "result", "answer"} {
+		if val, ok := generic[key]; ok {
+			switch v := val.(type) {
+			case string:
+				if v != "" {
+					return v
+				}
+			case map[string]interface{}:
+				// Check nested content/text
+				if text, ok := v["text"].(string); ok && text != "" {
+					return text
+				}
+				if content, ok := v["content"].(string); ok && content != "" {
+					return content
+				}
+			}
+		}
+	}
+
+	return ""
 }
 
 // NoOpSummarizerExecutor is a fallback implementation that always returns an error.
@@ -168,6 +315,70 @@ func NewNoOpSummarizerExecutor() *NoOpSummarizerExecutor {
 // Summarize always returns an error indicating summarization is not available.
 func (n *NoOpSummarizerExecutor) Summarize(ctx context.Context, model string, prompt string) (string, error) {
 	return "", errors.New("summarization not available: no executor configured")
+}
+
+// DefaultSummaryModel is the primary model for context summarization.
+const DefaultSummaryModel = "gemini-3-flash"
+
+// FallbackSummaryModel is used when the primary model is unavailable.
+const FallbackSummaryModel = "gemini-3-flash-preview"
+
+// SummaryModelFallbackExecutor wraps a SummarizerExecutor and implements
+// model fallback: tries DefaultSummaryModel first, falls back to FallbackSummaryModel
+// only on "model not found/unsupported" errors.
+type SummaryModelFallbackExecutor struct {
+	delegate SummarizerExecutor
+}
+
+// NewSummaryModelFallbackExecutor creates an executor with model fallback logic.
+func NewSummaryModelFallbackExecutor(delegate SummarizerExecutor) *SummaryModelFallbackExecutor {
+	return &SummaryModelFallbackExecutor{delegate: delegate}
+}
+
+// Summarize tries the primary model, falls back to preview on model-not-found errors.
+func (e *SummaryModelFallbackExecutor) Summarize(ctx context.Context, model string, prompt string) (string, error) {
+	if e.delegate == nil {
+		return "", errors.New("summarization not available: no delegate executor")
+	}
+
+	// Use override model if provided, otherwise use default
+	primaryModel := model
+	if primaryModel == "" {
+		primaryModel = DefaultSummaryModel
+	}
+
+	result, err := e.delegate.Summarize(ctx, primaryModel, prompt)
+	if err == nil {
+		return result, nil
+	}
+
+	// Check if error indicates model not found/unsupported
+	if isModelNotFoundError(err) {
+		// Try fallback model
+		fallbackModel := FallbackSummaryModel
+		if primaryModel == FallbackSummaryModel {
+			// Already tried fallback, don't loop
+			return "", err
+		}
+		return e.delegate.Summarize(ctx, fallbackModel, prompt)
+	}
+
+	// Other errors (auth, quota, transient) - don't switch models
+	return "", err
+}
+
+// isModelNotFoundError checks if the error indicates the model is unavailable.
+func isModelNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "model not found") ||
+		strings.Contains(msg, "model_not_found") ||
+		strings.Contains(msg, "unknown model") ||
+		strings.Contains(msg, "unsupported model") ||
+		strings.Contains(msg, "invalid model") ||
+		strings.Contains(msg, "does not exist")
 }
 
 // CoreManagerExecutor defines the minimal interface for executing requests through

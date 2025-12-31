@@ -181,8 +181,18 @@ func InitSummarizerWithAuthManager(manager memory.CoreManagerExecutor, providers
 		return
 	}
 	adapter := memory.NewManagerAuthAdapter(manager)
-	executor := memory.NewPipelineSummarizerExecutor(adapter, providers)
+	baseExecutor := memory.NewPipelineSummarizerExecutor(adapter, providers)
+	// Wrap with model fallback (gemini-3-flash -> gemini-3-flash-preview)
+	executor := memory.NewSummaryModelFallbackExecutor(baseExecutor)
 	SetSummarizerExecutor(executor)
+}
+
+// GetSummaryModel returns the configured summary model, defaulting to gemini-3-flash.
+func GetSummaryModel() string {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_SUMMARY_MODEL")); v != "" {
+		return v
+	}
+	return memory.DefaultSummaryModel
 }
 
 func agenticSemanticEnabled() bool {
@@ -448,14 +458,26 @@ func agenticAnchorSummaryMaxChars() int {
 }
 
 // agenticCompressionThreshold returns the context usage ratio at which to trigger LLM compression.
-// Default: 0.75 (75% of context window)
+// Default: 0.85 (85% of context window)
 func agenticCompressionThreshold() float64 {
 	if v := strings.TrimSpace(os.Getenv("CLIPROXY_COMPRESSION_THRESHOLD")); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 && f < 1 {
 			return f
 		}
 	}
-	return 0.75
+	return 0.85
+}
+
+// agenticMinKeepMessages returns the minimum number of messages to keep during compression.
+// This prevents over-aggressive compression that loses context.
+// Default: 25 (approximately 12 tool round-trips worth of context)
+func agenticMinKeepMessages() int {
+	if v := strings.TrimSpace(os.Getenv("CLIPROXY_MIN_KEEP_MESSAGES")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 25
 }
 
 // agenticLLMSummaryEnabled returns whether LLM-based summarization is enabled.
@@ -1935,7 +1957,8 @@ func trimOpenAIChatCompletions(body []byte, maxBytes int, mustKeepTools bool) []
 	keep := 20
 	perTextLimit := 20_000
 	dropTools := false
-	for keep >= 1 {
+	minKeep := agenticMinKeepMessages()
+	for keep >= minKeep {
 		outBody := body
 		if dropTools && !mustKeepTools {
 			outBody, _ = sjson.DeleteBytes(outBody, "tools")
@@ -2015,7 +2038,8 @@ func trimOpenAIResponses(body []byte, maxBytes int, mustKeepTools bool) []byte {
 	keep := 30
 	perTextLimit := 20_000
 	dropTools := false
-	for keep >= 1 {
+	minKeep := agenticMinKeepMessages()
+	for keep >= minKeep {
 		outBody := body
 		if dropTools && !mustKeepTools {
 			outBody, _ = sjson.DeleteBytes(outBody, "tools")
@@ -2159,10 +2183,11 @@ func trimOpenAIChatCompletionsWithMemory(body []byte, maxBytes int, mustKeepTool
 	}
 
 	query := extractLastUserTextFromChat(arr)
+	minKeep := agenticMinKeepMessages()
 	keep := 20
 	perTextLimit := 20_000
 	dropTools := false
-	for keep >= 1 {
+	for keep >= minKeep {
 		outBody := body
 		if dropTools && !mustKeepTools {
 			outBody, _ = sjson.DeleteBytes(outBody, "tools")
@@ -2279,6 +2304,11 @@ func extractTextFromChatMessage(msg gjson.Result) string {
 	case content.IsArray():
 		var b strings.Builder
 		for _, it := range content.Array() {
+			// Skip thinking/reasoning content blocks
+			partType := it.Get("type").String()
+			if partType == "thinking" || partType == "reasoning" {
+				continue
+			}
 			if t := it.Get("text"); t.Exists() && t.Type == gjson.String {
 				if b.Len() > 0 {
 					b.WriteString("\n")
@@ -2304,10 +2334,11 @@ func trimOpenAIResponsesWithMemory(body []byte, maxBytes int, mustKeepTools bool
 	}
 
 	query := extractLastUserTextFromResponses(arr)
+	minKeep := agenticMinKeepMessages()
 	keep := 30
 	perTextLimit := 20_000
 	dropTools := false
-	for keep >= 1 {
+	for keep >= minKeep {
 		outBody := body
 		if dropTools && !mustKeepTools {
 			outBody, _ = sjson.DeleteBytes(outBody, "tools")
@@ -2457,6 +2488,11 @@ func extractTextFromResponsesItem(item gjson.Result) string {
 	if content.IsArray() {
 		var b strings.Builder
 		for _, part := range content.Array() {
+			// Skip thinking/reasoning content blocks
+			partType := part.Get("type").String()
+			if partType == "thinking" || partType == "reasoning" {
+				continue
+			}
 			text := part.Get("text")
 			if !text.Exists() || text.Type != gjson.String {
 				continue
@@ -2546,10 +2582,11 @@ func trimClaudeMessagesWithMemory(body []byte, maxBytes int, mustKeepTools bool)
 	}
 
 	query := extractLastUserTextFromClaude(arr)
+	minKeep := agenticMinKeepMessages()
 	keep := 20
 	perTextLimit := 20_000
 	dropTools := false
-	for keep >= 1 {
+	for keep >= minKeep {
 		outBody := body
 		if dropTools && !mustKeepTools {
 			outBody, _ = sjson.DeleteBytes(outBody, "tools")
@@ -2669,6 +2706,7 @@ func extractTextFromClaudeMessage(msg gjson.Result) string {
 		for _, part := range content.Array() {
 			partType := part.Get("type").String()
 			// Claude text blocks use type:"text" with text field
+			// Skip thinking blocks (type:"thinking") to avoid leaking internal reasoning
 			if partType == "text" {
 				if t := part.Get("text"); t.Exists() && t.Type == gjson.String {
 					if b.Len() > 0 {
