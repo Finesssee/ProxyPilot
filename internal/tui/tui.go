@@ -3,6 +3,9 @@ package tui
 import (
 	"fmt"
 	"math/rand"
+	"os"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -113,7 +116,7 @@ func NewModel(cfg *config.Config, host string, port int) Model {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(Accent)
 
-	spark := make([]int, 40)
+	spark := make([]int, 200) // Wide enough for any terminal
 	for i := range spark {
 		spark[i] = rand.Intn(8)
 	}
@@ -205,9 +208,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		m.ready = true
+		// Some TTYs (e.g., ttyd) may report 0x0 during init; ignore those.
+		if msg.Width > 0 && msg.Height > 0 {
+			m.width = safeTermWidth(msg.Width)
+			m.height = msg.Height
+			m.ready = true
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -309,43 +315,71 @@ func (m Model) View() string {
 	if m.quitting {
 		return ""
 	}
-	if !m.ready {
-		return "\n  Loading..."
+	// CRITICAL FIX: Prevent panic on startup when dimensions are 0
+	if m.width == 0 || m.height == 0 {
+		return "\n  Initializing..."
 	}
 
-	// Border (2) + Padding (2) = 4 chars overhead per bordered panel
-	const panelOverhead = 4
+    // 1. Calculate strictly enforced dimensions (never exceed actual size)
+    totalWidth := m.width
+    if totalWidth < 40 || m.height < 8 {
+            msg := lipgloss.NewStyle().Foreground(TextMuted).Render("Terminal too small")
+            return lipgloss.NewStyle().Width(m.width).Height(m.height).Render(msg)
+    }
 
-	// Calculate dimensions - responsive sidebar
-	// sidebarWidth is the CONTENT width (lipgloss adds border+padding on top)
-	sidebarWidth := 20 // Renders as 20 + 4 = 24 total
-	if m.width < 80 {
-		sidebarWidth = 14 // Renders as 14 + 4 = 18 total
-	}
+    // Render header/footer first to get accurate heights.
+    header := m.renderHeader()
+    footer := m.renderFooter()
+    headerHeight := lipgloss.Height(header)
+    footerHeight := lipgloss.Height(footer)
+    mainHeight := m.height - headerHeight - footerHeight
+    if mainHeight < 3 {
+            msg := lipgloss.NewStyle().Foreground(TextMuted).Render("Terminal too small")
+            return lipgloss.NewStyle().Width(m.width).Height(m.height).Render(msg)
+    }
 
-	// contentWidth = total width - sidebar rendered - 1 space - content panel overhead
-	// sidebar rendered = sidebarWidth + panelOverhead
-	// We need: (sidebarWidth + panelOverhead) + 1 + (contentWidth + panelOverhead) <= m.width
-	// So: contentWidth = m.width - sidebarWidth - panelOverhead - 1 - panelOverhead
-	//                  = m.width - sidebarWidth - 9
-	contentWidth := m.width - sidebarWidth - 9
-	if contentWidth < 30 {
-		contentWidth = 30
-	}
-	mainHeight := m.height - 4
+    // Sidebar width (clamped so content always fits).
+    const minContentWidth = 24
+    const minSidebarWidth = 12
+    sidebarWidth := 20
+    if totalWidth < 80 {
+            sidebarWidth = 16
+    }
+    maxSidebarWidth := totalWidth - minContentWidth - 1
+    if maxSidebarWidth < minSidebarWidth {
+            msg := lipgloss.NewStyle().Foreground(TextMuted).Render("Terminal too small")
+            return lipgloss.NewStyle().Width(m.width).Height(m.height).Render(msg)
+    }
+    if sidebarWidth > maxSidebarWidth {
+            sidebarWidth = maxSidebarWidth
+    }
+    if sidebarWidth < minSidebarWidth {
+            sidebarWidth = minSidebarWidth
+    }
+    contentWidth := totalWidth - sidebarWidth - 1
+    if contentWidth < minContentWidth {
+            msg := lipgloss.NewStyle().Foreground(TextMuted).Render("Terminal too small")
+            return lipgloss.NewStyle().Width(m.width).Height(m.height).Render(msg)
+    }
 
-	// Render components (header disabled due to ttyd rendering bug)
-	sidebar := m.renderSidebar(sidebarWidth, mainHeight)
-	content := m.renderContentView(contentWidth, mainHeight)
-	footer := m.renderFooter()
+    // 2. Render components with explicit constraints
+    sidebar := m.renderSidebar(sidebarWidth, mainHeight)
+    content := m.renderContentView(contentWidth, mainHeight)
 
-	// Join sidebar and content
-	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, " ", content)
+	// 3. Compose layout
+	// Use JoinHorizontal with a full-height gap to avoid stale artifacts.
+	gap := lipgloss.NewStyle().Width(1).Height(mainHeight).Render(" ")
+	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, gap, content)
 
-	// Note: Header removed due to ttyd first-line rendering bug
-	// The first line of terminal output gets compressed to 1px height in some terminals
-	// Just use main layout (sidebar + content) with footer
-	return lipgloss.JoinVertical(lipgloss.Left, main, footer)
+	// 4. Vertical stack
+	view := lipgloss.JoinVertical(lipgloss.Left, header, main, footer)
+	view = clampLines(view, m.height)
+	// Ensure the full terminal area is repainted to avoid stale artifacts.
+    rendered := lipgloss.NewStyle().
+            Width(m.width).
+            Height(m.height).
+            Render(view)
+    return rendered
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -353,47 +387,66 @@ func (m Model) View() string {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 func (m Model) renderHeader() string {
-	// Simple decorative header line that renders reliably
-	// The complex header with logo/sparkline gets compressed in some terminals
-	// This creates a clean separator with status info on the right
-
-	// Status indicator
-	var status string
+	// Status Text
+	var statusText string
 	if m.serverOn {
-		pulseFrames := []string{"●", "◉", "○", "◉"}
-		pulse := pulseFrames[m.tick%4]
-		status = lipgloss.NewStyle().Foreground(Green).Bold(true).Render(pulse)
+		statusText = lipgloss.NewStyle().Foreground(Green).Bold(true).Render("ONLINE")
 	} else {
-		status = lipgloss.NewStyle().Foreground(Red).Bold(true).Render("○")
+		statusText = lipgloss.NewStyle().Foreground(Red).Bold(true).Render("OFFLINE")
 	}
 
-	// Simple sparkline (compressed)
-	sparkChars := []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
+	// Title
+	title := lipgloss.NewStyle().Foreground(Accent).Bold(true).Render("PROXYPILOT")
+
+	// Sparkline - simplified to avoid wrapping issues
+	sparkChars := []string{" ", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
+	if useASCIISymbols() {
+		sparkChars = []string{" ", ".", ":", "-", "=", "+", "*", "#"}
+	}
 	var spark strings.Builder
-	// Only show last 20 values for a compact sparkline
+
+	// Calculate safe width for sparkline
+	// Total - Title - Status - Spacers/Borders
+	safeWidth := m.width - lipgloss.Width(title) - lipgloss.Width(statusText) - 10
+	if safeWidth < 10 {
+		safeWidth = 10
+	}
+
+	// Clamp data to safe width
 	start := 0
-	if len(m.spark) > 20 {
-		start = len(m.spark) - 20
+	if len(m.spark) > safeWidth {
+		start = len(m.spark) - safeWidth
 	}
 	for _, v := range m.spark[start:] {
-		spark.WriteString(lipgloss.NewStyle().Foreground(Accent).Render(sparkChars[v]))
+		spark.WriteString(lipgloss.NewStyle().Foreground(AccentDim).Render(sparkChars[v]))
 	}
 
-	// Create a decorative line with status
-	lineChar := "─"
-	sparkline := spark.String()
-	rightPart := sparkline + " " + status
+	// Layout: [Title] [Sparkline......] [Status]
+	// Using SpaceBetween logic manually
+	left := title
+	right := statusText
+	center := spark.String()
 
-	// Calculate remaining width for the line
-	rightWidth := lipgloss.Width(rightPart)
-	lineWidth := m.width - rightWidth - 4
-	if lineWidth < 10 {
-		lineWidth = 10
+	// Render a single line with distinct sections
+	headerLine := lipgloss.JoinHorizontal(lipgloss.Center,
+		left,
+		"  ",
+		center,
+		"  ",
+		right,
+	)
+	if maxContent := m.width - 2; maxContent > 0 {
+		headerLine = clampWidth(headerLine, maxContent)
 	}
 
-	mainLine := lipgloss.NewStyle().Foreground(Border).Render(strings.Repeat(lineChar, lineWidth))
-
-	return " " + mainLine + " " + rightPart + " \n"
+	// Add a bottom border using proper Lipgloss border
+	// This ensures it takes up exactly 1 line of border + content
+	return lipgloss.NewStyle().
+		Width(m.width).
+		Border(lipgloss.NormalBorder(), false, false, true, false).
+		BorderForeground(BorderDim).
+		Padding(0, 1).
+		Render(headerLine)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -401,10 +454,11 @@ func (m Model) renderHeader() string {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 func (m Model) renderSidebar(width, height int) string {
-	var items []string
+	var lines []string
 
-	// Calculate inner width for card (border takes 2 chars, padding takes 2 chars)
-	cardContentWidth := width - 6
+	// Calculate inner width for card to avoid overflow into the gap.
+	// Sidebar content width is (width - 4); selected card adds 4 chars (border+padding).
+	cardContentWidth := width - 8
 	if cardContentWidth < 8 {
 		cardContentWidth = 8
 	}
@@ -418,6 +472,10 @@ func (m Model) renderSidebar(width, height int) string {
 		// Get superscript key hint
 		superKey := SuperScriptMap[item.Key]
 		if superKey == "" {
+			superKey = item.Key
+		}
+		if useASCIISymbols() {
+			icon = GetNavIconASCII(item.Title, isSelected)
 			superKey = item.Key
 		}
 
@@ -457,15 +515,23 @@ func (m Model) renderSidebar(width, height int) string {
 
 			row = "  " + iconStyled + " " + titleStyled + " " + superStyled
 		}
-		items = append(items, row)
+	for _, line := range strings.Split(row, "\n") {
+		lines = append(lines, line)
+	}
 	}
 
 	// Pad to fill height (account for selected item card taking 3 lines)
-	for len(items) < height-2 {
-		items = append(items, "")
+	for len(lines) < height-2 {
+		lines = append(lines, "")
+	}
+	if len(lines) > height-2 {
+		lines = lines[:height-2]
 	}
 
-	content := strings.Join(items, "\n")
+	content := strings.Join(lines, "\n")
+	// Clamp to available content size to avoid terminal scrollback artifacts.
+	content = clampLines(content, height-2)
+	content = clampWidth(content, width-4)
 
 	// REAL lipgloss border - rounded, visible color
 	return lipgloss.NewStyle().
@@ -476,6 +542,7 @@ func (m Model) renderSidebar(width, height int) string {
 		Padding(0, 1).
 		Render(content)
 }
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONTENT - Main area with ACCENT border
@@ -507,6 +574,9 @@ func (m Model) renderContentView(width, height int) string {
 	default:
 		content = "Select an option from the menu"
 	}
+	// Clamp to available content size to avoid terminal scrollback artifacts.
+	content = clampLines(content, innerHeight)
+	content = clampWidth(content, innerWidth)
 
 	// Content panel with ACCENT colored border
 	return lipgloss.NewStyle().
@@ -551,11 +621,17 @@ func (m Model) renderDashboard(width, height int) string {
 
 	// ─── SERVER STATUS ───
 	var statusIcon, statusText string
+	onGlyph := "●"
+	offGlyph := "○"
+	if useASCIISymbols() {
+		onGlyph = "o"
+		offGlyph = "o"
+	}
 	if m.serverOn {
-		statusIcon = lipgloss.NewStyle().Foreground(Green).Render("●")
+		statusIcon = lipgloss.NewStyle().Foreground(Green).Render(onGlyph)
 		statusText = lipgloss.NewStyle().Foreground(Green).Bold(true).Render("Running")
 	} else {
-		statusIcon = lipgloss.NewStyle().Foreground(Red).Render("○")
+		statusIcon = lipgloss.NewStyle().Foreground(Red).Render(offGlyph)
 		statusText = lipgloss.NewStyle().Foreground(Red).Bold(true).Render("Stopped")
 	}
 
@@ -605,17 +681,31 @@ func (m Model) renderDashboard(width, height int) string {
 	// ─── ACTIVITY GRAPH ───
 	graphTitle := titleStyle.Render("Activity") + "\n"
 	var graphLines []string
-	graphWidth := width - 4 // Responsive graph width
+	// Graph width must fit inside card (account for card padding)
+	graphWidth := width - 6 // Card border + padding = 4, plus extra margin
+	if graphWidth < 1 {
+		graphWidth = 1
+	}
+	if graphWidth > len(m.spark) {
+		graphWidth = len(m.spark)
+	}
+
+	fillChar := "█"
+	emptyChar := "░"
+	emptyStyle := lipgloss.NewStyle().Foreground(BorderDim)
+	if useASCIISymbols() {
+		fillChar = "#"
+		emptyChar = "."
+		emptyStyle = lipgloss.NewStyle().Foreground(TextMuted)
+	}
 	for row := 7; row >= 0; row-- {
 		var line strings.Builder
-		line.WriteString(" ")
-		sparkLen := min(graphWidth, len(m.spark))
-		for i := 0; i < sparkLen; i++ {
+		for i := 0; i < graphWidth; i++ {
 			v := m.spark[i]
 			if v >= row {
-				line.WriteString(lipgloss.NewStyle().Foreground(Green).Render("█"))
+				line.WriteString(lipgloss.NewStyle().Foreground(Green).Render(fillChar))
 			} else {
-				line.WriteString(lipgloss.NewStyle().Foreground(BorderDim).Render("░"))
+				line.WriteString(emptyStyle.Render(emptyChar))
 			}
 		}
 		graphLines = append(graphLines, line.String())
@@ -638,7 +728,11 @@ func (m Model) renderDashboard(width, height int) string {
 
 	providerLines := titleStyle.Render("Providers") + "\n"
 	for _, p := range providers {
-		icon := lipgloss.NewStyle().Foreground(p.color).Render("●")
+		iconGlyph := "●"
+		if useASCIISymbols() {
+			iconGlyph = "o"
+		}
+		icon := lipgloss.NewStyle().Foreground(p.color).Render(iconGlyph)
 		name := lipgloss.NewStyle().Foreground(TextDim).Width(10).Render(p.name)
 		var status string
 		if p.active {
@@ -686,12 +780,16 @@ func (m Model) renderServerView(width, height int) string {
 
 	// ─── STATUS CARD ───
 	var statusIcon, statusText string
+	pulseFrames := []string{"●", "◉", "●", "○"}
+	if useASCIISymbols() {
+		pulseFrames = []string{"o", "O", "o", "."}
+	}
 	if m.serverOn {
-		pulse := []string{"●", "◉", "●", "○"}[m.tick%4]
+		pulse := pulseFrames[m.tick%len(pulseFrames)]
 		statusIcon = lipgloss.NewStyle().Foreground(Green).Render(pulse)
 		statusText = lipgloss.NewStyle().Foreground(Green).Bold(true).Render("Running")
 	} else {
-		statusIcon = lipgloss.NewStyle().Foreground(Red).Render("○")
+		statusIcon = lipgloss.NewStyle().Foreground(Red).Render(pulseFrames[len(pulseFrames)-1])
 		statusText = lipgloss.NewStyle().Foreground(Red).Bold(true).Render("Stopped")
 	}
 
@@ -847,9 +945,15 @@ func (m Model) renderFooter() string {
 	descStyle := lipgloss.NewStyle().Foreground(TextMuted)
 
 	// Build help text with keyboard pills
-	help := " " + RenderKeyboardPill("↑↓") + descStyle.Render(" nav") + "  " +
+	navKey := "↑↓"
+	enterKey := "⏎"
+	if useASCIISymbols() {
+		navKey = "UD"
+		enterKey = "enter"
+	}
+	help := " " + RenderKeyboardPill(navKey) + descStyle.Render(" nav") + "  " +
 		RenderKeyboardPill("1-8") + descStyle.Render(" jump") + "  " +
-		RenderKeyboardPill("⏎") + descStyle.Render(" select") + "  " +
+		RenderKeyboardPill(enterKey) + descStyle.Render(" select") + "  " +
 		RenderKeyboardPill("r") + descStyle.Render(" refresh") + "  " +
 		RenderKeyboardPill("q") + descStyle.Render(" quit")
 
@@ -871,6 +975,7 @@ func (m Model) renderFooter() string {
 	}
 
 	content := " " + help + strings.Repeat(" ", gap) + timeStr + "  "
+	content = clampWidth(content, m.width)
 
 	footerBar := lipgloss.NewStyle().
 		Background(BgSurface).
@@ -901,7 +1006,88 @@ func Run() error {
 	}
 
 	m := NewModel(cfg, host, port)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	if cols := envInt("COLUMNS"); cols > 0 {
+		m.width = safeTermWidth(cols)
+		m.ready = true
+	}
+	if rows := envInt("LINES"); rows > 0 {
+		m.height = rows
+		m.ready = true
+	}
+
+	opts := []tea.ProgramOption{}
+	if !envBool("PROXYPILOT_TUI_NO_ALT_SCREEN") {
+		opts = append(opts, tea.WithAltScreen())
+	}
+	p := tea.NewProgram(m, opts...)
+
 	_, err = p.Run()
 	return err
+}
+
+func clampLines(text string, maxLines int) string {
+	if maxLines <= 0 {
+		return ""
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+	}
+	return strings.Join(lines, "\n")
+}
+
+func clampWidth(text string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		rendered := lipgloss.NewStyle().Width(maxWidth).Render(line)
+		if idx := strings.IndexByte(rendered, '\n'); idx >= 0 {
+			rendered = rendered[:idx]
+		}
+		lines[i] = rendered
+	}
+	return strings.Join(lines, "\n")
+}
+
+func envBool(name string) bool {
+	val := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	return val == "1" || val == "true" || val == "yes" || val == "on"
+}
+
+func envInt(name string) int {
+	val := strings.TrimSpace(os.Getenv(name))
+	if val == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(val)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
+}
+
+func safeTermWidth(width int) int {
+	if width <= 0 {
+		return width
+	}
+	margin := 1
+	if runtime.GOOS == "windows" || os.Getenv("WT_SESSION") != "" {
+		margin = 2
+	}
+	if envMargin := envInt("PROXYPILOT_TUI_MARGIN"); envMargin > 0 {
+		margin = envMargin
+	}
+	if width > margin {
+		return width - margin
+	}
+	return width
+}
+
+func useASCIISymbols() bool {
+	if envBool("PROXYPILOT_TUI_UNICODE") {
+		return false
+	}
+	return envBool("PROXYPILOT_TUI_ASCII")
 }

@@ -526,6 +526,30 @@ var NavIconsSelected = map[string]string{
 	"setup":     "✦",
 }
 
+// Navigation icons - ASCII fallback (safe 1-column width)
+var NavIconsASCII = map[string]string{
+	"dashboard": "*",
+	"server":    "S",
+	"providers": "P",
+	"agents":    "A",
+	"usage":     "U",
+	"logs":      "L",
+	"mappings":  "M",
+	"setup":     "#",
+}
+
+// Navigation icons - ASCII selected state
+var NavIconsSelectedASCII = map[string]string{
+	"dashboard": "*",
+	"server":    "S",
+	"providers": "P",
+	"agents":    "A",
+	"usage":     "U",
+	"logs":      "L",
+	"mappings":  "M",
+	"setup":     "#",
+}
+
 // Superscript digits for key hints
 var SuperScriptMap = map[string]string{
 	"1": "¹", "2": "²", "3": "³", "4": "⁴",
@@ -545,6 +569,20 @@ func GetNavIcon(screen string, selected bool) string {
 		return icon
 	}
 	return "◆"
+}
+
+// GetNavIconASCII returns the ASCII-safe navigation icon for a screen
+func GetNavIconASCII(screen string, selected bool) string {
+	screen = strings.ToLower(screen)
+	if selected {
+		if icon, ok := NavIconsSelectedASCII[screen]; ok {
+			return icon
+		}
+	}
+	if icon, ok := NavIconsASCII[screen]; ok {
+		return icon
+	}
+	return "*"
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -727,7 +765,11 @@ func RenderKeyboardPill(key string) string {
 
 // RenderDottedDivider creates a dotted line divider
 func RenderDottedDivider(width int) string {
-	return DottedSeparatorStyle.Render(strings.Repeat("┄", width))
+	char := "┄"
+	if useASCIISymbols() {
+		char = "-"
+	}
+	return DottedSeparatorStyle.Render(strings.Repeat(char, width))
 }
 
 // RenderSectionTitle creates a section title with ═══ underline
@@ -746,8 +788,8 @@ func RenderSectionTitle(title string) string {
 	return titleText + "\n" + underline
 }
 
-// RenderProgressBar creates a progress bar: ━━━━●───
-func RenderProgressBar(percent float64, width int) string {
+	// RenderProgressBar creates a progress bar: ━━━━●───
+	func RenderProgressBar(percent float64, width int) string {
 	if width <= 0 {
 		width = 10
 	}
@@ -762,9 +804,17 @@ func RenderProgressBar(percent float64, width int) string {
 	filledStyle := lipgloss.NewStyle().Foreground(Accent)
 	emptyStyle := lipgloss.NewStyle().Foreground(BorderDim)
 
-	before := filledStyle.Render(strings.Repeat("━", filled))
-	head := filledStyle.Render("●")
-	after := emptyStyle.Render(strings.Repeat("─", width-filled-1))
+	fillChar := "━"
+	emptyChar := "─"
+	headChar := "●"
+	if useASCIISymbols() {
+		fillChar = "="
+		emptyChar = "-"
+		headChar = ">"
+	}
+	before := filledStyle.Render(strings.Repeat(fillChar, filled))
+	head := filledStyle.Render(headChar)
+	after := emptyStyle.Render(strings.Repeat(emptyChar, width-filled-1))
 
 	return before + head + after
 }
@@ -781,19 +831,28 @@ func RenderIndeterminateProgress(width int, frame int) string {
 	}
 
 	var result strings.Builder
-	for i := 0; i < width; i++ {
-		if i >= position && i < position+3 {
-			result.WriteString(ProgressBarStyle.Render("█"))
-		} else {
-			result.WriteString(ProgressTrackStyle.Render("░"))
+		fillChar := "█"
+		emptyChar := "░"
+		if useASCIISymbols() {
+			fillChar = "#"
+			emptyChar = "."
 		}
-	}
+		for i := 0; i < width; i++ {
+			if i >= position && i < position+3 {
+				result.WriteString(ProgressBarStyle.Render(fillChar))
+			} else {
+				result.WriteString(ProgressTrackStyle.Render(emptyChar))
+			}
+		}
 	return result.String()
 }
 
-// RenderConnectionStrength creates ▁▃▅▇ indicator
-func RenderConnectionStrength(level int) string {
-	bars := []string{"▁", "▃", "▅", "▇"}
+	// RenderConnectionStrength creates ▁▃▅▇ indicator
+	func RenderConnectionStrength(level int) string {
+		bars := []string{"▁", "▃", "▅", "▇"}
+		if useASCIISymbols() {
+			bars = []string{"-", "=", "#", "#"}
+		}
 	var result strings.Builder
 
 	for i, bar := range bars {
