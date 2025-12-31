@@ -137,6 +137,7 @@ func ConvertClaudeRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 				tool, _ = sjson.Delete(tool, "input_examples")
 				tool, _ = sjson.Delete(tool, "type")
 				tool, _ = sjson.Delete(tool, "cache_control")
+				tool, _ = sjson.Delete(tool, "defer_loading")
 				if gjson.Valid(tool) && gjson.Parse(tool).IsObject() {
 					if !hasTools {
 						out, _ = sjson.SetRaw(out, "tools", `[{"functionDeclarations":[]}]`)

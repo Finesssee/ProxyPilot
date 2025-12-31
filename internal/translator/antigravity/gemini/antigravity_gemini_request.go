@@ -92,6 +92,7 @@ func ConvertGeminiRequestToAntigravity(_ string, inputRawJSON []byte, _ bool) []
 						strJson, _ := util.RenameKey(string(rawJSON), fmt.Sprintf("request.tools.%d.function_declarations.%d.parameters", i, j), fmt.Sprintf("request.tools.%d.function_declarations.%d.parametersJsonSchema", i, j))
 						rawJSON = []byte(strJson)
 					}
+					rawJSON, _ = sjson.DeleteBytes(rawJSON, fmt.Sprintf("request.tools.%d.function_declarations.%d.defer_loading", i, j))
 				}
 			}
 		}
