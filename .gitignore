@@ -66,6 +66,12 @@ _bmad-output/*
 .mcp/*
 .cursor/*
 
+# Local artifacts
+claude-progress.txt
+feature_list.json
+tui-snapshot*.txt
+tui-ttyd.png
+
 # Local settings (user-specific)
 *.local.json
 *.local.yaml
