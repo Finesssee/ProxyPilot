@@ -25,14 +25,12 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/store"
 	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/translator"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/tui"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
 	configaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access/config"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/term"
 )
 
 var (
@@ -70,7 +68,6 @@ func main() {
 	fmt.Printf("ProxyPilot Engine Version: %s, Commit: %s, BuiltAt: %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.BuildDate)
 
 	// Command-line flags to control the application's behavior.
-	var tuiMode bool
 	var login bool
 	var codexLogin bool
 	var claudeLogin bool
@@ -106,8 +103,6 @@ func main() {
 	var useIncognito bool
 
 	// Define command-line flags for different operation modes.
-	flag.BoolVar(&tuiMode, "tui", false, "Launch interactive TUI mode")
-	flag.BoolVar(&tuiMode, "i", false, "Launch interactive TUI mode (shorthand for --tui)")
 	flag.BoolVar(&login, "login", false, "Login Google Account")
 	flag.BoolVar(&codexLogin, "codex-login", false, "Login to Codex using OAuth")
 	flag.BoolVar(&claudeLogin, "claude-login", false, "Login to Claude using OAuth")
@@ -553,15 +548,6 @@ func main() {
 
 	// Handle different command modes based on the provided flags.
 
-	// Check if TUI mode was requested
-	if tuiMode {
-		if err := tui.Run(); err != nil {
-			log.Errorf("TUI error: %v", err)
-			os.Exit(1)
-		}
-		return
-	}
-
 	if vertexImport != "" {
 		// Handle Vertex service account import
 		cmd.DoVertexImport(cfg, vertexImport)
@@ -643,12 +629,6 @@ func main() {
 			// No config file available, just wait for shutdown
 			cmd.WaitForCloudDeploy()
 			return
-		}
-
-		// Show hint about TUI mode when running interactively without flags
-		if term.IsTerminal(int(os.Stdin.Fd())) {
-			fmt.Println("Hint: Run with --tui or -i flag for interactive mode")
-			fmt.Println()
 		}
 
 		// Start the main proxy service
