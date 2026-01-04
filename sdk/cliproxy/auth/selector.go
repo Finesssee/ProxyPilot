@@ -120,7 +120,12 @@ func collectAvailable(auths []*Auth, model string, now time.Time) (available []*
 		}
 	}
 	if len(available) > 1 {
-		sort.Slice(available, func(i, j int) bool { return available[i].ID < available[j].ID })
+		sort.Slice(available, func(i, j int) bool {
+			if available[i].Priority != available[j].Priority {
+				return available[i].Priority < available[j].Priority
+			}
+			return available[i].ID < available[j].ID // stable secondary sort
+		})
 	}
 	return available, cooldownCount, earliest
 }

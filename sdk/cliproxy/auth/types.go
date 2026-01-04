@@ -12,6 +12,24 @@ import (
 	baseauth "github.com/router-for-me/CLIProxyAPI/v6/internal/auth"
 )
 
+// UsageStats tracks token consumption per auth.
+type UsageStats struct {
+	TotalInputTokens  int64     `json:"total_input_tokens"`
+	TotalOutputTokens int64     `json:"total_output_tokens"`
+	RequestCount      int64     `json:"request_count"`
+	LastRequestAt     time.Time `json:"last_request_at,omitempty"`
+	DailyInputTokens  int64     `json:"daily_input_tokens"`
+	DailyOutputTokens int64     `json:"daily_output_tokens"`
+	DailyRequestCount int64     `json:"daily_request_count"`
+	DayStartedAt      time.Time `json:"day_started_at,omitempty"`
+}
+
+// ResultUsage carries token counts from a completed request.
+type ResultUsage struct {
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+}
+
 // Auth encapsulates the runtime state and metadata associated with a single credential.
 type Auth struct {
 	// ID uniquely identifies the auth record across restarts.
@@ -28,6 +46,8 @@ type Auth struct {
 	Storage baseauth.TokenStorage `json:"-"`
 	// Label is an optional human readable label for logging.
 	Label string `json:"label,omitempty"`
+	// Priority determines selection order; higher values are preferred.
+	Priority int `json:"priority,omitempty"`
 	// Status is the lifecycle status managed by the AuthManager.
 	Status Status `json:"status"`
 	// StatusMessage holds a short description for the current status.
@@ -58,6 +78,10 @@ type Auth struct {
 	NextRetryAfter time.Time `json:"next_retry_after"`
 	// ModelStates tracks per-model runtime availability data.
 	ModelStates map[string]*ModelState `json:"model_states,omitempty"`
+	// Usage tracks aggregated token consumption statistics.
+	Usage UsageStats `json:"usage"`
+	// TokenExpiresAt is the explicit token expiration time for proactive refresh.
+	TokenExpiresAt time.Time `json:"token_expires_at,omitempty"`
 
 	// Runtime carries non-serialisable data used during execution (in-memory only).
 	Runtime any `json:"-"`

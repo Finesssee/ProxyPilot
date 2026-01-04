@@ -69,6 +69,8 @@ type Result struct {
 	RetryAfter *time.Duration
 	// Error describes the failure when Success is false.
 	Error *Error
+	// Usage carries token counts from the completed request.
+	Usage *ResultUsage
 }
 
 // Selector chooses an auth candidate for execution.
@@ -914,6 +916,25 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 		now := time.Now()
 
 		if result.Success {
+			// Track usage stats on successful requests
+			if result.Usage != nil {
+				auth.Usage.TotalInputTokens += result.Usage.InputTokens
+				auth.Usage.TotalOutputTokens += result.Usage.OutputTokens
+				auth.Usage.RequestCount++
+				auth.Usage.LastRequestAt = now
+
+				// Reset daily if new day
+				if time.Since(auth.Usage.DayStartedAt) > 24*time.Hour {
+					auth.Usage.DailyInputTokens = 0
+					auth.Usage.DailyOutputTokens = 0
+					auth.Usage.DailyRequestCount = 0
+					auth.Usage.DayStartedAt = now.Truncate(24 * time.Hour)
+				}
+				auth.Usage.DailyInputTokens += result.Usage.InputTokens
+				auth.Usage.DailyOutputTokens += result.Usage.OutputTokens
+				auth.Usage.DailyRequestCount++
+			}
+
 			if result.Model != "" {
 				state := ensureModelState(auth, result.Model)
 				resetModelState(state, now)
@@ -1490,6 +1511,12 @@ func (m *Manager) shouldRefresh(a *Auth, now time.Time) bool {
 	}
 	if evaluator, ok := a.Runtime.(RefreshEvaluator); ok && evaluator != nil {
 		return evaluator.ShouldRefresh(now, a)
+	}
+
+	// Check if token expires within buffer (5 minutes)
+	const refreshBuffer = 5 * time.Minute
+	if !a.TokenExpiresAt.IsZero() && a.TokenExpiresAt.Sub(now) < refreshBuffer {
+		return true
 	}
 
 	lastRefresh := a.LastRefreshedAt
