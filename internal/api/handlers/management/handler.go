@@ -94,7 +94,6 @@ func NewHandler(cfg *config.Config, configFilePath string, manager *coreauth.Man
 	
 	h.integrationManager = integrations.NewManager(proxyURL)
 	h.integrationManager.Register(&integrations.CodexIntegration{})
-	h.integrationManager.Register(&integrations.ContinueIntegration{})
 	h.integrationManager.Register(&integrations.ClaudeIntegration{})
 	h.integrationManager.Register(&integrations.DroidIntegration{})
 	h.integrationManager.Register(&integrations.GeminiIntegration{})
