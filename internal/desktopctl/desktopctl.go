@@ -329,7 +329,7 @@ func OpenManagementUI(configPath string) error {
 	if st.BaseURL == "" {
 		return errors.New("proxy base URL not available")
 	}
-	return OpenBrowser(managementURL(st.BaseURL))
+	return OpenBrowser(st.BaseURL + "/proxypilot.html")
 }
 
 func OpenLogsFolder(repoRoot, configPath string) error {

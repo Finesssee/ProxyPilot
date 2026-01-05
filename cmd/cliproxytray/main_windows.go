@@ -385,13 +385,6 @@ func openEmbeddedDashboard(engine *EmbeddedEngine, cfg *config.Config, configPat
 	_ = w.Bind("pp_oauth", func(provider string) error { return startOAuthFlow(engine, getOAuthEndpoint(provider)) })
 	_ = w.Bind("pp_copy_diagnostics", func() error { return copyDiagnosticsToClipboard(engine) })
 	_ = w.Bind("pp_get_management_key", func() (string, error) { return desktopctl.GetManagementPassword() })
-	_ = w.Bind("pp_open_legacy_ui", func() error {
-		cur := engine.Status()
-		if !cur.Running {
-			return fmt.Errorf("proxy not running")
-		}
-		return desktopctl.OpenBrowser(cur.BaseURL + "/management.html?legacy=1")
-	})
 	_ = w.Bind("pp_open_diagnostics", func() error {
 		cur := engine.Status()
 		if !cur.Running {

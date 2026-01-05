@@ -1,7 +1,6 @@
 package desktopctl
 
 import (
-	"fmt"
 	"os/exec"
 	"runtime"
 )
@@ -28,9 +27,3 @@ func OpenFolder(path string) error {
 	}
 }
 
-func managementURL(baseURL string) string {
-	if baseURL == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s/management.html", baseURL)
-}

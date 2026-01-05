@@ -15,10 +15,8 @@ func TestBuildConfigChangeDetails(t *testing.T) {
 			{APIKey: "old", BaseURL: "http://old", ExcludedModels: []string{"old-model"}},
 		},
 		RemoteManagement: config.RemoteManagement{
-			AllowRemote:           false,
-			SecretKey:             "old",
-			DisableControlPanel:   false,
-			PanelGitHubRepository: "repo-old",
+			AllowRemote: false,
+			SecretKey:   "old",
 		},
 		OAuthExcludedModels: map[string][]string{
 			"providerA": {"m1"},
@@ -41,10 +39,8 @@ func TestBuildConfigChangeDetails(t *testing.T) {
 			{APIKey: "old", BaseURL: "http://old", ExcludedModels: []string{"old-model", "extra"}},
 		},
 		RemoteManagement: config.RemoteManagement{
-			AllowRemote:           true,
-			SecretKey:             "new",
-			DisableControlPanel:   true,
-			PanelGitHubRepository: "repo-new",
+			AllowRemote: true,
+			SecretKey:   "new",
 		},
 		OAuthExcludedModels: map[string][]string{
 			"providerA": {"m1", "m2"},
@@ -196,7 +192,7 @@ func TestBuildConfigChangeDetails_FlagsAndKeys(t *testing.T) {
 		QuotaExceeded:          config.QuotaExceeded{SwitchProject: false, SwitchPreviewModel: false},
 		ClaudeKey:        []config.ClaudeKey{{APIKey: "c1"}},
 		CodexKey:         []config.CodexKey{{APIKey: "x1"}},
-		RemoteManagement: config.RemoteManagement{DisableControlPanel: false, PanelGitHubRepository: "old/repo", SecretKey: "keep"},
+		RemoteManagement: config.RemoteManagement{SecretKey: "keep"},
 		SDKConfig: sdkconfig.SDKConfig{
 			RequestLog:       false,
 			ProxyURL:         "http://old-proxy",
@@ -224,9 +220,7 @@ func TestBuildConfigChangeDetails_FlagsAndKeys(t *testing.T) {
 			{APIKey: "x2"},
 		},
 		RemoteManagement: config.RemoteManagement{
-			DisableControlPanel:   true,
-			PanelGitHubRepository: "new/repo",
-			SecretKey:             "",
+			SecretKey: "",
 		},
 		SDKConfig: sdkconfig.SDKConfig{
 			RequestLog:       true,
@@ -252,8 +246,6 @@ func TestBuildConfigChangeDetails_FlagsAndKeys(t *testing.T) {
 	expectContains(t, details, "api-keys count: 1 -> 2")
 	expectContains(t, details, "claude-api-key count: 1 -> 2")
 	expectContains(t, details, "codex-api-key count: 1 -> 2")
-	expectContains(t, details, "remote-management.disable-control-panel: false -> true")
-	expectContains(t, details, "remote-management.panel-github-repository: old/repo -> new/repo")
 	expectContains(t, details, "remote-management.secret-key: deleted")
 }
 
@@ -282,10 +274,8 @@ func TestBuildConfigChangeDetails_AllBranches(t *testing.T) {
 			{APIKey: "v-old", BaseURL: "http://v-old", ProxyURL: "http://vp-old", Headers: map[string]string{"H": "1"}, Models: []config.VertexCompatModel{{Name: "m1"}}},
 		},
 		RemoteManagement: config.RemoteManagement{
-			AllowRemote:           false,
-			DisableControlPanel:   false,
-			PanelGitHubRepository: "old/repo",
-			SecretKey:             "old",
+			AllowRemote: false,
+			SecretKey:   "old",
 		},
 		SDKConfig: sdkconfig.SDKConfig{
 			RequestLog: false,
@@ -327,10 +317,8 @@ func TestBuildConfigChangeDetails_AllBranches(t *testing.T) {
 			{APIKey: "v-new", BaseURL: "http://v-new", ProxyURL: "http://vp-new", Headers: map[string]string{"H": "2"}, Models: []config.VertexCompatModel{{Name: "m1"}, {Name: "m2"}}},
 		},
 		RemoteManagement: config.RemoteManagement{
-			AllowRemote:           true,
-			DisableControlPanel:   true,
-			PanelGitHubRepository: "new/repo",
-			SecretKey:             "",
+			AllowRemote: true,
+			SecretKey:   "",
 		},
 		SDKConfig: sdkconfig.SDKConfig{
 			RequestLog: true,
@@ -391,8 +379,6 @@ func TestBuildConfigChangeDetails_AllBranches(t *testing.T) {
 	expectContains(t, changes, "oauth-excluded-models[p1]: updated (1 -> 2 entries)")
 	expectContains(t, changes, "oauth-excluded-models[p2]: added (1 entries)")
 	expectContains(t, changes, "remote-management.allow-remote: false -> true")
-	expectContains(t, changes, "remote-management.disable-control-panel: false -> true")
-	expectContains(t, changes, "remote-management.panel-github-repository: old/repo -> new/repo")
 	expectContains(t, changes, "remote-management.secret-key: deleted")
 	expectContains(t, changes, "openai-compatibility:")
 }

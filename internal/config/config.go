@@ -11,12 +11,11 @@ import (
 	"os"
 	"strings"
 	"syscall"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 )
-
-const DefaultPanelGitHubRepository = "https://github.com/router-for-me/Cli-Proxy-API-Management-Center"
 
 // Config represents the application's configuration, loaded from a YAML file.
 type Config struct {
@@ -109,6 +108,15 @@ type Config struct {
 	// ThinkingBudget defines the default thinking budget settings for models that support reasoning.
 	ThinkingBudget ThinkingBudgetConfig `yaml:"thinking-budget" json:"thinking-budget"`
 
+	// ResponseCache configures the local response caching layer.
+	// When enabled, identical requests may return cached responses to reduce API calls.
+	ResponseCache ResponseCacheConfig `yaml:"response-cache" json:"response-cache"`
+
+	// PromptCache configures synthetic prompt caching for system prompts.
+	// This tracks repeated system prompts to provide visibility into potential token savings
+	// for providers that don't support native prompt caching.
+	PromptCache PromptCacheConfig `yaml:"prompt-cache" json:"prompt-cache"`
+
 	// IncognitoBrowser enables opening OAuth URLs in incognito/private browsing mode.
 	// This is useful when you want to login with a different account without logging out
 	// from your current session. Default: false.
@@ -133,11 +141,6 @@ type RemoteManagement struct {
 	AllowRemote bool `yaml:"allow-remote"`
 	// SecretKey is the management key (plaintext or bcrypt hashed). YAML key intentionally 'secret-key'.
 	SecretKey string `yaml:"secret-key"`
-	// DisableControlPanel skips serving and syncing the bundled management UI when true.
-	DisableControlPanel bool `yaml:"disable-control-panel"`
-	// PanelGitHubRepository overrides the GitHub repository used to fetch the management panel asset.
-	// Accepts either a repository URL (https://github.com/org/repo) or an API releases endpoint.
-	PanelGitHubRepository string `yaml:"panel-github-repository"`
 }
 
 // QuotaExceeded defines the behavior when API quota limits are exceeded.
@@ -222,6 +225,76 @@ var ThinkingBudgetPresets = map[string]int{
 	"low":    2048,
 	"medium": 8192,
 	"high":   32768,
+}
+
+// ResponseCacheConfig configures the local response caching layer.
+type ResponseCacheConfig struct {
+	// Enabled controls whether response caching is active.
+	// Default: false (opt-in)
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// MaxSize is the maximum number of cached responses.
+	// Default: 1000
+	MaxSize int `yaml:"max-size" json:"max_size"`
+	// TTLSeconds is how long responses are cached in seconds.
+	// Default: 300 (5 minutes)
+	TTLSeconds int `yaml:"ttl-seconds" json:"ttl_seconds"`
+	// ExcludeModels is a list of model patterns to exclude from caching.
+	// Supports wildcards: "*-thinking", "claude-*", etc.
+	ExcludeModels []string `yaml:"exclude-models" json:"exclude_models"`
+	// PersistFile is the optional file path to persist cache across restarts.
+	// If empty, cache is not persisted. Example: "./data/response-cache.gob"
+	PersistFile string `yaml:"persist-file" json:"persist_file"`
+}
+
+// GetTTL returns the TTL as a time.Duration.
+func (c *ResponseCacheConfig) GetTTL() time.Duration {
+	if c.TTLSeconds <= 0 {
+		return 5 * time.Minute
+	}
+	return time.Duration(c.TTLSeconds) * time.Second
+}
+
+// GetMaxSize returns the max size with a sensible default.
+func (c *ResponseCacheConfig) GetMaxSize() int {
+	if c.MaxSize <= 0 {
+		return 1000
+	}
+	return c.MaxSize
+}
+
+// PromptCacheConfig configures synthetic prompt caching for system prompts.
+type PromptCacheConfig struct {
+	// Enabled controls whether prompt caching is active.
+	// Default: false (opt-in)
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// MaxSize is the maximum number of cached prompts.
+	// Default: 500
+	MaxSize int `yaml:"max-size" json:"max_size"`
+	// TTLSeconds is how long prompts are cached in seconds.
+	// Default: 1800 (30 minutes)
+	TTLSeconds int `yaml:"ttl-seconds" json:"ttl_seconds"`
+	// PersistFile is the optional file path to persist cache across restarts.
+	// If empty, cache is not persisted. Example: "./data/prompt-cache.gob"
+	PersistFile string `yaml:"persist-file" json:"persist_file"`
+	// WarmFromFile is the optional path to a JSON file containing prompts to pre-load on startup.
+	// Format: [{"prompt": "...", "provider": "claude"}, ...]
+	WarmFromFile string `yaml:"warm-from-file" json:"warm_from_file"`
+}
+
+// GetTTL returns the TTL as a time.Duration.
+func (c *PromptCacheConfig) GetTTL() time.Duration {
+	if c.TTLSeconds <= 0 {
+		return 30 * time.Minute
+	}
+	return time.Duration(c.TTLSeconds) * time.Second
+}
+
+// GetMaxSize returns the max size with a sensible default.
+func (c *PromptCacheConfig) GetMaxSize() int {
+	if c.MaxSize <= 0 {
+		return 500
+	}
+	return c.MaxSize
 }
 
 // GetThinkingBudgetTokens returns the effective thinking budget in tokens.
@@ -449,7 +522,6 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	cfg.LogsMaxTotalSizeMB = 0
 	cfg.UsageStatisticsEnabled = false
 	cfg.DisableCooling = false
-	cfg.RemoteManagement.PanelGitHubRepository = DefaultPanelGitHubRepository
 	cfg.IncognitoBrowser = false // Default to normal browser (AWS uses incognito by force)
 	if err = yaml.Unmarshal(data, &cfg); err != nil {
 		if optional {
@@ -481,11 +553,6 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 		// Persist the hashed value back to the config file to avoid re-hashing on next startup.
 		// Preserve YAML comments and ordering; update only the nested key.
 		_ = SaveConfigPreserveCommentsUpdateNestedScalar(configFile, []string{"remote-management", "secret-key"}, hashed)
-	}
-
-	cfg.RemoteManagement.PanelGitHubRepository = strings.TrimSpace(cfg.RemoteManagement.PanelGitHubRepository)
-	if cfg.RemoteManagement.PanelGitHubRepository == "" {
-		cfg.RemoteManagement.PanelGitHubRepository = DefaultPanelGitHubRepository
 	}
 
 	if cfg.LogsMaxTotalSizeMB < 0 {
@@ -1344,7 +1411,6 @@ func pruneMappingToGeneratedKeys(dstRoot, srcRoot *yaml.Node, key string) {
 	}
 	srcIdx := findMapKeyIndex(srcRoot, key)
 	if srcIdx < 0 {
-		removeMapKey(dstRoot, key)
 		return
 	}
 	if srcIdx+1 >= len(srcRoot.Content) {

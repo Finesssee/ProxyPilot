@@ -115,6 +115,21 @@ ws-auth: false
 #   summarization-timeout-seconds: 30   # Default: 30. Timeout for LLM summarization calls.
 #   fallback-to-regex: true             # Default: true. Use regex-based summary when LLM fails.
 
+# Response caching - cache identical API responses to reduce upstream calls.
+# response-cache:
+#   enabled: true
+#   max-size: 1000         # Max cached responses
+#   ttl-seconds: 300       # 5 minutes
+#   exclude-models:        # Don't cache these models
+#     - "*-thinking"
+#     - "o1-*"
+
+# Prompt caching - track system prompts for analytics.
+# prompt-cache:
+#   enabled: true
+#   max-size: 500
+#   ttl-seconds: 1800      # 30 minutes
+
 # Token-aware compression (proactive trimming based on model context window).
 # Prevents "prompt too long" errors by trimming before hitting model limits.
 # Environment variables:
