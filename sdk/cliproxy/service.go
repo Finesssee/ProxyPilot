@@ -76,6 +76,35 @@ func (w *coreManagerWrapper) Execute(ctx context.Context, providers []string, re
 	return resp, nil
 }
 
+// authUsagePlugin bridges usage records to per-auth usage tracking.
+// It implements usage.Plugin to update Auth.Usage stats.
+type authUsagePlugin struct {
+	manager *coreauth.Manager
+}
+
+// HandleUsage implements usage.Plugin.
+func (p *authUsagePlugin) HandleUsage(ctx context.Context, record usage.Record) {
+	if p == nil || p.manager == nil {
+		return
+	}
+	authID := strings.TrimSpace(record.AuthID)
+	if authID == "" {
+		return
+	}
+	result := coreauth.Result{
+		AuthID:  authID,
+		Model:   record.Model,
+		Success: !record.Failed,
+	}
+	if record.Detail.InputTokens > 0 || record.Detail.OutputTokens > 0 {
+		result.Usage = &coreauth.ResultUsage{
+			InputTokens:  record.Detail.InputTokens,
+			OutputTokens: record.Detail.OutputTokens,
+		}
+	}
+	p.manager.MarkResult(ctx, result)
+}
+
 // Service wraps the proxy server lifecycle so external programs can embed the CLI proxy.
 // It manages the complete lifecycle including authentication, file watching, HTTP server,
 // and integration with various AI service providers.
@@ -471,6 +500,11 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 
 	usage.StartDefault(ctx)
+
+	// Register auth usage plugin to update per-auth usage stats
+	if s.coreManager != nil {
+		usage.RegisterPlugin(&authUsagePlugin{manager: s.coreManager})
+	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()

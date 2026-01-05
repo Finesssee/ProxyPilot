@@ -211,6 +211,12 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
 		auth.ID = uuid.NewString()
 	}
 	auth.EnsureIndex()
+	// Populate TokenExpiresAt from metadata if not already set
+	if auth.TokenExpiresAt.IsZero() {
+		if exp, ok := auth.ExpirationTime(); ok {
+			auth.TokenExpiresAt = exp
+		}
+	}
 	m.mu.Lock()
 	m.auths[auth.ID] = auth.Clone()
 	m.mu.Unlock()
@@ -230,6 +236,12 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
 		auth.indexAssigned = existing.indexAssigned
 	}
 	auth.EnsureIndex()
+	// Populate TokenExpiresAt from metadata if not already set
+	if auth.TokenExpiresAt.IsZero() {
+		if exp, ok := auth.ExpirationTime(); ok {
+			auth.TokenExpiresAt = exp
+		}
+	}
 	m.auths[auth.ID] = auth.Clone()
 	m.mu.Unlock()
 	_ = m.persist(ctx, auth)
@@ -254,6 +266,12 @@ func (m *Manager) Load(ctx context.Context) error {
 			continue
 		}
 		auth.EnsureIndex()
+		// Populate TokenExpiresAt from metadata if not already set
+		if auth.TokenExpiresAt.IsZero() {
+			if exp, ok := auth.ExpirationTime(); ok {
+				auth.TokenExpiresAt = exp
+			}
+		}
 		m.auths[auth.ID] = auth.Clone()
 	}
 	return nil
