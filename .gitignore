@@ -108,3 +108,7 @@ dist/
 .turbo/
 .env
 build/
+
+# Local files
+PLAN-*.md
+config-debug.yaml
