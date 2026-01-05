@@ -7,6 +7,7 @@ import (
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
+	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -234,9 +235,9 @@ func matchModelPattern(pattern, model string) bool {
 
 // NormalizeThinkingConfig normalizes thinking-related fields in the payload
 // based on model capabilities. For models without thinking support, it strips
-// reasoning fields. For models with level-based thinking, it validates and
-// normalizes the reasoning effort level. For models with numeric budget thinking,
-// it strips the effort string fields.
+// reasoning fields and logs a warning. For models with level-based thinking,
+// it validates and normalizes the reasoning effort level. For models with
+// numeric budget thinking, it strips the effort string fields.
 func NormalizeThinkingConfig(payload []byte, model string, allowCompat bool) []byte {
 	if len(payload) == 0 || model == "" {
 		return payload
@@ -246,7 +247,7 @@ func NormalizeThinkingConfig(payload []byte, model string, allowCompat bool) []b
 		if allowCompat {
 			return payload
 		}
-		return StripThinkingFields(payload, false)
+		return StripThinkingFieldsWithWarning(payload, model, false)
 	}
 
 	if util.ModelUsesThinkingLevels(model) {
@@ -256,6 +257,31 @@ func NormalizeThinkingConfig(payload []byte, model string, allowCompat bool) []b
 	// Model supports thinking but uses numeric budgets, not levels.
 	// Strip effort string fields since they are not applicable.
 	return StripThinkingFields(payload, true)
+}
+
+// StripThinkingFieldsWithWarning removes thinking-related fields from the payload
+// and logs a warning when fields are actually stripped. This helps users understand
+// why their thinking/reasoning parameters are not being applied.
+func StripThinkingFieldsWithWarning(payload []byte, model string, effortOnly bool) []byte {
+	fieldsToRemove := []string{
+		"reasoning_effort",
+		"reasoning.effort",
+	}
+	if !effortOnly {
+		fieldsToRemove = append([]string{"reasoning", "thinking"}, fieldsToRemove...)
+	}
+	out := payload
+	var strippedFields []string
+	for _, field := range fieldsToRemove {
+		if gjson.GetBytes(out, field).Exists() {
+			strippedFields = append(strippedFields, field)
+			out, _ = sjson.DeleteBytes(out, field)
+		}
+	}
+	if len(strippedFields) > 0 {
+		log.Warnf("model %q does not support thinking/reasoning; stripped fields: %s", model, strings.Join(strippedFields, ", "))
+	}
+	return out
 }
 
 // StripThinkingFields removes thinking-related fields from the payload for

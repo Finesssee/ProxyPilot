@@ -467,6 +467,10 @@ func (e *CodexExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*
 	auth.Metadata["type"] = "codex"
 	now := time.Now().Format(time.RFC3339)
 	auth.Metadata["last_refresh"] = now
+	// Update TokenExpiresAt for proactive refresh scheduling.
+	if expiry, ok := auth.ExpirationTime(); ok {
+		auth.TokenExpiresAt = expiry
+	}
 	return auth, nil
 }
 

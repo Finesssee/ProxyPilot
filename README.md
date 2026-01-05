@@ -164,6 +164,51 @@ All endpoints auto-translate between formats based on the target provider.
 
 ---
 
+## Caching
+
+ProxyPilot includes two caching layers to reduce latency and token usage.
+
+### Response Cache
+
+Caches full API responses for identical requests. Useful for repeated queries during development.
+
+**Config** (`config.yaml`):
+```yaml
+response-cache:
+  enabled: true           # Default: false
+  max-size: 1000          # Max entries (default: 1000)
+  ttl-seconds: 300        # Cache TTL (default: 300 = 5 min)
+  exclude-models:         # Models to skip (supports wildcards)
+    - "*-thinking"
+    - "o1-*"
+```
+
+### Prompt Cache
+
+Synthetic prompt caching for providers without native support. Tracks repeated system prompts and estimates token savings.
+
+**Config** (`config.yaml`):
+```yaml
+prompt-cache:
+  enabled: true           # Default: false
+  max-size: 500           # Max entries (default: 500)
+  ttl-seconds: 1800       # Cache TTL (default: 1800 = 30 min)
+```
+
+### Cache Management API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v0/management/cache/stats` | GET | Response cache stats (hits, misses, size) |
+| `/v0/management/cache/clear` | POST | Clear response cache |
+| `/v0/management/cache/enabled` | PUT | Enable/disable at runtime `{"enabled": true}` |
+| `/v0/management/prompt-cache/stats` | GET | Prompt cache stats + estimated tokens saved |
+| `/v0/management/prompt-cache/clear` | POST | Clear prompt cache |
+| `/v0/management/prompt-cache/enabled` | PUT | Enable/disable at runtime |
+| `/v0/management/prompt-cache/top` | GET | Top 10 most-hit prompts |
+
+---
+
 ## CLI Tools
 
 | Binary | Description |

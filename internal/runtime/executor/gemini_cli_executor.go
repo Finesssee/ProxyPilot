@@ -571,6 +571,10 @@ func updateGeminiCLITokenMetadata(auth *cliproxyauth.Auth, base map[string]any, 
 		if !geminicli.IsVirtual(auth.Runtime) {
 			auth.Metadata = snapshot
 		}
+		// Update TokenExpiresAt for proactive refresh scheduling.
+		if !tok.Expiry.IsZero() {
+			auth.TokenExpiresAt = tok.Expiry
+		}
 		return
 	}
 	if auth.Metadata == nil {
@@ -578,6 +582,10 @@ func updateGeminiCLITokenMetadata(auth *cliproxyauth.Auth, base map[string]any, 
 	}
 	for k, v := range fields {
 		auth.Metadata[k] = v
+	}
+	// Update TokenExpiresAt for proactive refresh scheduling.
+	if !tok.Expiry.IsZero() {
+		auth.TokenExpiresAt = tok.Expiry
 	}
 }
 

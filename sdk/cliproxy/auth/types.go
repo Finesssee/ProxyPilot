@@ -46,7 +46,7 @@ type Auth struct {
 	Storage baseauth.TokenStorage `json:"-"`
 	// Label is an optional human readable label for logging.
 	Label string `json:"label,omitempty"`
-	// Priority determines selection order; higher values are preferred.
+	// Priority determines selection order. Lower = higher priority (0 is highest).
 	Priority int `json:"priority,omitempty"`
 	// Status is the lifecycle status managed by the AuthManager.
 	Status Status `json:"status"`

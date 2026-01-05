@@ -199,6 +199,10 @@ func (s *FileTokenStore) readAuthFile(path, baseDir string) (*cliproxyauth.Auth,
 	if email, ok := metadata["email"].(string); ok && email != "" {
 		auth.Attributes["email"] = email
 	}
+	// Extract token expiry for proactive refresh scheduling.
+	if expiry, ok := auth.ExpirationTime(); ok {
+		auth.TokenExpiresAt = expiry
+	}
 	return auth, nil
 }
 

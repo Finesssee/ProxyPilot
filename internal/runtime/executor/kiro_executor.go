@@ -3186,6 +3186,8 @@ func (e *KiroExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*c
 	// NextRefreshAfter is aligned with RefreshLead (5min)
 	if expiresAt, parseErr := time.Parse(time.RFC3339, tokenData.ExpiresAt); parseErr == nil {
 		updated.NextRefreshAfter = expiresAt.Add(-5 * time.Minute)
+		// Update TokenExpiresAt for proactive refresh scheduling.
+		updated.TokenExpiresAt = expiresAt
 	}
 
 	log.Infof("kiro executor: token refreshed successfully, expires at %s", tokenData.ExpiresAt)

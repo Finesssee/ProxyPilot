@@ -14,6 +14,7 @@ import (
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/api"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/api/middleware"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/cache"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/memory"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/runtime/executor"
@@ -506,6 +507,70 @@ func (s *Service) Run(ctx context.Context) error {
 		usage.RegisterPlugin(&authUsagePlugin{manager: s.coreManager})
 	}
 
+	// Initialize response cache from config
+	if s.cfg != nil && s.cfg.ResponseCache.Enabled {
+		cacheCfg := cache.ResponseCacheConfig{
+			Enabled:       s.cfg.ResponseCache.Enabled,
+			MaxSize:       s.cfg.ResponseCache.GetMaxSize(),
+			TTL:           s.cfg.ResponseCache.GetTTL(),
+			ExcludeModels: s.cfg.ResponseCache.ExcludeModels,
+			PersistFile:   s.cfg.ResponseCache.PersistFile,
+		}
+		cache.InitDefaultResponseCache(cacheCfg)
+		respCache := cache.GetDefaultResponseCache()
+
+		// Load persisted cache from file
+		if s.cfg.ResponseCache.PersistFile != "" {
+			if err := respCache.LoadFromFile(s.cfg.ResponseCache.PersistFile); err != nil {
+				log.Warnf("failed to load response cache from %s: %v", s.cfg.ResponseCache.PersistFile, err)
+			}
+		}
+
+		respCache.StartPeriodicEviction(ctx, cache.DefaultEvictionInterval)
+
+		// Start periodic persistence (every 5 minutes)
+		if s.cfg.ResponseCache.PersistFile != "" {
+			respCache.StartPeriodicPersistence(ctx, s.cfg.ResponseCache.PersistFile, 5*time.Minute)
+		}
+
+		log.Infof("response cache enabled: max=%d ttl=%s persist=%s", cacheCfg.MaxSize, cacheCfg.TTL, cacheCfg.PersistFile)
+	}
+
+	// Initialize prompt cache from config
+	if s.cfg != nil && s.cfg.PromptCache.Enabled {
+		promptCacheCfg := cache.PromptCacheConfig{
+			Enabled:     s.cfg.PromptCache.Enabled,
+			MaxSize:     s.cfg.PromptCache.GetMaxSize(),
+			TTL:         s.cfg.PromptCache.GetTTL(),
+			PersistFile: s.cfg.PromptCache.PersistFile,
+		}
+		cache.InitDefaultPromptCache(promptCacheCfg)
+		promptCache := cache.GetDefaultPromptCache()
+
+		// Load persisted cache from file
+		if s.cfg.PromptCache.PersistFile != "" {
+			if err := promptCache.LoadFromFile(s.cfg.PromptCache.PersistFile); err != nil {
+				log.Warnf("failed to load prompt cache from %s: %v", s.cfg.PromptCache.PersistFile, err)
+			}
+		}
+
+		// Start periodic persistence (every 5 minutes)
+		if s.cfg.PromptCache.PersistFile != "" {
+			promptCache.StartPeriodicPersistence(ctx, s.cfg.PromptCache.PersistFile, 5*time.Minute)
+		}
+
+		// Warm cache from file if configured
+		if s.cfg.PromptCache.WarmFromFile != "" {
+			if result, err := promptCache.LoadWarmFile(s.cfg.PromptCache.WarmFromFile); err != nil {
+				log.Warnf("failed to warm prompt cache from %s: %v", s.cfg.PromptCache.WarmFromFile, err)
+			} else if result.Added > 0 {
+				log.Infof("prompt cache warmed from %s: added=%d skipped=%d", s.cfg.PromptCache.WarmFromFile, result.Added, result.Skipped)
+			}
+		}
+
+		log.Infof("prompt cache enabled: max=%d ttl=%s persist=%s", promptCacheCfg.MaxSize, promptCacheCfg.TTL, promptCacheCfg.PersistFile)
+	}
+
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 	defer func() {
@@ -701,6 +766,28 @@ func (s *Service) Shutdown(ctx context.Context) error {
 	s.shutdownOnce.Do(func() {
 		if ctx == nil {
 			ctx = context.Background()
+		}
+
+		// Save caches before shutdown
+		if s.cfg != nil {
+			if s.cfg.ResponseCache.Enabled && s.cfg.ResponseCache.PersistFile != "" {
+				if respCache := cache.GetDefaultResponseCache(); respCache != nil {
+					if err := respCache.SaveToFile(s.cfg.ResponseCache.PersistFile); err != nil {
+						log.Warnf("failed to save response cache on shutdown: %v", err)
+					} else {
+						log.Info("response cache saved on shutdown")
+					}
+				}
+			}
+			if s.cfg.PromptCache.Enabled && s.cfg.PromptCache.PersistFile != "" {
+				if promptCache := cache.GetDefaultPromptCache(); promptCache != nil {
+					if err := promptCache.SaveToFile(s.cfg.PromptCache.PersistFile); err != nil {
+						log.Warnf("failed to save prompt cache on shutdown: %v", err)
+					} else {
+						log.Info("prompt cache saved on shutdown")
+					}
+				}
+			}
 		}
 
 		// legacy refresh loop removed; only stopping core auth manager below
