@@ -115,6 +115,11 @@ ws-auth: false
 #   summarization-timeout-seconds: 30   # Default: 30. Timeout for LLM summarization calls.
 #   fallback-to-regex: true             # Default: true. Use regex-based summary when LLM fails.
 
+# Token refresh and usage tracking configuration.
+# auto-refresh-buffer: 5m              # Default: 5m. Refresh tokens this long before expiry.
+#                                       # Supports Go duration format: "5m", "10m", "1h", etc.
+# daily-reset-hour: 0                  # Default: 0 (midnight UTC). Hour (0-23, UTC) to reset daily usage stats.
+
 # Token-aware compression (proactive trimming based on model context window).
 # Prevents "prompt too long" errors by trimming before hitting model limits.
 # Environment variables:

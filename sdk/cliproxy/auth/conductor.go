@@ -115,6 +115,10 @@ type Manager struct {
 	requestRetry     atomic.Int32
 	maxRetryInterval atomic.Int64
 
+	// Auto refresh configuration
+	autoRefreshBuffer atomic.Int64 // nanoseconds
+	dailyResetHour    atomic.Int32
+
 	// Optional HTTP RoundTripper provider injected by host.
 	rtProvider RoundTripperProvider
 
@@ -179,6 +183,21 @@ func (m *Manager) SetRetryConfig(retry int, maxRetryInterval time.Duration) {
 	}
 	m.requestRetry.Store(int32(retry))
 	m.maxRetryInterval.Store(maxRetryInterval.Nanoseconds())
+}
+
+// SetRefreshConfig updates auto-refresh buffer and daily reset hour settings.
+func (m *Manager) SetRefreshConfig(autoRefreshBuffer time.Duration, dailyResetHour int) {
+	if m == nil {
+		return
+	}
+	if autoRefreshBuffer <= 0 {
+		autoRefreshBuffer = 5 * time.Minute // default
+	}
+	if dailyResetHour < 0 || dailyResetHour > 23 {
+		dailyResetHour = 0 // default to midnight UTC
+	}
+	m.autoRefreshBuffer.Store(autoRefreshBuffer.Nanoseconds())
+	m.dailyResetHour.Store(int32(dailyResetHour))
 }
 
 // RegisterExecutor registers a provider executor with the manager.
@@ -941,12 +960,12 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 				auth.Usage.RequestCount++
 				auth.Usage.LastRequestAt = now
 
-				// Reset daily if new day
-				if time.Since(auth.Usage.DayStartedAt) > 24*time.Hour {
+				// Reset daily if past configured reset hour (default: midnight UTC)
+				if m.shouldResetDailyUsage(auth.Usage.DayStartedAt, now) {
 					auth.Usage.DailyInputTokens = 0
 					auth.Usage.DailyOutputTokens = 0
 					auth.Usage.DailyRequestCount = 0
-					auth.Usage.DayStartedAt = now.Truncate(24 * time.Hour)
+					auth.Usage.DayStartedAt = m.getDayStartTime(now)
 				}
 				auth.Usage.DailyInputTokens += result.Usage.InputTokens
 				auth.Usage.DailyOutputTokens += result.Usage.OutputTokens
@@ -1531,8 +1550,8 @@ func (m *Manager) shouldRefresh(a *Auth, now time.Time) bool {
 		return evaluator.ShouldRefresh(now, a)
 	}
 
-	// Check if token expires within buffer (5 minutes)
-	const refreshBuffer = 5 * time.Minute
+	// Check if token expires within buffer (configurable, default 5 minutes)
+	refreshBuffer := m.getAutoRefreshBuffer()
 	if !a.TokenExpiresAt.IsZero() && a.TokenExpiresAt.Sub(now) < refreshBuffer {
 		return true
 	}
@@ -1579,6 +1598,52 @@ func (m *Manager) shouldRefresh(a *Auth, now time.Time) bool {
 		return now.Sub(lastRefresh) >= *lead
 	}
 	return true
+}
+
+func (m *Manager) getAutoRefreshBuffer() time.Duration {
+	if m == nil {
+		return 5 * time.Minute
+	}
+	d := time.Duration(m.autoRefreshBuffer.Load())
+	if d <= 0 {
+		return 5 * time.Minute // default
+	}
+	return d
+}
+
+func (m *Manager) getDailyResetHour() int {
+	if m == nil {
+		return 0
+	}
+	h := int(m.dailyResetHour.Load())
+	if h < 0 || h > 23 {
+		return 0
+	}
+	return h
+}
+
+// shouldResetDailyUsage checks if daily usage stats should be reset based on configured reset hour.
+func (m *Manager) shouldResetDailyUsage(dayStartedAt, now time.Time) bool {
+	if dayStartedAt.IsZero() {
+		return true
+	}
+	resetHour := m.getDailyResetHour()
+	// Calculate next reset time from dayStartedAt
+	nextReset := time.Date(dayStartedAt.Year(), dayStartedAt.Month(), dayStartedAt.Day(), resetHour, 0, 0, 0, time.UTC)
+	if !nextReset.After(dayStartedAt) {
+		nextReset = nextReset.Add(24 * time.Hour)
+	}
+	return now.After(nextReset) || now.Equal(nextReset)
+}
+
+// getDayStartTime returns the start time for the current usage day based on configured reset hour.
+func (m *Manager) getDayStartTime(now time.Time) time.Time {
+	resetHour := m.getDailyResetHour()
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), resetHour, 0, 0, 0, time.UTC)
+	if dayStart.After(now) {
+		dayStart = dayStart.Add(-24 * time.Hour)
+	}
+	return dayStart
 }
 
 func authPreferredInterval(a *Auth) time.Duration {

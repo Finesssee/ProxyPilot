@@ -4,6 +4,8 @@
 // debug settings, proxy configuration, and API keys.
 package config
 
+import "time"
+
 // GlobalModelMapperFunc is a function type for looking up global model mappings.
 // It takes a model name and provider hint, and returns the mapped model name (or empty string if no mapping).
 type GlobalModelMapperFunc func(model string, provider string) string
@@ -32,6 +34,14 @@ type SDKConfig struct {
 
 	// Compression configures context compression behavior for long conversations.
 	Compression CompressionConfig `yaml:"compression,omitempty" json:"compression,omitempty"`
+
+	// AutoRefreshBuffer is the duration before token expiry at which automatic refresh is triggered.
+	// Default is 5 minutes. Example: "5m", "10m", "1h".
+	AutoRefreshBuffer string `yaml:"auto-refresh-buffer,omitempty" json:"auto-refresh-buffer,omitempty"`
+
+	// DailyResetHour is the hour (0-23, UTC) at which daily usage statistics are reset.
+	// Default is 0 (midnight UTC).
+	DailyResetHour *int `yaml:"daily-reset-hour,omitempty" json:"daily-reset-hour,omitempty"`
 
 	// GlobalModelMapper is an optional hook for looking up global model mappings.
 	// This is set by the parent Config to enable cross-provider model aliasing.
@@ -108,6 +118,12 @@ const (
 
 	// DefaultAccessProviderName is applied when no provider name is supplied.
 	DefaultAccessProviderName = "config-inline"
+
+	// DefaultAutoRefreshBuffer is the default duration before token expiry for auto-refresh.
+	DefaultAutoRefreshBuffer = 5 * time.Minute
+
+	// DefaultDailyResetHour is the default hour (UTC) for daily usage reset.
+	DefaultDailyResetHour = 0
 )
 
 // ConfigAPIKeyProvider returns the first inline API key provider if present.
@@ -188,5 +204,31 @@ func (cfg *SDKConfig) LookupGlobalModelMapping(model string, provider string) st
 		return ""
 	}
 	return cfg.GlobalModelMapper(model, provider)
+}
+
+// GetAutoRefreshBuffer parses and returns the auto-refresh buffer duration.
+// Returns DefaultAutoRefreshBuffer if not set or invalid.
+func (cfg *SDKConfig) GetAutoRefreshBuffer() time.Duration {
+	if cfg == nil || cfg.AutoRefreshBuffer == "" {
+		return DefaultAutoRefreshBuffer
+	}
+	d, err := time.ParseDuration(cfg.AutoRefreshBuffer)
+	if err != nil || d <= 0 {
+		return DefaultAutoRefreshBuffer
+	}
+	return d
+}
+
+// GetDailyResetHour returns the daily reset hour (0-23, UTC).
+// Returns DefaultDailyResetHour if not set or out of range.
+func (cfg *SDKConfig) GetDailyResetHour() int {
+	if cfg == nil || cfg.DailyResetHour == nil {
+		return DefaultDailyResetHour
+	}
+	h := *cfg.DailyResetHour
+	if h < 0 || h > 23 {
+		return DefaultDailyResetHour
+	}
+	return h
 }
 

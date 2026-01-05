@@ -35,6 +35,8 @@ const (
 	AccessProviderTypeConfigAPIKey = internalconfig.AccessProviderTypeConfigAPIKey
 	DefaultAccessProviderName      = internalconfig.DefaultAccessProviderName
 	DefaultPanelGitHubRepository   = internalconfig.DefaultPanelGitHubRepository
+	DefaultAutoRefreshBuffer       = internalconfig.DefaultAutoRefreshBuffer
+	DefaultDailyResetHour          = internalconfig.DefaultDailyResetHour
 )
 
 func MakeInlineAPIKeyProvider(keys []string) *AccessProvider {

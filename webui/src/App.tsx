@@ -13,6 +13,7 @@ import {
   ConfigEditor,
   RequestMonitor,
   UsageStats,
+  AccountUsage,
   ThinkingBudgetSettings,
 } from '@/components/dashboard'
 import { Header } from '@/components/layout/Header'
@@ -133,7 +134,10 @@ function DashboardContent() {
         return (
           <div className="space-y-6">
             {mgmtKey ? (
-              <UsageStats />
+              <>
+                <UsageStats />
+                <AccountUsage />
+              </>
             ) : (
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-300">
                 Management key required to access analytics.
