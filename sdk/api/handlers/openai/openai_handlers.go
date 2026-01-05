@@ -108,6 +108,10 @@ func (h *OpenAIAPIHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 
+	// Track system prompt in cache and set header
+	cacheStatus, _ := handlers.ExtractAndTrackSystemPrompt(h.HandlerType(), rawJSON, "openai")
+	handlers.SetPromptCacheHeader(c, cacheStatus)
+
 	// Check if the client requested a streaming response.
 	streamResult := gjson.GetBytes(rawJSON, "stream")
 	stream := streamResult.Type == gjson.True
@@ -431,7 +435,8 @@ func (h *OpenAIAPIHandler) handleNonStreamingResponse(c *gin.Context, rawJSON []
 		cliCancel(errMsg.Error)
 		return
 	}
-	_, _ = c.Writer.Write(resp)
+	handlers.SetCacheHeader(c, resp.CacheHit)
+	_, _ = c.Writer.Write(resp.Payload)
 	cliCancel()
 }
 
@@ -530,7 +535,8 @@ func (h *OpenAIAPIHandler) handleCompletionsNonStreamingResponse(c *gin.Context,
 		cliCancel(errMsg.Error)
 		return
 	}
-	completionsResp := convertChatCompletionsResponseToCompletions(resp)
+	handlers.SetCacheHeader(c, resp.CacheHit)
+	completionsResp := convertChatCompletionsResponseToCompletions(resp.Payload)
 	_, _ = c.Writer.Write(completionsResp)
 	cliCancel()
 }

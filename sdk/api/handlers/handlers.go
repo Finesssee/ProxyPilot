@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/cache"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
@@ -124,6 +125,23 @@ func StreamingBootstrapRetries(cfg *config.SDKConfig) int {
 		retries = 0
 	}
 	return retries
+}
+
+// ExecuteResult contains the response payload and metadata from a request execution.
+type ExecuteResult struct {
+	// Payload is the raw response body.
+	Payload []byte
+	// CacheHit indicates whether the response was served from cache.
+	CacheHit bool
+}
+
+// SetCacheHeader sets the X-Cache header on the response based on cache status.
+func SetCacheHeader(c *gin.Context, cacheHit bool) {
+	if cacheHit {
+		c.Header("X-Cache", "HIT")
+	} else {
+		c.Header("X-Cache", "MISS")
+	}
 }
 
 // StreamingMaxChunkSize returns the maximum size (in bytes) for individual response chunks.
@@ -332,10 +350,10 @@ func appendAPIResponse(c *gin.Context, data []byte) {
 
 // ExecuteWithAuthManager executes a non-streaming request via the core auth manager.
 // This path is the only supported execution route.
-func (h *BaseAPIHandler) ExecuteWithAuthManager(ctx context.Context, handlerType, modelName string, rawJSON []byte, alt string) ([]byte, *interfaces.ErrorMessage) {
+func (h *BaseAPIHandler) ExecuteWithAuthManager(ctx context.Context, handlerType, modelName string, rawJSON []byte, alt string) (ExecuteResult, *interfaces.ErrorMessage) {
 	providers, normalizedModel, metadata, errMsg := h.getRequestDetails(modelName)
 	if errMsg != nil {
-		return nil, errMsg
+		return ExecuteResult{}, errMsg
 	}
 
 	// Set model and provider in context for logging/monitoring
@@ -344,6 +362,11 @@ func (h *BaseAPIHandler) ExecuteWithAuthManager(ctx context.Context, handlerType
 		if len(providers) > 0 {
 			ginCtx.Set("provider", providers[0])
 		}
+	}
+
+	// Check response cache before executing
+	if cachedResp, _, found := cache.TryGetCached(normalizedModel, rawJSON); found {
+		return ExecuteResult{Payload: cachedResp, CacheHit: true}, nil
 	}
 
 	reqMeta := requestExecutionMetadata(ctx)
@@ -375,9 +398,13 @@ func (h *BaseAPIHandler) ExecuteWithAuthManager(ctx context.Context, handlerType
 				addon = hdr.Clone()
 			}
 		}
-		return nil, &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
+		return ExecuteResult{}, &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
 	}
-	return cloneBytes(resp.Payload), nil
+
+	// Store successful response in cache
+	cache.StoreCached(normalizedModel, rawJSON, resp.Payload, "application/json", http.StatusOK)
+
+	return ExecuteResult{Payload: cloneBytes(resp.Payload), CacheHit: false}, nil
 }
 
 // ExecuteCountWithAuthManager executes a non-streaming request via the core auth manager.

@@ -76,6 +76,10 @@ func (h *ClaudeCodeAPIHandler) ClaudeMessages(c *gin.Context) {
 		return
 	}
 
+	// Track system prompt in cache and set header
+	cacheStatus, _ := handlers.ExtractAndTrackSystemPrompt(h.HandlerType(), rawJSON, "anthropic")
+	handlers.SetPromptCacheHeader(c, cacheStatus)
+
 	// Check if the client requested a streaming response.
 	streamResult := gjson.GetBytes(rawJSON, "stream")
 	if !streamResult.Exists() || streamResult.Type == gjson.False {
@@ -156,10 +160,13 @@ func (h *ClaudeCodeAPIHandler) handleNonStreamingResponse(c *gin.Context, rawJSO
 		return
 	}
 
+	handlers.SetCacheHeader(c, resp.CacheHit)
+
 	// Decompress gzipped responses - Claude API sometimes returns gzip without Content-Encoding header
 	// This fixes title generation and other non-streaming responses that arrive compressed
-	if len(resp) >= 2 && resp[0] == 0x1f && resp[1] == 0x8b {
-		gzReader, err := gzip.NewReader(bytes.NewReader(resp))
+	respPayload := resp.Payload
+	if len(respPayload) >= 2 && respPayload[0] == 0x1f && respPayload[1] == 0x8b {
+		gzReader, err := gzip.NewReader(bytes.NewReader(respPayload))
 		if err != nil {
 			log.Warnf("failed to decompress gzipped Claude response: %v", err)
 		} else {
@@ -167,12 +174,12 @@ func (h *ClaudeCodeAPIHandler) handleNonStreamingResponse(c *gin.Context, rawJSO
 			if decompressed, err := io.ReadAll(gzReader); err != nil {
 				log.Warnf("failed to read decompressed Claude response: %v", err)
 			} else {
-				resp = decompressed
+				respPayload = decompressed
 			}
 		}
 	}
 
-	_, _ = c.Writer.Write(resp)
+	_, _ = c.Writer.Write(respPayload)
 	cliCancel()
 }
 

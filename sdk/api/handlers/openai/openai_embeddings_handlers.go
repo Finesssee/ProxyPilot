@@ -58,9 +58,10 @@ func (h *OpenAIAPIHandler) Embeddings(c *gin.Context) {
 	defer cliCancel()
 
 	resp, errMsg := h.ExecuteWithAuthManager(cliCtx, h.HandlerType(), model, rawJSON, alt)
-	if errMsg == nil && len(resp) > 0 {
+	if errMsg == nil && len(resp.Payload) > 0 {
 		c.Header("Content-Type", "application/json")
-		_, _ = c.Writer.Write(resp)
+		handlers.SetCacheHeader(c, resp.CacheHit)
+		_, _ = c.Writer.Write(resp.Payload)
 		return
 	}
 

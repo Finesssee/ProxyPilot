@@ -226,6 +226,10 @@ func (h *GeminiAPIHandler) GeminiHandler(c *gin.Context) {
 	method := action[1]
 	rawJSON, _ := c.GetRawData()
 
+	// Track system prompt in cache and set header
+	cacheStatus, _ := handlers.ExtractAndTrackSystemPrompt(h.HandlerType(), rawJSON, "gemini")
+	handlers.SetPromptCacheHeader(c, cacheStatus)
+
 	switch method {
 	case "generateContent":
 		h.handleGenerateContent(c, action[0], rawJSON)
@@ -364,7 +368,8 @@ func (h *GeminiAPIHandler) handleGenerateContent(c *gin.Context, modelName strin
 		cliCancel(errMsg.Error)
 		return
 	}
-	_, _ = c.Writer.Write(resp)
+	handlers.SetCacheHeader(c, resp.CacheHit)
+	_, _ = c.Writer.Write(resp.Payload)
 	cliCancel()
 }
 

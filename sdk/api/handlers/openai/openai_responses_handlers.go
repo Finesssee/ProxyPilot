@@ -81,6 +81,10 @@ func (h *OpenAIResponsesAPIHandler) Responses(c *gin.Context) {
 		return
 	}
 
+	// Track system prompt in cache and set header
+	cacheStatus, _ := handlers.ExtractAndTrackSystemPrompt(h.HandlerType(), rawJSON, "openai")
+	handlers.SetPromptCacheHeader(c, cacheStatus)
+
 	// Check if the client requested a streaming response.
 	streamResult := gjson.GetBytes(rawJSON, "stream")
 	if streamResult.Type == gjson.True {
@@ -112,7 +116,8 @@ func (h *OpenAIResponsesAPIHandler) handleNonStreamingResponse(c *gin.Context, r
 		h.WriteErrorResponse(c, errMsg)
 		return
 	}
-	_, _ = c.Writer.Write(resp)
+	handlers.SetCacheHeader(c, resp.CacheHit)
+	_, _ = c.Writer.Write(resp.Payload)
 	return
 
 	// no legacy fallback

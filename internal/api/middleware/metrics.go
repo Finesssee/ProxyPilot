@@ -90,6 +90,52 @@ var (
 		[]string{"provider", "model", "type"}, // type: input or output
 	)
 
+	// Response cache metrics
+	responseCacheHitsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "proxypilot_response_cache_hits_total",
+			Help: "Total number of response cache hits",
+		},
+	)
+	responseCacheMissesTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "proxypilot_response_cache_misses_total",
+			Help: "Total number of response cache misses",
+		},
+	)
+	responseCacheSize = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "proxypilot_response_cache_size",
+			Help: "Current number of entries in the response cache",
+		},
+	)
+
+	// Prompt cache metrics
+	promptCacheHitsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "proxypilot_prompt_cache_hits_total",
+			Help: "Total number of prompt cache hits",
+		},
+	)
+	promptCacheMissesTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "proxypilot_prompt_cache_misses_total",
+			Help: "Total number of prompt cache misses",
+		},
+	)
+	promptCacheSize = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "proxypilot_prompt_cache_size",
+			Help: "Current number of entries in the prompt cache",
+		},
+	)
+	promptCacheTokensSavedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "proxypilot_prompt_cache_tokens_saved_total",
+			Help: "Estimated total tokens saved by prompt cache hits",
+		},
+	)
+
 	// metricsRegistered ensures metrics are only registered once.
 	metricsRegistered atomic.Bool
 )
@@ -110,6 +156,13 @@ func RegisterMetrics() {
 		apiRequestsByProvider,
 		apiRequestErrors,
 		tokenUsage,
+		responseCacheHitsTotal,
+		responseCacheMissesTotal,
+		responseCacheSize,
+		promptCacheHitsTotal,
+		promptCacheMissesTotal,
+		promptCacheSize,
+		promptCacheTokensSavedTotal,
 	)
 }
 
@@ -283,4 +336,41 @@ func RecordTokenUsage(provider, model, tokenType string, tokens int) {
 // errorType should describe the type of error (e.g., "rate_limit", "auth_error", "server_error").
 func RecordAPIError(errorType, provider string) {
 	apiRequestErrors.WithLabelValues(errorType, provider).Inc()
+}
+
+// RecordResponseCacheHit increments the response cache hit counter.
+func RecordResponseCacheHit() {
+	responseCacheHitsTotal.Inc()
+}
+
+// RecordResponseCacheMiss increments the response cache miss counter.
+func RecordResponseCacheMiss() {
+	responseCacheMissesTotal.Inc()
+}
+
+// SetResponseCacheSize sets the current response cache size gauge.
+func SetResponseCacheSize(size int) {
+	responseCacheSize.Set(float64(size))
+}
+
+// RecordPromptCacheHit increments the prompt cache hit counter.
+func RecordPromptCacheHit() {
+	promptCacheHitsTotal.Inc()
+}
+
+// RecordPromptCacheMiss increments the prompt cache miss counter.
+func RecordPromptCacheMiss() {
+	promptCacheMissesTotal.Inc()
+}
+
+// SetPromptCacheSize sets the current prompt cache size gauge.
+func SetPromptCacheSize(size int) {
+	promptCacheSize.Set(float64(size))
+}
+
+// RecordPromptCacheTokensSaved adds to the total tokens saved counter.
+func RecordPromptCacheTokensSaved(tokens int) {
+	if tokens > 0 {
+		promptCacheTokensSavedTotal.Add(float64(tokens))
+	}
 }
