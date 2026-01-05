@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
-import { Lock, LockOpen, ChevronDown, RefreshCw } from 'lucide-react'
+import { Lock, LockOpen, ChevronDown, RefreshCw, ChevronUp } from 'lucide-react'
 import { useProxyContext, EngineOfflineError } from '@/hooks/useProxyContext'
 import { cn } from '@/lib/utils'
 
@@ -201,6 +201,21 @@ interface AuthFileInfo {
   email?: string
   label?: string
   status?: string
+  priority?: number
+  token_expires_at?: string
+}
+
+function formatExpiry(expiresAt?: string): { text: string; status: 'ok' | 'warning' | 'error' } {
+  if (!expiresAt) return { text: '—', status: 'ok' }
+  const exp = new Date(expiresAt)
+  const now = new Date()
+  const diffMs = exp.getTime() - now.getTime()
+  if (diffMs < 0) return { text: 'expired', status: 'error' }
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 10) return { text: `${mins}m`, status: 'error' }
+  if (mins < 60) return { text: `${mins}m`, status: 'warning' }
+  const hours = Math.floor(mins / 60)
+  return { text: `${hours}h ${mins % 60}m`, status: 'ok' }
 }
 
 export function ProviderLogins() {
@@ -370,6 +385,20 @@ export function ProviderLogins() {
     }
   }
 
+  const updatePriority = async (authId: string, newPriority: number) => {
+    try {
+      await mgmtFetch(`/v0/management/auth/${authId}/priority`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priority: newPriority }),
+      })
+      const res = await mgmtFetch('/v0/management/auth-files')
+      setAuthFileList(res.files || [])
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e), 'error')
+    }
+  }
+
   const debugOn = !!mgmtConfig?.debug
 
   return (
@@ -522,7 +551,9 @@ export function ProviderLogins() {
                         <tr>
                           <th className="px-3 py-2 text-left text-[var(--text-muted)] font-semibold uppercase tracking-wider" style={{ fontFamily: 'var(--font-mono)' }}>Provider</th>
                           <th className="px-3 py-2 text-left text-[var(--text-muted)] font-semibold uppercase tracking-wider" style={{ fontFamily: 'var(--font-mono)' }}>Account</th>
+                          <th className="px-3 py-2 text-left text-[var(--text-muted)] font-semibold uppercase tracking-wider" style={{ fontFamily: 'var(--font-mono)' }}>Priority</th>
                           <th className="px-3 py-2 text-left text-[var(--text-muted)] font-semibold uppercase tracking-wider" style={{ fontFamily: 'var(--font-mono)' }}>Status</th>
+                          <th className="px-3 py-2 text-left text-[var(--text-muted)] font-semibold uppercase tracking-wider" style={{ fontFamily: 'var(--font-mono)' }}>Expires</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -535,6 +566,27 @@ export function ProviderLogins() {
                               {f.email || f.label || '—'}
                             </td>
                             <td className="px-3 py-2">
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => updatePriority(f.id, (f.priority ?? 0) - 1)}
+                                  className="p-0.5 rounded hover:bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                  title="Higher priority"
+                                >
+                                  <ChevronUp className="h-3 w-3" />
+                                </button>
+                                <span className="font-mono text-[var(--text-secondary)] min-w-[1.5rem] text-center">
+                                  {f.priority ?? 0}
+                                </span>
+                                <button
+                                  onClick={() => updatePriority(f.id, (f.priority ?? 0) + 1)}
+                                  className="p-0.5 rounded hover:bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                  title="Lower priority"
+                                >
+                                  <ChevronDown className="h-3 w-3" />
+                                </button>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2">
                               <span className={cn(
                                 'inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider',
                                 f.status === 'active' || f.status === 'ok'
@@ -543,6 +595,21 @@ export function ProviderLogins() {
                               )} style={{ fontFamily: 'var(--font-mono)' }}>
                                 {f.status || 'unknown'}
                               </span>
+                            </td>
+                            <td className="px-3 py-2">
+                              {(() => {
+                                const expiry = formatExpiry(f.token_expires_at)
+                                return (
+                                  <span className={cn(
+                                    'inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider',
+                                    expiry.status === 'ok' && 'bg-[var(--status-online)]/15 text-[var(--status-online)]',
+                                    expiry.status === 'warning' && 'bg-yellow-500/15 text-yellow-500',
+                                    expiry.status === 'error' && 'bg-red-500/15 text-red-500'
+                                  )} style={{ fontFamily: 'var(--font-mono)' }}>
+                                    {expiry.text}
+                                  </span>
+                                )
+                              })()}
                             </td>
                           </tr>
                         ))}

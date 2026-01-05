@@ -386,6 +386,7 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
 		"type":           strings.TrimSpace(auth.Provider),
 		"provider":       strings.TrimSpace(auth.Provider),
 		"label":          auth.Label,
+		"priority":       auth.Priority,
 		"status":         auth.Status,
 		"status_message": auth.StatusMessage,
 		"disabled":       auth.Disabled,
@@ -422,6 +423,9 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
 	}
 	if !auth.LastRefreshedAt.IsZero() {
 		entry["last_refresh"] = auth.LastRefreshedAt
+	}
+	if !auth.TokenExpiresAt.IsZero() {
+		entry["token_expires_at"] = auth.TokenExpiresAt
 	}
 	if path != "" {
 		entry["path"] = path
