@@ -25,6 +25,10 @@ type RoundRobinSelector struct {
 // rolling-window subscription caps (e.g. chat message limits).
 type FillFirstSelector struct{}
 
+// UsageAwareSelector selects the credential with the lowest daily usage.
+// This spreads load across accounts to avoid hitting quota limits.
+type UsageAwareSelector struct{}
+
 type blockReason int
 
 const (
@@ -185,6 +189,29 @@ func (s *FillFirstSelector) Pick(ctx context.Context, provider, model string, op
 	if err != nil {
 		return nil, err
 	}
+	return available[0], nil
+}
+
+// Pick selects the auth with the lowest daily output token usage.
+func (s *UsageAwareSelector) Pick(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*Auth) (*Auth, error) {
+	_ = ctx
+	_ = opts
+	now := time.Now()
+	available, err := getAvailableAuths(auths, provider, model, now)
+	if err != nil {
+		return nil, err
+	}
+	// Sort by daily output tokens ascending (least usage first)
+	sort.Slice(available, func(i, j int) bool {
+		if available[i].Usage.DailyOutputTokens != available[j].Usage.DailyOutputTokens {
+			return available[i].Usage.DailyOutputTokens < available[j].Usage.DailyOutputTokens
+		}
+		// Tie-breaker: priority, then ID
+		if available[i].Priority != available[j].Priority {
+			return available[i].Priority < available[j].Priority
+		}
+		return available[i].ID < available[j].ID
+	})
 	return available[0], nil
 }
 

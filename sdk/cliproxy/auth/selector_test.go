@@ -111,3 +111,46 @@ func TestRoundRobinSelectorPick_Concurrent(t *testing.T) {
 	default:
 	}
 }
+
+func TestUsageAwareSelectorPick_LeastUsedFirst(t *testing.T) {
+	t.Parallel()
+
+	selector := &UsageAwareSelector{}
+	auths := []*Auth{
+		{ID: "high", Usage: UsageStats{DailyOutputTokens: 1000}},
+		{ID: "low", Usage: UsageStats{DailyOutputTokens: 100}},
+		{ID: "mid", Usage: UsageStats{DailyOutputTokens: 500}},
+	}
+
+	got, err := selector.Pick(context.Background(), "gemini", "", cliproxyexecutor.Options{}, auths)
+	if err != nil {
+		t.Fatalf("Pick() error = %v", err)
+	}
+	if got == nil {
+		t.Fatalf("Pick() auth = nil")
+	}
+	if got.ID != "low" {
+		t.Fatalf("Pick() auth.ID = %q, want %q (lowest usage)", got.ID, "low")
+	}
+}
+
+func TestUsageAwareSelectorPick_TiebreakByPriority(t *testing.T) {
+	t.Parallel()
+
+	selector := &UsageAwareSelector{}
+	auths := []*Auth{
+		{ID: "b", Priority: 2, Usage: UsageStats{DailyOutputTokens: 100}},
+		{ID: "a", Priority: 1, Usage: UsageStats{DailyOutputTokens: 100}},
+	}
+
+	got, err := selector.Pick(context.Background(), "gemini", "", cliproxyexecutor.Options{}, auths)
+	if err != nil {
+		t.Fatalf("Pick() error = %v", err)
+	}
+	if got == nil {
+		t.Fatalf("Pick() auth = nil")
+	}
+	if got.ID != "a" {
+		t.Fatalf("Pick() auth.ID = %q, want %q (lower priority wins on tie)", got.ID, "a")
+	}
+}

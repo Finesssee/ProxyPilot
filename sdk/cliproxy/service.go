@@ -687,6 +687,8 @@ func (s *Service) Run(ctx context.Context) error {
 			switch strategy {
 			case "fill-first", "fillfirst", "ff":
 				return "fill-first"
+			case "usage-aware", "usageaware", "usage", "least-used":
+				return "usage-aware"
 			default:
 				return "round-robin"
 			}
@@ -698,6 +700,8 @@ func (s *Service) Run(ctx context.Context) error {
 			switch nextStrategy {
 			case "fill-first":
 				selector = &coreauth.FillFirstSelector{}
+			case "usage-aware":
+				selector = &coreauth.UsageAwareSelector{}
 			default:
 				selector = &coreauth.RoundRobinSelector{}
 			}
