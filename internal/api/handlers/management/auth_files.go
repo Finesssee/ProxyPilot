@@ -427,6 +427,15 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
 	if !auth.TokenExpiresAt.IsZero() {
 		entry["token_expires_at"] = auth.TokenExpiresAt
 	}
+	// Include usage stats for WebUI display
+	entry["usage"] = gin.H{
+		"total_input_tokens":  auth.Usage.TotalInputTokens,
+		"total_output_tokens": auth.Usage.TotalOutputTokens,
+		"request_count":       auth.Usage.RequestCount,
+		"daily_input_tokens":  auth.Usage.DailyInputTokens,
+		"daily_output_tokens": auth.Usage.DailyOutputTokens,
+		"daily_request_count": auth.Usage.DailyRequestCount,
+	}
 	if path != "" {
 		entry["path"] = path
 		entry["source"] = "file"

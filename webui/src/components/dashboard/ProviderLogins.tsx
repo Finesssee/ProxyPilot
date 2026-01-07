@@ -194,6 +194,15 @@ function ProviderSkeleton() {
   )
 }
 
+interface UsageStats {
+  total_input_tokens?: number
+  total_output_tokens?: number
+  request_count?: number
+  daily_input_tokens?: number
+  daily_output_tokens?: number
+  daily_request_count?: number
+}
+
 interface AuthFileInfo {
   id: string
   provider?: string
@@ -203,6 +212,14 @@ interface AuthFileInfo {
   status?: string
   priority?: number
   token_expires_at?: string
+  usage?: UsageStats
+}
+
+function formatTokens(n?: number): string {
+  if (!n || n === 0) return '—'
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
+  return n.toString()
 }
 
 function formatExpiry(expiresAt?: string): { text: string; status: 'ok' | 'warning' | 'error' } {
@@ -554,6 +571,7 @@ export function ProviderLogins() {
                           <th className="px-3 py-2 text-left text-[var(--text-muted)] font-semibold uppercase tracking-wider" style={{ fontFamily: 'var(--font-mono)' }}>Priority</th>
                           <th className="px-3 py-2 text-left text-[var(--text-muted)] font-semibold uppercase tracking-wider" style={{ fontFamily: 'var(--font-mono)' }}>Status</th>
                           <th className="px-3 py-2 text-left text-[var(--text-muted)] font-semibold uppercase tracking-wider" style={{ fontFamily: 'var(--font-mono)' }}>Expires</th>
+                          <th className="px-3 py-2 text-left text-[var(--text-muted)] font-semibold uppercase tracking-wider" style={{ fontFamily: 'var(--font-mono)' }}>Usage (Today)</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -610,6 +628,11 @@ export function ProviderLogins() {
                                   </span>
                                 )
                               })()}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className="font-mono text-[10px] text-[var(--text-secondary)]" title={`Total: ${formatTokens(f.usage?.total_output_tokens)} tokens, ${f.usage?.request_count ?? 0} requests`}>
+                                {formatTokens(f.usage?.daily_output_tokens)} / {f.usage?.daily_request_count ?? 0} req
+                              </span>
                             </td>
                           </tr>
                         ))}
