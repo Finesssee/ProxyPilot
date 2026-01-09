@@ -468,6 +468,31 @@ func GetKiroModels() []*ModelInfo {
 			MaxCompletionTokens: 64000,
 			Thinking:            &ThinkingSupport{Min: 1024, Max: 32000, ZeroAllowed: true, DynamicAllowed: true},
 		},
+		// --- Thinking Variants (Extended thinking enabled, ZeroAllowed=false forces thinking) ---
+		{
+			ID:                  "kiro-claude-opus-4-5-thinking",
+			Object:              "model",
+			Created:             1732752000,
+			OwnedBy:             "aws",
+			Type:                "kiro",
+			DisplayName:         "Kiro Claude Opus 4.5 (Thinking)",
+			Description:         "Claude Opus 4.5 via Kiro with extended thinking enabled",
+			ContextLength:       200000,
+			MaxCompletionTokens: 64000,
+			Thinking:            &ThinkingSupport{Min: 1024, Max: 128000, ZeroAllowed: false, DynamicAllowed: true},
+		},
+		{
+			ID:                  "kiro-claude-sonnet-4-5-thinking",
+			Object:              "model",
+			Created:             1732752000,
+			OwnedBy:             "aws",
+			Type:                "kiro",
+			DisplayName:         "Kiro Claude Sonnet 4.5 (Thinking)",
+			Description:         "Claude Sonnet 4.5 via Kiro with extended thinking enabled",
+			ContextLength:       200000,
+			MaxCompletionTokens: 64000,
+			Thinking:            &ThinkingSupport{Min: 1024, Max: 128000, ZeroAllowed: false, DynamicAllowed: true},
+		},
 		// --- Agentic Variants (Optimized for coding agents with chunked writes) ---
 		{
 			ID:                  "kiro-claude-opus-4-5-agentic",
