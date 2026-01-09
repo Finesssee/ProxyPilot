@@ -143,10 +143,13 @@ func RequestLoggingMiddleware(logger logging.RequestLogger) gin.HandlerFunc {
 			}
 		}
 
-		addRequestToMonitor(entry)
-
-		// Also add to persistent history
-		GetRequestHistory().AddEntry(entry)
+		if ShouldSampleRequestHistory() {
+			addRequestToMonitor(entry)
+			// Also add to persistent history when enabled
+			if history := GetRequestHistory(); history != nil {
+				history.AddEntry(entry)
+			}
+		}
 	}
 }
 
