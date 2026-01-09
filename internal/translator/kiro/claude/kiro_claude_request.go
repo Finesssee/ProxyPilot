@@ -225,10 +225,10 @@ func BuildKiroPayload(claudeBody []byte, modelID, profileArn, origin string, isA
 	// Kiro API supports official thinking/reasoning mode via <thinking_mode> tag.
 	// When set to "enabled", Kiro returns reasoning content as official reasoningContentEvent
 	// rather than inline <thinking> tags in assistantResponseEvent.
-	// We use a high max_thinking_length to allow extensive reasoning.
+	// Thinking tokens are separate from output tokens, so we can use a high budget.
 	if thinkingEnabled {
 		thinkingHint := `<thinking_mode>enabled</thinking_mode>
-<max_thinking_length>200000</max_thinking_length>`
+<max_thinking_length>128000</max_thinking_length>`
 		if systemPrompt != "" {
 			systemPrompt = thinkingHint + "\n\n" + systemPrompt
 		} else {
@@ -457,13 +457,20 @@ func IsThinkingEnabledWithHeaders(body []byte, headers http.Header) bool {
 		}
 	}
 
+	// Check if model name contains "-thinking" suffix (e.g., kiro-claude-sonnet-4-5-thinking)
+	// These model variants should ALWAYS enable thinking regardless of other parameters
+	model := gjson.GetBytes(body, "model").String()
+	modelLower := strings.ToLower(model)
+	if strings.Contains(modelLower, "-thinking") {
+		log.Debugf("kiro: thinking mode enabled via -thinking model variant: %s", model)
+		return true
+	}
+
 	// Check OpenAI format: max_completion_tokens with reasoning (o1-style)
 	// Some clients use this to indicate reasoning mode
 	if gjson.GetBytes(body, "max_completion_tokens").Exists() {
 		// If max_completion_tokens is set, check if model name suggests reasoning
-		model := gjson.GetBytes(body, "model").String()
-		if strings.Contains(strings.ToLower(model), "thinking") ||
-			strings.Contains(strings.ToLower(model), "reason") {
+		if strings.Contains(modelLower, "reason") {
 			log.Debugf("kiro: thinking mode enabled via model name hint: %s", model)
 			return true
 		}
