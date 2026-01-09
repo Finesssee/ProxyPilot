@@ -3,6 +3,7 @@
 package middleware
 
 import (
+	"net/http"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -138,7 +139,18 @@ var (
 
 	// metricsRegistered ensures metrics are only registered once.
 	metricsRegistered atomic.Bool
+	metricsEnabled    atomic.Bool
 )
+
+// SetMetricsEnabled toggles Prometheus metrics collection.
+func SetMetricsEnabled(enabled bool) {
+	metricsEnabled.Store(enabled)
+}
+
+// IsMetricsEnabled reports whether metrics are enabled.
+func IsMetricsEnabled() bool {
+	return metricsEnabled.Load()
+}
 
 // RegisterMetrics registers all Prometheus metrics.
 // It is safe to call multiple times; metrics will only be registered once.
@@ -169,10 +181,14 @@ func RegisterMetrics() {
 // PrometheusMiddleware returns a Gin middleware that collects Prometheus metrics
 // for HTTP requests including request count, duration, and active connections.
 func PrometheusMiddleware() gin.HandlerFunc {
-	// Ensure metrics are registered
-	RegisterMetrics()
-
 	return func(c *gin.Context) {
+		if !IsMetricsEnabled() {
+			c.Next()
+			return
+		}
+		// Ensure metrics are registered
+		RegisterMetrics()
+
 		// Skip metrics endpoint to avoid self-referential metrics
 		if c.Request.URL.Path == "/metrics" {
 			c.Next()
@@ -304,11 +320,14 @@ func normalizePath(path string) string {
 
 // MetricsHandler returns the Prometheus HTTP handler for the /metrics endpoint.
 func MetricsHandler() gin.HandlerFunc {
-	// Ensure metrics are registered before serving
-	RegisterMetrics()
-
 	handler := promhttp.Handler()
 	return func(c *gin.Context) {
+		if !IsMetricsEnabled() {
+			c.AbortWithStatus(http.StatusNotFound)
+			return
+		}
+		// Ensure metrics are registered before serving
+		RegisterMetrics()
 		handler.ServeHTTP(c.Writer, c.Request)
 	}
 }
@@ -321,12 +340,18 @@ func GetActiveConnections() int64 {
 // RecordProviderRequest records a request to a specific AI provider.
 // This can be called from handlers to track provider-specific metrics.
 func RecordProviderRequest(provider, model string) {
+	if !IsMetricsEnabled() {
+		return
+	}
 	apiRequestsByProvider.WithLabelValues(provider, model).Inc()
 }
 
 // RecordTokenUsage records token usage for an AI API call.
 // tokenType should be either "input" or "output".
 func RecordTokenUsage(provider, model, tokenType string, tokens int) {
+	if !IsMetricsEnabled() {
+		return
+	}
 	if tokens > 0 {
 		tokenUsage.WithLabelValues(provider, model, tokenType).Add(float64(tokens))
 	}
@@ -335,41 +360,65 @@ func RecordTokenUsage(provider, model, tokenType string, tokens int) {
 // RecordAPIError records an API error.
 // errorType should describe the type of error (e.g., "rate_limit", "auth_error", "server_error").
 func RecordAPIError(errorType, provider string) {
+	if !IsMetricsEnabled() {
+		return
+	}
 	apiRequestErrors.WithLabelValues(errorType, provider).Inc()
 }
 
 // RecordResponseCacheHit increments the response cache hit counter.
 func RecordResponseCacheHit() {
+	if !IsMetricsEnabled() {
+		return
+	}
 	responseCacheHitsTotal.Inc()
 }
 
 // RecordResponseCacheMiss increments the response cache miss counter.
 func RecordResponseCacheMiss() {
+	if !IsMetricsEnabled() {
+		return
+	}
 	responseCacheMissesTotal.Inc()
 }
 
 // SetResponseCacheSize sets the current response cache size gauge.
 func SetResponseCacheSize(size int) {
+	if !IsMetricsEnabled() {
+		return
+	}
 	responseCacheSize.Set(float64(size))
 }
 
 // RecordPromptCacheHit increments the prompt cache hit counter.
 func RecordPromptCacheHit() {
+	if !IsMetricsEnabled() {
+		return
+	}
 	promptCacheHitsTotal.Inc()
 }
 
 // RecordPromptCacheMiss increments the prompt cache miss counter.
 func RecordPromptCacheMiss() {
+	if !IsMetricsEnabled() {
+		return
+	}
 	promptCacheMissesTotal.Inc()
 }
 
 // SetPromptCacheSize sets the current prompt cache size gauge.
 func SetPromptCacheSize(size int) {
+	if !IsMetricsEnabled() {
+		return
+	}
 	promptCacheSize.Set(float64(size))
 }
 
 // RecordPromptCacheTokensSaved adds to the total tokens saved counter.
 func RecordPromptCacheTokensSaved(tokens int) {
+	if !IsMetricsEnabled() {
+		return
+	}
 	if tokens > 0 {
 		promptCacheTokensSavedTotal.Add(float64(tokens))
 	}
