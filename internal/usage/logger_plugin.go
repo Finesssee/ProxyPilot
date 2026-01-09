@@ -17,9 +17,13 @@ import (
 )
 
 var statisticsEnabled atomic.Bool
+var usageSamplePermille atomic.Uint32
+var usageRandSeed atomic.Uint64
 
 func init() {
 	statisticsEnabled.Store(true)
+	usageSamplePermille.Store(1000)
+	usageRandSeed.Store(uint64(time.Now().UnixNano()))
 	coreusage.RegisterPlugin(NewLoggerPlugin())
 }
 
@@ -45,6 +49,9 @@ func (p *LoggerPlugin) HandleUsage(ctx context.Context, record coreusage.Record)
 	if !statisticsEnabled.Load() {
 		return
 	}
+	if !shouldSampleUsage() {
+		return
+	}
 	if p == nil || p.stats == nil {
 		return
 	}
@@ -54,8 +61,40 @@ func (p *LoggerPlugin) HandleUsage(ctx context.Context, record coreusage.Record)
 // SetStatisticsEnabled toggles whether in-memory statistics are recorded.
 func SetStatisticsEnabled(enabled bool) { statisticsEnabled.Store(enabled) }
 
+// SetSamplingRate sets the usage sampling rate (0.0-1.0).
+func SetSamplingRate(rate float64) {
+	if rate < 0 {
+		rate = 1
+	}
+	if rate > 1 {
+		rate = 1
+	}
+	usageSamplePermille.Store(uint32(rate * 1000))
+}
+
 // StatisticsEnabled reports the current recording state.
 func StatisticsEnabled() bool { return statisticsEnabled.Load() }
+
+func shouldSampleUsage() bool {
+	rate := usageSamplePermille.Load()
+	if rate >= 1000 {
+		return true
+	}
+	if rate == 0 {
+		return false
+	}
+	return fastRandPermille() < rate
+}
+
+func fastRandPermille() uint32 {
+	x := usageRandSeed.Add(0x9e3779b97f4a7c15)
+	x ^= x >> 30
+	x *= 0xbf58476d1ce4e5b9
+	x ^= x >> 27
+	x *= 0x94d049bb133111eb
+	x ^= x >> 31
+	return uint32(x % 1000)
+}
 
 // RequestStatistics maintains aggregated request metrics in memory.
 type RequestStatistics struct {
