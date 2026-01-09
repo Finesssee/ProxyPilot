@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -195,6 +196,9 @@ type BaseAPIHandler struct {
 
 	// Cfg holds the current application configuration.
 	Cfg *config.SDKConfig
+
+	detailsCacheMu sync.RWMutex
+	detailsCache   map[string]cachedRequestDetails
 }
 
 // NewBaseAPIHandlers creates a new API handlers instance.
@@ -208,8 +212,9 @@ type BaseAPIHandler struct {
 //   - *BaseAPIHandler: A new API handlers instance
 func NewBaseAPIHandlers(cfg *config.SDKConfig, authManager *coreauth.Manager) *BaseAPIHandler {
 	h := &BaseAPIHandler{
-		Cfg:         cfg,
-		AuthManager: authManager,
+		Cfg:          cfg,
+		AuthManager:  authManager,
+		detailsCache: make(map[string]cachedRequestDetails),
 	}
 	return h
 }
@@ -220,7 +225,12 @@ func NewBaseAPIHandlers(cfg *config.SDKConfig, authManager *coreauth.Manager) *B
 // Parameters:
 //   - clients: The new slice of AI service clients
 //   - cfg: The new application configuration
-func (h *BaseAPIHandler) UpdateClients(cfg *config.SDKConfig) { h.Cfg = cfg }
+func (h *BaseAPIHandler) UpdateClients(cfg *config.SDKConfig) {
+	h.Cfg = cfg
+	h.detailsCacheMu.Lock()
+	h.detailsCache = make(map[string]cachedRequestDetails)
+	h.detailsCacheMu.Unlock()
+}
 
 // GetAlt extracts the 'alt' parameter from the request query string.
 // It checks both 'alt' and '$alt' parameters and returns the appropriate value.
@@ -604,6 +614,12 @@ func statusFromError(err error) int {
 }
 
 func (h *BaseAPIHandler) getRequestDetails(modelName string) (providers []string, normalizedModel string, metadata map[string]any, err *interfaces.ErrorMessage) {
+	if modelName != "" {
+		if cached, ok := h.loadRequestDetailsCache(modelName); ok {
+			return cached.providers, cached.normalizedModel, cached.metadata, cached.err
+		}
+	}
+
 	// Resolve "auto" model to an actual available model first
 	resolvedModelName := util.ResolveAutoModel(modelName)
 
@@ -635,14 +651,72 @@ func (h *BaseAPIHandler) getRequestDetails(modelName string) (providers []string
 	}
 
 	if len(providers) == 0 {
-		return nil, "", nil, &interfaces.ErrorMessage{StatusCode: http.StatusBadRequest, Error: fmt.Errorf("unknown provider for model %s", modelName)}
+		errMsg := &interfaces.ErrorMessage{StatusCode: http.StatusBadRequest, Error: fmt.Errorf("unknown provider for model %s", modelName)}
+		h.storeRequestDetailsCache(modelName, nil, "", nil, errMsg)
+		return nil, "", nil, errMsg
 	}
 
 	// If it's a dynamic model, the normalizedModel was already set to extractedModelName.
 	// If it's a non-dynamic model, normalizedModel was set by normalizeModelMetadata.
 	// So, normalizedModel is already correctly set at this point.
 
+	h.storeRequestDetailsCache(modelName, providers, normalizedModel, metadata, nil)
 	return providers, normalizedModel, metadata, nil
+}
+
+type cachedRequestDetails struct {
+	providers       []string
+	normalizedModel string
+	metadata        map[string]any
+	err             *interfaces.ErrorMessage
+}
+
+func (h *BaseAPIHandler) loadRequestDetailsCache(modelName string) (cachedRequestDetails, bool) {
+	h.detailsCacheMu.RLock()
+	defer h.detailsCacheMu.RUnlock()
+	if h.detailsCache == nil {
+		return cachedRequestDetails{}, false
+	}
+	cached, ok := h.detailsCache[modelName]
+	if !ok {
+		return cachedRequestDetails{}, false
+	}
+	return cached.clone(), true
+}
+
+func (h *BaseAPIHandler) storeRequestDetailsCache(modelName string, providers []string, normalizedModel string, metadata map[string]any, errMsg *interfaces.ErrorMessage) {
+	if modelName == "" {
+		return
+	}
+	h.detailsCacheMu.Lock()
+	if h.detailsCache == nil {
+		h.detailsCache = make(map[string]cachedRequestDetails)
+	}
+	h.detailsCache[modelName] = cachedRequestDetails{
+		providers:       cloneProviders(providers),
+		normalizedModel: normalizedModel,
+		metadata:        cloneMetadata(metadata),
+		err:             errMsg,
+	}
+	h.detailsCacheMu.Unlock()
+}
+
+func (c cachedRequestDetails) clone() cachedRequestDetails {
+	return cachedRequestDetails{
+		providers:       cloneProviders(c.providers),
+		normalizedModel: c.normalizedModel,
+		metadata:        cloneMetadata(c.metadata),
+		err:             c.err,
+	}
+}
+
+func cloneProviders(src []string) []string {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]string, len(src))
+	copy(out, src)
+	return out
 }
 
 func cloneBytes(src []byte) []byte {
