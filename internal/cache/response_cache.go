@@ -23,6 +23,9 @@ type ResponseCacheConfig struct {
 	Enabled bool `yaml:"enabled" json:"enabled"`
 	// MaxSize is the maximum number of cached responses.
 	MaxSize int `yaml:"max-size" json:"max-size"`
+	// MaxBytes is the maximum total size (bytes) of cached responses.
+	// 0 disables size-based eviction.
+	MaxBytes int64 `yaml:"max-bytes" json:"max-bytes"`
 	// TTL is how long responses are cached (e.g., "5m", "1h").
 	TTL time.Duration `yaml:"ttl" json:"ttl"`
 	// ExcludeModels is a list of model patterns to exclude from caching.
@@ -54,17 +57,20 @@ type CachedResponse struct {
 	CreatedAt time.Time
 	// HitCount tracks how many times this cache entry was hit.
 	HitCount int
+	// SizeBytes tracks the approximate size of this entry.
+	SizeBytes int64
 }
 
 // ResponseCache provides LRU-based caching for API responses.
 // This caches complete responses at the proxy layer to reduce upstream API calls.
 type ResponseCache struct {
-	mu       sync.RWMutex
-	entries  map[string]*CachedResponse
-	order    []string // LRU order tracking
-	config   ResponseCacheConfig
-	stats    ResponseCacheStats
-	disabled bool // runtime toggle
+	mu         sync.RWMutex
+	entries    map[string]*CachedResponse
+	order      []string // LRU order tracking
+	config     ResponseCacheConfig
+	stats      ResponseCacheStats
+	totalBytes int64
+	disabled   bool // runtime toggle
 }
 
 // ResponseCacheStats tracks cache performance metrics.
@@ -144,8 +150,7 @@ func (rc *ResponseCache) Get(model string, payload []byte) *CachedResponse {
 	// Check TTL
 	if time.Since(entry.CreatedAt) > rc.config.TTL {
 		rc.mu.Lock()
-		delete(rc.entries, key)
-		rc.removeFromOrder(key)
+		rc.removeEntryLocked(key)
 		rc.stats.Evictions++
 		rc.stats.Misses++
 		middleware.SetResponseCacheSize(len(rc.entries))
@@ -191,15 +196,22 @@ func (rc *ResponseCache) Set(model string, payload []byte, response []byte, cont
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 
+	entrySize := estimateResponseEntrySize(model, response, contentType)
+	if rc.config.MaxBytes > 0 && entrySize > rc.config.MaxBytes {
+		return
+	}
+
 	// Evict if at capacity
-	for len(rc.entries) >= rc.config.MaxSize && len(rc.order) > 0 {
-		oldest := rc.order[0]
-		delete(rc.entries, oldest)
-		rc.order = rc.order[1:]
+	for (rc.config.MaxSize > 0 && len(rc.entries) >= rc.config.MaxSize && len(rc.order) > 0) ||
+		(rc.config.MaxBytes > 0 && rc.totalBytes+entrySize > rc.config.MaxBytes && len(rc.order) > 0) {
+		rc.removeEntryLocked(rc.order[0])
 		rc.stats.Evictions++
 	}
 
 	// Store new entry
+	if existing := rc.entries[key]; existing != nil {
+		rc.totalBytes -= existing.SizeBytes
+	}
 	rc.entries[key] = &CachedResponse{
 		Response:    response,
 		ContentType: contentType,
@@ -207,8 +219,10 @@ func (rc *ResponseCache) Set(model string, payload []byte, response []byte, cont
 		Model:       model,
 		CreatedAt:   time.Now(),
 		HitCount:    0,
+		SizeBytes:   entrySize,
 	}
 	rc.order = append(rc.order, key)
+	rc.totalBytes += entrySize
 	rc.stats.Size = len(rc.entries)
 	middleware.SetResponseCacheSize(len(rc.entries))
 
@@ -264,12 +278,22 @@ func (rc *ResponseCache) removeFromOrder(key string) {
 	}
 }
 
+func (rc *ResponseCache) removeEntryLocked(key string) {
+	entry := rc.entries[key]
+	if entry != nil {
+		rc.totalBytes -= entry.SizeBytes
+	}
+	delete(rc.entries, key)
+	rc.removeFromOrder(key)
+}
+
 // Clear removes all entries from the cache.
 func (rc *ResponseCache) Clear() {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 	rc.entries = make(map[string]*CachedResponse)
 	rc.order = make([]string, 0, rc.config.MaxSize)
+	rc.totalBytes = 0
 	rc.stats.Size = 0
 	middleware.SetResponseCacheSize(0)
 }
@@ -309,10 +333,9 @@ func (rc *ResponseCache) UpdateConfig(cfg ResponseCacheConfig) {
 	rc.config = cfg
 	rc.disabled = !cfg.Enabled
 	// Evict if new max size is smaller
-	for len(rc.entries) > cfg.MaxSize && len(rc.order) > 0 {
-		oldest := rc.order[0]
-		delete(rc.entries, oldest)
-		rc.order = rc.order[1:]
+	for (cfg.MaxSize > 0 && len(rc.entries) > cfg.MaxSize && len(rc.order) > 0) ||
+		(cfg.MaxBytes > 0 && rc.totalBytes > cfg.MaxBytes && len(rc.order) > 0) {
+		rc.removeEntryLocked(rc.order[0])
 		rc.stats.Evictions++
 	}
 	rc.stats.Size = len(rc.entries)
@@ -333,6 +356,7 @@ func (rc *ResponseCache) EvictExpired() int {
 			continue
 		}
 		if now.Sub(entry.CreatedAt) > rc.config.TTL {
+			rc.totalBytes -= entry.SizeBytes
 			delete(rc.entries, key)
 			evicted++
 			rc.stats.Evictions++
@@ -489,17 +513,35 @@ func (rc *ResponseCache) LoadFromFile(path string) error {
 			continue
 		}
 		// Skip if over capacity
-		if len(rc.entries) >= rc.config.MaxSize {
+		entry.SizeBytes = ensureResponseEntrySize(entry)
+		if (rc.config.MaxSize > 0 && len(rc.entries) >= rc.config.MaxSize) ||
+			(rc.config.MaxBytes > 0 && rc.totalBytes+entry.SizeBytes > rc.config.MaxBytes) {
 			break
 		}
 		rc.entries[key] = entry
 		rc.order = append(rc.order, key)
+		rc.totalBytes += entry.SizeBytes
 		loaded++
 	}
 	rc.stats.Size = len(rc.entries)
 
 	log.Infof("response cache loaded from %s (%d entries)", path, loaded)
 	return nil
+}
+
+func estimateResponseEntrySize(model string, response []byte, contentType string) int64 {
+	return int64(len(response) + len(model) + len(contentType))
+}
+
+func ensureResponseEntrySize(entry *CachedResponse) int64 {
+	if entry == nil {
+		return 0
+	}
+	if entry.SizeBytes > 0 {
+		return entry.SizeBytes
+	}
+	entry.SizeBytes = estimateResponseEntrySize(entry.Model, entry.Response, entry.ContentType)
+	return entry.SizeBytes
 }
 
 // StartPeriodicPersistence starts a background goroutine that periodically saves the cache.
