@@ -471,6 +471,26 @@ func parseAntigravityAccountInfo(loadResp map[string]any) *AntigravityAccountInf
 			}
 		}
 	}
+
+	// Check for paidTier first (Google AI Ultra subscription)
+	// This takes priority as it indicates the user has a paid subscription
+	if paidTier, ok := loadResp["paidTier"].(map[string]any); ok {
+		if id, okID := paidTier["id"].(string); okID && strings.TrimSpace(id) != "" {
+			info.TierID = strings.TrimSpace(id)
+			log.Debugf("antigravity: using paidTier %s", info.TierID)
+		}
+	}
+
+	// If no paidTier, check currentTier
+	if info.TierID == "legacy-tier" {
+		if currentTier, ok := loadResp["currentTier"].(map[string]any); ok {
+			if id, okID := currentTier["id"].(string); okID && strings.TrimSpace(id) != "" {
+				info.TierID = strings.TrimSpace(id)
+				log.Debugf("antigravity: using currentTier %s", info.TierID)
+			}
+		}
+	}
+
 	if tiers, okTiers := loadResp["allowedTiers"].([]any); okTiers {
 		for _, rawTier := range tiers {
 			tier, okTier := rawTier.(map[string]any)
@@ -498,7 +518,8 @@ func parseAntigravityAccountInfo(loadResp map[string]any) *AntigravityAccountInf
 			}
 			if isDefault, okDefault := tier["isDefault"].(bool); okDefault {
 				entry["is_default"] = isDefault
-				if isDefault {
+				// Only use isDefault tier if we haven't found a better tier
+				if isDefault && info.TierID == "legacy-tier" {
 					if id, okID := entry["id"].(string); okID && id != "" {
 						info.TierID = id
 					}
