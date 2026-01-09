@@ -94,9 +94,36 @@ func (e *GeminiCLIExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth
 	}
 
 	projectID := resolveGeminiProjectID(auth)
-	models := cliPreviewFallbackOrder(req.Model)
-	if len(models) == 0 || models[0] != req.Model {
-		models = append([]string{req.Model}, models...)
+	projects := parseProjectIDCandidates(projectID)
+	if len(projects) == 0 && strings.TrimSpace(projectID) != "" {
+		projects = []string{strings.TrimSpace(projectID)}
+	}
+	if e.cfg == nil || !e.cfg.QuotaExceeded.SwitchProject {
+		if len(projects) > 1 {
+			projects = projects[:1]
+		}
+	}
+
+	models := append([]string{req.Model}, cliPreviewFallbackOrder(req.Model)...)
+	if e.cfg != nil && e.cfg.QuotaExceeded.SwitchPreviewModel {
+		models = append(models, quotaPreviewFallbackOrder(req.Model)...)
+	}
+	// De-dupe while preserving order.
+	{
+		seen := make(map[string]struct{}, len(models))
+		uniq := make([]string, 0, len(models))
+		for _, m := range models {
+			m = strings.TrimSpace(m)
+			if m == "" {
+				continue
+			}
+			if _, ok := seen[m]; ok {
+				continue
+			}
+			seen[m] = struct{}{}
+			uniq = append(uniq, m)
+		}
+		models = uniq
 	}
 
 	httpClient := newHTTPClient(ctx, e.cfg, auth, 0)
@@ -111,54 +138,62 @@ func (e *GeminiCLIExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth
 	var lastBody []byte
 
 	for idx, attemptModel := range models {
-		payload := append([]byte(nil), basePayload...)
+		attemptProjects := projects
 		if action == "countTokens" {
-			payload = deleteJSONField(payload, "project")
-			payload = deleteJSONField(payload, "model")
-		} else {
-			payload = setJSONField(payload, "project", projectID)
-			payload = setJSONField(payload, "model", attemptModel)
+			attemptProjects = []string{""}
 		}
+		if len(attemptProjects) == 0 {
+			attemptProjects = []string{""}
+		}
+		for pidx, attemptProject := range attemptProjects {
+			payload := append([]byte(nil), basePayload...)
+			if action == "countTokens" {
+				payload = deleteJSONField(payload, "project")
+				payload = deleteJSONField(payload, "model")
+			} else {
+				payload = setJSONField(payload, "project", attemptProject)
+				payload = setJSONField(payload, "model", attemptModel)
+			}
 
-		tok, errTok := tokenSource.Token()
-		if errTok != nil {
-			err = errTok
-			return resp, err
-		}
-		updateGeminiCLITokenMetadata(auth, baseTokenData, tok)
+			tok, errTok := tokenSource.Token()
+			if errTok != nil {
+				err = errTok
+				return resp, err
+			}
+			updateGeminiCLITokenMetadata(auth, baseTokenData, tok)
 
-		url := fmt.Sprintf("%s/%s:%s", codeAssistEndpoint, codeAssistVersion, action)
-		if opts.Alt != "" && action != "countTokens" {
-			url = url + fmt.Sprintf("?$alt=%s", opts.Alt)
-		}
+			url := fmt.Sprintf("%s/%s:%s", codeAssistEndpoint, codeAssistVersion, action)
+			if opts.Alt != "" && action != "countTokens" {
+				url = url + fmt.Sprintf("?$alt=%s", opts.Alt)
+			}
 
-		reqHTTP, errReq := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
-		if errReq != nil {
-			err = errReq
-			return resp, err
-		}
-		reqHTTP.Header.Set("Content-Type", "application/json")
-		reqHTTP.Header.Set("Authorization", "Bearer "+tok.AccessToken)
-		applyGeminiCLIHeaders(reqHTTP)
-		reqHTTP.Header.Set("Accept", "application/json")
-		recordAPIRequest(ctx, e.cfg, upstreamRequestLog{
-			URL:       url,
-			Method:    http.MethodPost,
-			Headers:   reqHTTP.Header.Clone(),
-			Body:      payload,
-			Provider:  e.Identifier(),
-			AuthID:    authID,
-			AuthLabel: authLabel,
-			AuthType:  authType,
-			AuthValue: authValue,
-		})
+			reqHTTP, errReq := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+			if errReq != nil {
+				err = errReq
+				return resp, err
+			}
+			reqHTTP.Header.Set("Content-Type", "application/json")
+			reqHTTP.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+			applyGeminiCLIHeaders(reqHTTP)
+			reqHTTP.Header.Set("Accept", "application/json")
+			recordAPIRequest(ctx, e.cfg, upstreamRequestLog{
+				URL:       url,
+				Method:    http.MethodPost,
+				Headers:   reqHTTP.Header.Clone(),
+				Body:      payload,
+				Provider:  e.Identifier(),
+				AuthID:    authID,
+				AuthLabel: authLabel,
+				AuthType:  authType,
+				AuthValue: authValue,
+			})
 
-		httpResp, errDo := httpClient.Do(reqHTTP)
-		if errDo != nil {
-			recordAPIResponseError(ctx, e.cfg, errDo)
-			err = errDo
-			return resp, err
-		}
+			httpResp, errDo := httpClient.Do(reqHTTP)
+			if errDo != nil {
+				recordAPIResponseError(ctx, e.cfg, errDo)
+				err = errDo
+				return resp, err
+			}
 
 		data, errRead := io.ReadAll(httpResp.Body)
 		if errClose := httpResp.Body.Close(); errClose != nil {
@@ -171,28 +206,31 @@ func (e *GeminiCLIExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth
 			return resp, err
 		}
 		appendAPIResponseChunk(ctx, e.cfg, data)
-		if httpResp.StatusCode >= 200 && httpResp.StatusCode < 300 {
-			reporter.publish(ctx, parseGeminiCLIUsage(data))
-			var param any
-			out := sdktranslator.TranslateNonStream(respCtx, to, from, attemptModel, bytes.Clone(opts.OriginalRequest), payload, data, &param)
-			resp = cliproxyexecutor.Response{Payload: []byte(out)}
-			return resp, nil
-		}
+			if httpResp.StatusCode >= 200 && httpResp.StatusCode < 300 {
+				reporter.publish(ctx, parseGeminiCLIUsage(data))
+				var param any
+				out := sdktranslator.TranslateNonStream(respCtx, to, from, attemptModel, bytes.Clone(opts.OriginalRequest), payload, data, &param)
+				resp = cliproxyexecutor.Response{Payload: []byte(out)}
+				return resp, nil
+			}
 
 		lastStatus = httpResp.StatusCode
 		lastBody = append([]byte(nil), data...)
 		log.Debugf("request error, error status: %d, error body: %s", httpResp.StatusCode, summarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
-		if httpResp.StatusCode == 429 {
-			if idx+1 < len(models) {
-				log.Debugf("gemini cli executor: rate limited, retrying with next model: %s", models[idx+1])
-			} else {
-				log.Debug("gemini cli executor: rate limited, no additional fallback model")
+			if httpResp.StatusCode == 429 {
+				if pidx+1 < len(attemptProjects) {
+					log.Debugf("gemini cli executor: rate limited, retrying with next project: %s", attemptProjects[pidx+1])
+				} else if idx+1 < len(models) {
+					log.Debugf("gemini cli executor: rate limited, retrying with next model: %s", models[idx+1])
+				} else {
+					log.Debug("gemini cli executor: rate limited, no additional fallback")
+				}
+				continue
 			}
-			continue
-		}
 
-		err = newGeminiStatusErr(httpResp.StatusCode, data)
-		return resp, err
+			err = newGeminiStatusErr(httpResp.StatusCode, data)
+			return resp, err
+		}
 	}
 
 	if len(lastBody) > 0 {
@@ -226,10 +264,36 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *cliproxyaut
 	basePayload = applyPayloadConfigWithRoot(e.cfg, req.Model, "gemini", "request", basePayload)
 
 	projectID := resolveGeminiProjectID(auth)
+	projects := parseProjectIDCandidates(projectID)
+	if len(projects) == 0 && strings.TrimSpace(projectID) != "" {
+		projects = []string{strings.TrimSpace(projectID)}
+	}
+	if e.cfg == nil || !e.cfg.QuotaExceeded.SwitchProject {
+		if len(projects) > 1 {
+			projects = projects[:1]
+		}
+	}
 
-	models := cliPreviewFallbackOrder(req.Model)
-	if len(models) == 0 || models[0] != req.Model {
-		models = append([]string{req.Model}, models...)
+	models := append([]string{req.Model}, cliPreviewFallbackOrder(req.Model)...)
+	if e.cfg != nil && e.cfg.QuotaExceeded.SwitchPreviewModel {
+		models = append(models, quotaPreviewFallbackOrder(req.Model)...)
+	}
+	// De-dupe while preserving order.
+	{
+		seen := make(map[string]struct{}, len(models))
+		uniq := make([]string, 0, len(models))
+		for _, m := range models {
+			m = strings.TrimSpace(m)
+			if m == "" {
+				continue
+			}
+			if _, ok := seen[m]; ok {
+				continue
+			}
+			seen[m] = struct{}{}
+			uniq = append(uniq, m)
+		}
+		models = uniq
 	}
 
 	httpClient := newHTTPClient(ctx, e.cfg, auth, 0)
@@ -244,139 +308,150 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *cliproxyaut
 	var lastBody []byte
 
 	for idx, attemptModel := range models {
-		payload := append([]byte(nil), basePayload...)
-		payload = setJSONField(payload, "project", projectID)
-		payload = setJSONField(payload, "model", attemptModel)
-
-		tok, errTok := tokenSource.Token()
-		if errTok != nil {
-			err = errTok
-			return nil, err
+		attemptProjects := projects
+		if len(attemptProjects) == 0 {
+			attemptProjects = []string{strings.TrimSpace(projectID)}
 		}
-		updateGeminiCLITokenMetadata(auth, baseTokenData, tok)
-
-		url := fmt.Sprintf("%s/%s:%s", codeAssistEndpoint, codeAssistVersion, "streamGenerateContent")
-		if opts.Alt == "" {
-			url = url + "?alt=sse"
-		} else {
-			url = url + fmt.Sprintf("?$alt=%s", opts.Alt)
+		if len(attemptProjects) == 0 {
+			attemptProjects = []string{""}
 		}
+		for pidx, attemptProject := range attemptProjects {
+			payload := append([]byte(nil), basePayload...)
+			payload = setJSONField(payload, "project", attemptProject)
+			payload = setJSONField(payload, "model", attemptModel)
 
-		reqHTTP, errReq := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
-		if errReq != nil {
-			err = errReq
-			return nil, err
-		}
-		reqHTTP.Header.Set("Content-Type", "application/json")
-		reqHTTP.Header.Set("Authorization", "Bearer "+tok.AccessToken)
-		applyGeminiCLIHeaders(reqHTTP)
-		reqHTTP.Header.Set("Accept", "text/event-stream")
-		recordAPIRequest(ctx, e.cfg, upstreamRequestLog{
-			URL:       url,
-			Method:    http.MethodPost,
-			Headers:   reqHTTP.Header.Clone(),
-			Body:      payload,
-			Provider:  e.Identifier(),
-			AuthID:    authID,
-			AuthLabel: authLabel,
-			AuthType:  authType,
-			AuthValue: authValue,
-		})
-
-		httpResp, errDo := httpClient.Do(reqHTTP)
-		if errDo != nil {
-			recordAPIResponseError(ctx, e.cfg, errDo)
-			err = errDo
-			return nil, err
-		}
-		recordAPIResponseMetadata(ctx, e.cfg, httpResp.StatusCode, httpResp.Header.Clone())
-		if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-			data, errRead := io.ReadAll(httpResp.Body)
-			if errClose := httpResp.Body.Close(); errClose != nil {
-				log.Errorf("gemini cli executor: close response body error: %v", errClose)
-			}
-			if errRead != nil {
-				recordAPIResponseError(ctx, e.cfg, errRead)
-				err = errRead
+			tok, errTok := tokenSource.Token()
+			if errTok != nil {
+				err = errTok
 				return nil, err
 			}
-			appendAPIResponseChunk(ctx, e.cfg, data)
-			lastStatus = httpResp.StatusCode
-			lastBody = append([]byte(nil), data...)
-			log.Debugf("request error, error status: %d, error body: %s", httpResp.StatusCode, summarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
-			if httpResp.StatusCode == 429 {
-				if idx+1 < len(models) {
-					log.Debugf("gemini cli executor: rate limited, retrying with next model: %s", models[idx+1])
-				} else {
-					log.Debug("gemini cli executor: rate limited, no additional fallback model")
-				}
-				continue
-			}
-			err = newGeminiStatusErr(httpResp.StatusCode, data)
-			return nil, err
-		}
+			updateGeminiCLITokenMetadata(auth, baseTokenData, tok)
 
-		out := make(chan cliproxyexecutor.StreamChunk)
-		stream = out
-		go func(resp *http.Response, reqBody []byte, attempt string) {
-			defer close(out)
-			defer func() {
-				if errClose := resp.Body.Close(); errClose != nil {
+			url := fmt.Sprintf("%s/%s:%s", codeAssistEndpoint, codeAssistVersion, "streamGenerateContent")
+			if opts.Alt == "" {
+				url = url + "?alt=sse"
+			} else {
+				url = url + fmt.Sprintf("?$alt=%s", opts.Alt)
+			}
+
+			reqHTTP, errReq := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+			if errReq != nil {
+				err = errReq
+				return nil, err
+			}
+			reqHTTP.Header.Set("Content-Type", "application/json")
+			reqHTTP.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+			applyGeminiCLIHeaders(reqHTTP)
+			reqHTTP.Header.Set("Accept", "text/event-stream")
+			recordAPIRequest(ctx, e.cfg, upstreamRequestLog{
+				URL:       url,
+				Method:    http.MethodPost,
+				Headers:   reqHTTP.Header.Clone(),
+				Body:      payload,
+				Provider:  e.Identifier(),
+				AuthID:    authID,
+				AuthLabel: authLabel,
+				AuthType:  authType,
+				AuthValue: authValue,
+			})
+
+			httpResp, errDo := httpClient.Do(reqHTTP)
+			if errDo != nil {
+				recordAPIResponseError(ctx, e.cfg, errDo)
+				err = errDo
+				return nil, err
+			}
+			recordAPIResponseMetadata(ctx, e.cfg, httpResp.StatusCode, httpResp.Header.Clone())
+			if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+				data, errRead := io.ReadAll(httpResp.Body)
+				if errClose := httpResp.Body.Close(); errClose != nil {
 					log.Errorf("gemini cli executor: close response body error: %v", errClose)
 				}
-			}()
-			if opts.Alt == "" {
-				scanner := bufio.NewScanner(resp.Body)
-				scanner.Buffer(nil, streamScannerBuffer)
-				var param any
-				for scanner.Scan() {
-					line := scanner.Bytes()
-					appendAPIResponseChunk(ctx, e.cfg, line)
-					if detail, ok := parseGeminiCLIStreamUsage(line); ok {
-						reporter.publish(ctx, detail)
+				if errRead != nil {
+					recordAPIResponseError(ctx, e.cfg, errRead)
+					err = errRead
+					return nil, err
+				}
+				appendAPIResponseChunk(ctx, e.cfg, data)
+				lastStatus = httpResp.StatusCode
+				lastBody = append([]byte(nil), data...)
+				log.Debugf("request error, error status: %d, error body: %s", httpResp.StatusCode, summarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
+				if httpResp.StatusCode == 429 {
+					if pidx+1 < len(attemptProjects) {
+						log.Debugf("gemini cli executor: rate limited, retrying with next project: %s", attemptProjects[pidx+1])
+					} else if idx+1 < len(models) {
+						log.Debugf("gemini cli executor: rate limited, retrying with next model: %s", models[idx+1])
+					} else {
+						log.Debug("gemini cli executor: rate limited, no additional fallback")
 					}
-					if bytes.HasPrefix(line, dataTag) {
-						segments := sdktranslator.TranslateStream(respCtx, to, from, attempt, bytes.Clone(opts.OriginalRequest), reqBody, bytes.Clone(line), &param)
-						for i := range segments {
-							out <- cliproxyexecutor.StreamChunk{Payload: []byte(segments[i])}
+					continue
+				}
+				err = newGeminiStatusErr(httpResp.StatusCode, data)
+				return nil, err
+			}
+
+			out := make(chan cliproxyexecutor.StreamChunk)
+			stream = out
+			go func(resp *http.Response, reqBody []byte, attempt string) {
+				defer close(out)
+				defer func() {
+					if errClose := resp.Body.Close(); errClose != nil {
+						log.Errorf("gemini cli executor: close response body error: %v", errClose)
+					}
+				}()
+				if opts.Alt == "" {
+					scanner := bufio.NewScanner(resp.Body)
+					scanner.Buffer(nil, streamScannerBuffer)
+					var param any
+					for scanner.Scan() {
+						line := scanner.Bytes()
+						appendAPIResponseChunk(ctx, e.cfg, line)
+						if detail, ok := parseGeminiCLIStreamUsage(line); ok {
+							reporter.publish(ctx, detail)
+						}
+						if bytes.HasPrefix(line, dataTag) {
+							segments := sdktranslator.TranslateStream(respCtx, to, from, attempt, bytes.Clone(opts.OriginalRequest), reqBody, bytes.Clone(line), &param)
+							for i := range segments {
+								out <- cliproxyexecutor.StreamChunk{Payload: []byte(segments[i])}
+							}
 						}
 					}
+
+					segments := sdktranslator.TranslateStream(respCtx, to, from, attempt, bytes.Clone(opts.OriginalRequest), reqBody, bytes.Clone([]byte("[DONE]")), &param)
+					for i := range segments {
+						out <- cliproxyexecutor.StreamChunk{Payload: []byte(segments[i])}
+					}
+					if errScan := scanner.Err(); errScan != nil {
+						recordAPIResponseError(ctx, e.cfg, errScan)
+						reporter.publishFailure(ctx)
+						out <- cliproxyexecutor.StreamChunk{Err: errScan}
+					}
+					return
 				}
 
-				segments := sdktranslator.TranslateStream(respCtx, to, from, attempt, bytes.Clone(opts.OriginalRequest), reqBody, bytes.Clone([]byte("[DONE]")), &param)
+				data, errRead := io.ReadAll(resp.Body)
+				if errRead != nil {
+					recordAPIResponseError(ctx, e.cfg, errRead)
+					reporter.publishFailure(ctx)
+					out <- cliproxyexecutor.StreamChunk{Err: errRead}
+					return
+				}
+				appendAPIResponseChunk(ctx, e.cfg, data)
+				reporter.publish(ctx, parseGeminiCLIUsage(data))
+				var param any
+				segments := sdktranslator.TranslateStream(respCtx, to, from, attempt, bytes.Clone(opts.OriginalRequest), reqBody, data, &param)
 				for i := range segments {
 					out <- cliproxyexecutor.StreamChunk{Payload: []byte(segments[i])}
 				}
-				if errScan := scanner.Err(); errScan != nil {
-					recordAPIResponseError(ctx, e.cfg, errScan)
-					reporter.publishFailure(ctx)
-					out <- cliproxyexecutor.StreamChunk{Err: errScan}
+
+				segments = sdktranslator.TranslateStream(respCtx, to, from, attempt, bytes.Clone(opts.OriginalRequest), reqBody, bytes.Clone([]byte("[DONE]")), &param)
+				for i := range segments {
+					out <- cliproxyexecutor.StreamChunk{Payload: []byte(segments[i])}
 				}
-				return
-			}
+			}(httpResp, append([]byte(nil), payload...), attemptModel)
 
-			data, errRead := io.ReadAll(resp.Body)
-			if errRead != nil {
-				recordAPIResponseError(ctx, e.cfg, errRead)
-				reporter.publishFailure(ctx)
-				out <- cliproxyexecutor.StreamChunk{Err: errRead}
-				return
-			}
-			appendAPIResponseChunk(ctx, e.cfg, data)
-			reporter.publish(ctx, parseGeminiCLIUsage(data))
-			var param any
-			segments := sdktranslator.TranslateStream(respCtx, to, from, attempt, bytes.Clone(opts.OriginalRequest), reqBody, data, &param)
-			for i := range segments {
-				out <- cliproxyexecutor.StreamChunk{Payload: []byte(segments[i])}
-			}
-
-			segments = sdktranslator.TranslateStream(respCtx, to, from, attempt, bytes.Clone(opts.OriginalRequest), reqBody, bytes.Clone([]byte("[DONE]")), &param)
-			for i := range segments {
-				out <- cliproxyexecutor.StreamChunk{Payload: []byte(segments[i])}
-			}
-		}(httpResp, append([]byte(nil), payload...), attemptModel)
-
-		return stream, nil
+			return stream, nil
+		}
 	}
 
 	if len(lastBody) > 0 {
