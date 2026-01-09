@@ -120,6 +120,22 @@ Run OAuth login for your provider:
 
 OAuth tokens are stored locally and auto-refreshed before expiry.
 
+### Security Defaults (Auth + CORS)
+
+- Proxy requests require API keys by default. To allow unauthenticated access (not recommended), set `allow-unauthenticated: true` in `config.yaml`.
+- CORS is enabled for non-management endpoints by default (wildcard `*`). Management endpoints **do not** emit CORS headers unless you explicitly allow origins under `cors.management-allow-origins`.
+
+Example:
+
+```yaml
+allow-unauthenticated: false
+cors:
+  allow-origins:
+    - "http://localhost:5173"
+  management-allow-origins:
+    - "http://localhost:5173"
+```
+
 ### Configure Your Tools
 
 **Claude Code** (`~/.claude/settings.json`):
@@ -177,6 +193,7 @@ Caches full API responses for identical requests. Useful for repeated queries du
 response-cache:
   enabled: true           # Default: false
   max-size: 1000          # Max entries (default: 1000)
+  max-bytes: 0            # Optional total cache size cap in bytes
   ttl-seconds: 300        # Cache TTL (default: 300 = 5 min)
   exclude-models:         # Models to skip (supports wildcards)
     - "*-thinking"
@@ -192,6 +209,7 @@ Synthetic prompt caching for providers without native support. Tracks repeated s
 prompt-cache:
   enabled: true           # Default: false
   max-size: 500           # Max entries (default: 500)
+  max-bytes: 0            # Optional total cache size cap in bytes
   ttl-seconds: 1800       # Cache TTL (default: 1800 = 30 min)
 ```
 
@@ -204,8 +222,30 @@ prompt-cache:
 | `/v0/management/cache/enabled` | PUT | Enable/disable at runtime `{"enabled": true}` |
 | `/v0/management/prompt-cache/stats` | GET | Prompt cache stats + estimated tokens saved |
 | `/v0/management/prompt-cache/clear` | POST | Clear prompt cache |
-| `/v0/management/prompt-cache/enabled` | PUT | Enable/disable at runtime |
+| `/v0/management/prompt-cache/enabled` | PUT | Enable/disable at runtime |     
 | `/v0/management/prompt-cache/top` | GET | Top 10 most-hit prompts |
+
+---
+
+## Lightweight Profile
+
+For low‑memory or high‑throughput setups, you can disable heavier features:
+
+```yaml
+commercial-mode: true
+usage-statistics-enabled: false
+usage-sample-rate: 0.25
+metrics-enabled: false
+request-history-enabled: false
+request-history-sample-rate: 0.25
+agentic-harness-enabled: false
+prompt-budget-enabled: false
+request-log: false
+response-cache:
+  enabled: false
+prompt-cache:
+  enabled: false
+```
 
 ---
 
