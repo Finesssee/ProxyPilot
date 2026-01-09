@@ -22,8 +22,10 @@ import (
 	internalHandlers "github.com/router-for-me/CLIProxyAPI/v6/internal/api/handlers"
 	managementHandlers "github.com/router-for-me/CLIProxyAPI/v6/internal/api/handlers/management"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/api/middleware"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/cache"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/memory"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/access"
@@ -124,6 +126,8 @@ type Server struct {
 
 	// cfg holds the current server configuration.
 	cfg *config.Config
+	// cfgHolder provides race-safe config snapshots for middleware reads.
+	cfgHolder atomic.Value
 
 	// oldConfigYaml stores a YAML snapshot of the previous configuration for change detection.
 	// This prevents issues when the config object is modified in place by Management API.
@@ -199,6 +203,21 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 		optionState.engineConfigurator(engine)
 	}
 
+	metricsEnabled := cfg.IsMetricsEnabled()
+	requestHistoryEnabled := cfg.IsRequestHistoryEnabled()
+	agenticHarnessEnabled := cfg.IsAgenticHarnessEnabled()
+	promptBudgetEnabled := cfg.IsPromptBudgetEnabled()
+	if cfg.CommercialMode {
+		metricsEnabled = false
+		requestHistoryEnabled = false
+		agenticHarnessEnabled = false
+		promptBudgetEnabled = false
+	}
+	middleware.SetMetricsEnabled(metricsEnabled)
+	middleware.SetRequestHistoryEnabled(requestHistoryEnabled)
+	middleware.SetRequestHistorySampleRate(cfg.GetRequestHistorySampleRate())
+	usage.SetSamplingRate(cfg.GetUsageSampleRate())
+
 	// Add middleware
 	engine.Use(logging.GinLogrusLogger())
 	engine.Use(logging.GinLogrusRecovery())
@@ -224,11 +243,11 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 		}
 	}
 
-	engine.Use(corsMiddleware())
-
 	// Add agentic harness middleware for long-running agents (Anthropic-style)
 	// Gated by CLIPROXY_HARNESS_ENABLED env var (default: true)
-	engine.Use(middleware.AgenticHarnessMiddleware())
+	if agenticHarnessEnabled {
+		engine.Use(middleware.AgenticHarnessMiddleware())
+	}
 
 	wd, err := os.Getwd()
 	if err != nil {
@@ -237,7 +256,9 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 
 	// Add context compression middleware for Claude Code / Codex CLI
 	// Trims long conversations and uses LLM summarization (Factory.ai pattern)
-	engine.Use(middleware.CodexPromptBudgetMiddlewareWithRootDir(wd))
+	if promptBudgetEnabled {
+		engine.Use(middleware.CodexPromptBudgetMiddlewareWithRootDir(wd))
+	}
 
 	wd, err = os.Getwd()
 	if err != nil {
@@ -261,10 +282,13 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 		envManagementSecret: envManagementSecret,
 		wsRoutes:            make(map[string]struct{}),
 	}
+	s.cfgHolder.Store(cfg)
 	s.wsAuthEnabled.Store(cfg.WebsocketAuth)
 	// Save initial YAML snapshot
 	s.oldConfigYaml, _ = yaml.Marshal(cfg)
 	s.applyAccessConfig(nil, cfg)
+	cache.InitDefaultResponseCache(buildResponseCacheConfig(cfg))
+	cache.InitDefaultPromptCache(buildPromptCacheConfig(cfg))
 	if authManager != nil {
 		authManager.SetRetryConfig(cfg.RequestRetry, time.Duration(cfg.MaxRetryInterval)*time.Second)
 	}
@@ -299,6 +323,7 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	}
 
 	// Setup routes
+	engine.Use(corsMiddleware(s.getConfig))
 	s.setupRoutes()
 
 	// Register ProxyPilot dashboard routes (embedded UI)
@@ -338,10 +363,11 @@ func (s *Server) setupRoutes() {
 	geminiCLIHandlers := gemini.NewGeminiCLIAPIHandler(s.handlers)
 	claudeCodeHandlers := claude.NewClaudeCodeAPIHandler(s.handlers)
 	openaiResponsesHandlers := openai.NewOpenAIResponsesAPIHandler(s.handlers)
+	authMiddleware := AuthMiddleware(s.accessManager, s.allowUnauthenticated)
 
 	// OpenAI compatible API routes
 	v1 := s.engine.Group("/v1")
-	v1.Use(AuthMiddleware(s.accessManager))
+	v1.Use(authMiddleware)
 	{
 		v1.GET("/models", s.unifiedModelsHandler(openaiHandlers, claudeCodeHandlers))
 		v1.POST("/chat/completions", openaiHandlers.ChatCompletions)
@@ -361,7 +387,7 @@ func (s *Server) setupRoutes() {
 
 	// Gemini compatible API routes
 	v1beta := s.engine.Group("/v1beta")
-	v1beta.Use(AuthMiddleware(s.accessManager))
+	v1beta.Use(authMiddleware)
 	{
 		v1beta.GET("/models", geminiHandlers.GeminiModels)
 		v1beta.POST("/models/*action", geminiHandlers.GeminiHandler)
@@ -370,18 +396,23 @@ func (s *Server) setupRoutes() {
 
 	// Health check endpoint for Droid CLI and other clients
 	s.engine.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "port": s.cfg.Port})
+		cfg := s.getConfig()
+		port := 0
+		if cfg != nil {
+			port = cfg.Port
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "port": port})
 	})
 
 	// Prometheus metrics endpoint for observability
 	s.engine.GET("/metrics", middleware.MetricsHandler())
 
 	// Root-level API routes (mirrors /v1/* for clients that dont add /v1 prefix)
-	s.engine.GET("/models", AuthMiddleware(s.accessManager), s.unifiedModelsHandler(openaiHandlers, claudeCodeHandlers))
-	s.engine.POST("/chat/completions", AuthMiddleware(s.accessManager), openaiHandlers.ChatCompletions)
-	s.engine.POST("/completions", AuthMiddleware(s.accessManager), openaiHandlers.Completions)
-	s.engine.POST("/messages", AuthMiddleware(s.accessManager), claudeCodeHandlers.ClaudeMessages)
-	s.engine.POST("/responses", AuthMiddleware(s.accessManager), openaiResponsesHandlers.Responses)
+	s.engine.GET("/models", authMiddleware, s.unifiedModelsHandler(openaiHandlers, claudeCodeHandlers))
+	s.engine.POST("/chat/completions", authMiddleware, openaiHandlers.ChatCompletions)
+	s.engine.POST("/completions", authMiddleware, openaiHandlers.Completions)
+	s.engine.POST("/messages", authMiddleware, claudeCodeHandlers.ClaudeMessages)
+	s.engine.POST("/responses", authMiddleware, openaiResponsesHandlers.Responses)
 
 	// Root endpoint
 	s.engine.GET("/", func(c *gin.Context) {
@@ -413,7 +444,9 @@ func (s *Server) setupRoutes() {
 			errStr = c.Query("error_description")
 		}
 		if state != "" {
-			_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(s.cfg.AuthDir, "anthropic", state, code, errStr)
+			if cfg := s.getConfig(); cfg != nil {
+				_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(cfg.AuthDir, "anthropic", state, code, errStr)
+			}
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.String(http.StatusOK, oauthCallbackSuccessHTML)
@@ -427,7 +460,9 @@ func (s *Server) setupRoutes() {
 			errStr = c.Query("error_description")
 		}
 		if state != "" {
-			_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(s.cfg.AuthDir, "codex", state, code, errStr)
+			if cfg := s.getConfig(); cfg != nil {
+				_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(cfg.AuthDir, "codex", state, code, errStr)
+			}
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.String(http.StatusOK, oauthCallbackSuccessHTML)
@@ -441,7 +476,9 @@ func (s *Server) setupRoutes() {
 			errStr = c.Query("error_description")
 		}
 		if state != "" {
-			_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(s.cfg.AuthDir, "gemini", state, code, errStr)
+			if cfg := s.getConfig(); cfg != nil {
+				_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(cfg.AuthDir, "gemini", state, code, errStr)
+			}
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.String(http.StatusOK, oauthCallbackSuccessHTML)
@@ -455,7 +492,9 @@ func (s *Server) setupRoutes() {
 			errStr = c.Query("error_description")
 		}
 		if state != "" {
-			_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(s.cfg.AuthDir, "antigravity", state, code, errStr)
+			if cfg := s.getConfig(); cfg != nil {
+				_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(cfg.AuthDir, "antigravity", state, code, errStr)
+			}
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.String(http.StatusOK, oauthCallbackSuccessHTML)
@@ -469,7 +508,9 @@ func (s *Server) setupRoutes() {
 			errStr = c.Query("error_description")
 		}
 		if state != "" {
-			_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(s.cfg.AuthDir, "kiro", state, code, errStr)
+			if cfg := s.getConfig(); cfg != nil {
+				_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(cfg.AuthDir, "kiro", state, code, errStr)
+			}
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.String(http.StatusOK, oauthCallbackSuccessHTML)
@@ -499,7 +540,7 @@ func (s *Server) AttachWebsocketRoute(path string, handler http.Handler) {
 	s.wsRoutes[trimmed] = struct{}{}
 	s.wsRouteMu.Unlock()
 
-	authMiddleware := AuthMiddleware(s.accessManager)
+	authMiddleware := AuthMiddleware(s.accessManager, s.allowUnauthenticated)
 	conditionalAuth := func(c *gin.Context) {
 		if !s.wsAuthEnabled.Load() {
 			c.Next()
@@ -619,13 +660,14 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.PATCH("/oauth-excluded-models", s.mgmt.PatchOAuthExcludedModels)
 		mgmt.DELETE("/oauth-excluded-models", s.mgmt.DeleteOAuthExcludedModels)
 
-		mgmt.GET("/auth-files", s.mgmt.ListAuthFiles)
-		mgmt.GET("/auth-files/models", s.mgmt.GetAuthFileModels)
-		mgmt.GET("/auth-files/download", s.mgmt.DownloadAuthFile)
-		mgmt.POST("/auth-files", s.mgmt.UploadAuthFile)
-		mgmt.DELETE("/auth-files", s.mgmt.DeleteAuthFile)
-		mgmt.PATCH("/auth/:id/priority", s.mgmt.SetAuthPriority)
-		mgmt.GET("/auth/:id/usage", s.mgmt.GetAuthUsage)
+			mgmt.GET("/auth-files", s.mgmt.ListAuthFiles)
+			mgmt.GET("/auth-files/models", s.mgmt.GetAuthFileModels)
+			mgmt.GET("/auth-files/download", s.mgmt.DownloadAuthFile)
+			mgmt.POST("/auth-files", s.mgmt.UploadAuthFile)
+			mgmt.DELETE("/auth-files", s.mgmt.DeleteAuthFile)
+			mgmt.POST("/auth/reset-cooldown", s.mgmt.ResetAuthCooldown)
+			mgmt.PATCH("/auth/:id/priority", s.mgmt.SetAuthPriority)
+			mgmt.GET("/auth/:id/usage", s.mgmt.GetAuthUsage)
 		mgmt.POST("/vertex/import", s.mgmt.ImportVertexCredential)
 
 		mgmt.GET("/anthropic-auth-url", s.mgmt.RequestAnthropicToken)
@@ -836,10 +878,11 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to start HTTP server: server not initialized")
 	}
 
-	useTLS := s.cfg != nil && s.cfg.TLS.Enable
+	cfg := s.getConfig()
+	useTLS := cfg != nil && cfg.TLS.Enable
 	if useTLS {
-		cert := strings.TrimSpace(s.cfg.TLS.Cert)
-		key := strings.TrimSpace(s.cfg.TLS.Key)
+		cert := strings.TrimSpace(cfg.TLS.Cert)
+		key := strings.TrimSpace(cfg.TLS.Key)
 		if cert == "" || key == "" {
 			return fmt.Errorf("failed to start HTTPS server: tls.cert or tls.key is empty")
 		}
@@ -890,11 +933,51 @@ func (s *Server) Stop(ctx context.Context) error {
 //
 // Returns:
 //   - gin.HandlerFunc: The CORS middleware handler
-func corsMiddleware() gin.HandlerFunc {
+func corsMiddleware(getCfg func() *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "*")
+		cfg := (*config.Config)(nil)
+		if getCfg != nil {
+			cfg = getCfg()
+		}
+
+		origin := strings.TrimSpace(c.GetHeader("Origin"))
+		path := c.Request.URL.Path
+		isManagement := strings.HasPrefix(path, "/v0/management")
+
+		allowOrigins := []string{}
+		allowMethods := "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+		allowHeaders := "*"
+		if cfg != nil {
+			allowOrigins = cfg.CORS.AllowOrigins
+			if isManagement && len(cfg.CORS.ManagementAllowOrigins) > 0 {
+				allowOrigins = cfg.CORS.ManagementAllowOrigins
+			}
+			if len(cfg.CORS.AllowMethods) > 0 {
+				allowMethods = strings.Join(cfg.CORS.AllowMethods, ", ")
+			}
+			if len(cfg.CORS.AllowHeaders) > 0 {
+				allowHeaders = strings.Join(cfg.CORS.AllowHeaders, ", ")
+			}
+		}
+
+		allowedOrigin := ""
+		if origin != "" {
+			switch {
+			case len(allowOrigins) == 0 && !isManagement:
+				allowedOrigin = "*"
+			case originAllowed(allowOrigins, origin):
+				allowedOrigin = origin
+			}
+		}
+
+		if allowedOrigin != "" {
+			c.Header("Access-Control-Allow-Origin", allowedOrigin)
+			c.Header("Access-Control-Allow-Methods", allowMethods)
+			c.Header("Access-Control-Allow-Headers", allowHeaders)
+			if allowedOrigin != "*" {
+				c.Header("Vary", "Origin")
+			}
+		}
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusNoContent)
@@ -903,6 +986,22 @@ func corsMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func originAllowed(allowOrigins []string, origin string) bool {
+	if origin == "" || len(allowOrigins) == 0 {
+		return false
+	}
+	for _, allowed := range allowOrigins {
+		allowed = strings.TrimSpace(allowed)
+		if allowed == "" {
+			continue
+		}
+		if allowed == "*" || strings.EqualFold(allowed, origin) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) applyAccessConfig(oldCfg, newCfg *config.Config) {
@@ -978,6 +1077,17 @@ func (s *Server) UpdateClients(cfg *config.Config) {
 		}
 	}
 
+	metricsEnabled := cfg.IsMetricsEnabled()
+	requestHistoryEnabled := cfg.IsRequestHistoryEnabled()
+	if cfg.CommercialMode {
+		metricsEnabled = false
+		requestHistoryEnabled = false
+	}
+	middleware.SetMetricsEnabled(metricsEnabled)
+	middleware.SetRequestHistoryEnabled(requestHistoryEnabled)
+	middleware.SetRequestHistorySampleRate(cfg.GetRequestHistorySampleRate())
+	usage.SetSamplingRate(cfg.GetUsageSampleRate())
+
 	if oldCfg == nil || oldCfg.DisableCooling != cfg.DisableCooling {
 		auth.SetQuotaCooldownDisabled(cfg.DisableCooling)
 		if oldCfg != nil {
@@ -1033,7 +1143,10 @@ func (s *Server) UpdateClients(cfg *config.Config) {
 	}
 
 	s.applyAccessConfig(oldCfg, cfg)
+	cache.InitDefaultResponseCache(buildResponseCacheConfig(cfg))
+	cache.InitDefaultPromptCache(buildPromptCacheConfig(cfg))
 	s.cfg = cfg
+	s.cfgHolder.Store(cfg)
 	s.wsAuthEnabled.Store(cfg.WebsocketAuth)
 	if oldCfg != nil && s.wsAuthChanged != nil && oldCfg.WebsocketAuth != cfg.WebsocketAuth {
 		s.wsAuthChanged(oldCfg.WebsocketAuth, cfg.WebsocketAuth)
@@ -1084,10 +1197,14 @@ func (s *Server) SetWebsocketAuthChangeHandler(fn func(bool, bool)) {
 // AuthMiddleware returns a Gin middleware handler that authenticates requests
 // using the configured authentication providers. When no providers are available,
 // it allows all requests (legacy behaviour).
-func AuthMiddleware(manager *sdkaccess.Manager) gin.HandlerFunc {
+func AuthMiddleware(manager *sdkaccess.Manager, allowUnauthenticated func() bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if manager == nil {
-			c.Next()
+			if allowUnauthenticated != nil && allowUnauthenticated() {
+				c.Next()
+				return
+			}
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Missing API key"})
 			return
 		}
 
@@ -1129,14 +1246,33 @@ func (a *authManagerAdapter) Execute(ctx context.Context, providers []string, re
 		return nil, errors.New("auth manager adapter: manager is nil")
 	}
 
-	// Convert the memory package types to cliproxyexecutor types
-	// The req comes from memory.ExecutorRequest which has Model, Payload, Metadata
-	// The opts comes from memory.ExecutorOptions which has Stream, Headers
+	// Convert the memory package types to cliproxyexecutor types.
 	var execReq cliproxyexecutor.Request
 	var execOpts cliproxyexecutor.Options
 
-	// Handle req conversion via JSON marshaling for flexibility
-	if req != nil {
+	switch r := req.(type) {
+	case nil:
+	case cliproxyexecutor.Request:
+		execReq = r
+	case *cliproxyexecutor.Request:
+		if r != nil {
+			execReq = *r
+		}
+	case memory.ExecutorRequest:
+		execReq = cliproxyexecutor.Request{
+			Model:    r.Model,
+			Payload:  r.Payload,
+			Metadata: r.Metadata,
+		}
+	case *memory.ExecutorRequest:
+		if r != nil {
+			execReq = cliproxyexecutor.Request{
+				Model:    r.Model,
+				Payload:  r.Payload,
+				Metadata: r.Metadata,
+			}
+		}
+	default:
 		reqBytes, err := json.Marshal(req)
 		if err != nil {
 			return nil, fmt.Errorf("auth manager adapter: failed to marshal request: %w", err)
@@ -1146,8 +1282,27 @@ func (a *authManagerAdapter) Execute(ctx context.Context, providers []string, re
 		}
 	}
 
-	// Handle opts conversion
-	if opts != nil {
+	switch o := opts.(type) {
+	case nil:
+	case cliproxyexecutor.Options:
+		execOpts = o
+	case *cliproxyexecutor.Options:
+		if o != nil {
+			execOpts = *o
+		}
+	case memory.ExecutorOptions:
+		execOpts = cliproxyexecutor.Options{
+			Stream:  o.Stream,
+			Headers: o.Headers,
+		}
+	case *memory.ExecutorOptions:
+		if o != nil {
+			execOpts = cliproxyexecutor.Options{
+				Stream:  o.Stream,
+				Headers: o.Headers,
+			}
+		}
+	default:
 		optsBytes, err := json.Marshal(opts)
 		if err != nil {
 			return nil, fmt.Errorf("auth manager adapter: failed to marshal options: %w", err)
@@ -1164,4 +1319,51 @@ func (a *authManagerAdapter) Execute(ctx context.Context, providers []string, re
 
 	// Return the response as interface{}
 	return resp, nil
+}
+
+func (s *Server) getConfig() *config.Config {
+	if s == nil {
+		return nil
+	}
+	if v := s.cfgHolder.Load(); v != nil {
+		if cfg, ok := v.(*config.Config); ok {
+			return cfg
+		}
+	}
+	return s.cfg
+}
+
+func (s *Server) allowUnauthenticated() bool {
+	cfg := s.getConfig()
+	if cfg == nil {
+		return false
+	}
+	return cfg.AllowUnauthenticated
+}
+
+func buildResponseCacheConfig(cfg *config.Config) cache.ResponseCacheConfig {
+	if cfg == nil {
+		return cache.DefaultResponseCacheConfig()
+	}
+	return cache.ResponseCacheConfig{
+		Enabled:       cfg.ResponseCache.Enabled,
+		MaxSize:       cfg.ResponseCache.GetMaxSize(),
+		MaxBytes:      cfg.ResponseCache.GetMaxBytes(),
+		TTL:           cfg.ResponseCache.GetTTL(),
+		ExcludeModels: append([]string(nil), cfg.ResponseCache.ExcludeModels...),
+		PersistFile:   cfg.ResponseCache.PersistFile,
+	}
+}
+
+func buildPromptCacheConfig(cfg *config.Config) cache.PromptCacheConfig {
+	if cfg == nil {
+		return cache.DefaultPromptCacheConfig()
+	}
+	return cache.PromptCacheConfig{
+		Enabled:     cfg.PromptCache.Enabled,
+		MaxSize:     cfg.PromptCache.GetMaxSize(),
+		MaxBytes:    cfg.PromptCache.GetMaxBytes(),
+		TTL:         cfg.PromptCache.GetTTL(),
+		PersistFile: cfg.PromptCache.PersistFile,
+	}
 }
