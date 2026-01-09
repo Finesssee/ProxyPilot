@@ -1137,6 +1137,9 @@ func (e *KiroExecutor) mapModelToKiro(model string) string {
 		"kiro-claude-sonnet-4-5-agentic": "claude-sonnet-4.5",
 		"kiro-claude-sonnet-4-agentic":   "claude-sonnet-4",
 		"kiro-claude-haiku-4-5-agentic":  "claude-haiku-4.5",
+		// Thinking variants (same backend model IDs, but with thinking enabled)
+		"kiro-claude-opus-4-5-thinking":   "claude-opus-4.5",
+		"kiro-claude-sonnet-4-5-thinking": "claude-sonnet-4.5",
 	}
 	if kiroID, ok := modelMap[model]; ok {
 		return kiroID
