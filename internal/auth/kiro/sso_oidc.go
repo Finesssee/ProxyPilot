@@ -48,7 +48,6 @@ const (
 	idcAmzUserAgent = "aws-sdk-js/3.738.0 ua/2.1 os/other lang/js md/browser#unknown_unknown api/sso-oidc#3.738.0 m/E KiroIDE"
 )
 
-
 // SSOOIDCClient handles AWS SSO OIDC authentication.
 type SSOOIDCClient struct {
 	httpClient *http.Client
@@ -69,10 +68,10 @@ func NewSSOOIDCClient(cfg *config.Config) *SSOOIDCClient {
 
 // RegisterClientResponse from AWS SSO OIDC.
 type RegisterClientResponse struct {
-	ClientID                string `json:"clientId"`
-	ClientSecret            string `json:"clientSecret"`
-	ClientIDIssuedAt        int64  `json:"clientIdIssuedAt"`
-	ClientSecretExpiresAt   int64  `json:"clientSecretExpiresAt"`
+	ClientID              string `json:"clientId"`
+	ClientSecret          string `json:"clientSecret"`
+	ClientIDIssuedAt      int64  `json:"clientIdIssuedAt"`
+	ClientSecretExpiresAt int64  `json:"clientSecretExpiresAt"`
 }
 
 // StartDeviceAuthResponse from AWS SSO OIDC.
@@ -1100,6 +1099,7 @@ type AuthCodeCallbackResult struct {
 }
 
 // startAuthCodeCallbackServer starts a local HTTP server to receive the authorization code callback.
+// Returns a channel that will receive the auth result and a done function to call after consuming the result.
 func (c *SSOOIDCClient) startAuthCodeCallbackServer(ctx context.Context, expectedState string) (string, <-chan AuthCodeCallbackResult, error) {
 	// Try to find an available port
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", authCodeCallbackPort))
@@ -1115,6 +1115,8 @@ func (c *SSOOIDCClient) startAuthCodeCallbackServer(ctx context.Context, expecte
 	port := listener.Addr().(*net.TCPAddr).Port
 	redirectURI := fmt.Sprintf("http://127.0.0.1:%d%s", port, authCodeCallbackPath)
 	resultChan := make(chan AuthCodeCallbackResult, 1)
+	// Use a separate channel for shutdown signaling to avoid race with resultChan
+	shutdownChan := make(chan struct{}, 1)
 
 	server := &http.Server{
 		ReadHeaderTimeout: 10 * time.Second,
@@ -1134,6 +1136,11 @@ func (c *SSOOIDCClient) startAuthCodeCallbackServer(ctx context.Context, expecte
 <html><head><title>Login Failed</title></head>
 <body><h1>Login Failed</h1><p>Error: %s</p><p>You can close this window.</p></body></html>`, html.EscapeString(errParam))
 			resultChan <- AuthCodeCallbackResult{Error: errParam}
+			// Signal shutdown after sending result
+			select {
+			case shutdownChan <- struct{}{}:
+			default:
+			}
 			return
 		}
 
@@ -1143,6 +1150,11 @@ func (c *SSOOIDCClient) startAuthCodeCallbackServer(ctx context.Context, expecte
 <html><head><title>Login Failed</title></head>
 <body><h1>Login Failed</h1><p>Invalid state parameter</p><p>You can close this window.</p></body></html>`)
 			resultChan <- AuthCodeCallbackResult{Error: "state mismatch"}
+			// Signal shutdown after sending result
+			select {
+			case shutdownChan <- struct{}{}:
+			default:
+			}
 			return
 		}
 
@@ -1151,21 +1163,31 @@ func (c *SSOOIDCClient) startAuthCodeCallbackServer(ctx context.Context, expecte
 <body><h1>Login Successful!</h1><p>You can close this window and return to the terminal.</p>
 <script>window.close();</script></body></html>`)
 		resultChan <- AuthCodeCallbackResult{Code: code, State: state}
+		// Signal shutdown after sending result
+		select {
+		case shutdownChan <- struct{}{}:
+		default:
+		}
 	})
 
 	server.Handler = mux
 
+	// Start the server - use ListenAndServe pattern to ensure server is ready
 	go func() {
+		log.Debugf("auth code callback server listening on port %d", port)
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.Debugf("auth code callback server error: %v", err)
 		}
 	}()
 
+	// Shutdown goroutine uses separate channel to avoid consuming from resultChan
 	go func() {
 		select {
 		case <-ctx.Done():
 		case <-time.After(10 * time.Minute):
-		case <-resultChan:
+		case <-shutdownChan:
+			// Give a small delay to ensure response is fully sent to browser
+			time.Sleep(500 * time.Millisecond)
 		}
 		_ = server.Shutdown(context.Background())
 	}()
