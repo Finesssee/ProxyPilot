@@ -14,6 +14,10 @@ import (
 // GET /v0/management/request-history
 func (h *Handler) GetRequestHistory(c *gin.Context) {
 	history := middleware.GetRequestHistory()
+	if history == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "request history disabled"})
+		return
+	}
 
 	// Parse filter parameters
 	filter := &middleware.RequestHistoryFilter{}
@@ -76,6 +80,10 @@ func (h *Handler) GetRequestHistory(c *gin.Context) {
 // GET /v0/management/request-history/stats
 func (h *Handler) GetRequestHistoryStats(c *gin.Context) {
 	history := middleware.GetRequestHistory()
+	if history == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "request history disabled"})
+		return
+	}
 	stats := history.GetStats()
 
 	c.JSON(http.StatusOK, gin.H{
@@ -87,6 +95,10 @@ func (h *Handler) GetRequestHistoryStats(c *gin.Context) {
 // DELETE /v0/management/request-history
 func (h *Handler) ClearRequestHistory(c *gin.Context) {
 	history := middleware.GetRequestHistory()
+	if history == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "request history disabled"})
+		return
+	}
 	history.Clear()
 
 	c.JSON(http.StatusOK, gin.H{
@@ -98,6 +110,10 @@ func (h *Handler) ClearRequestHistory(c *gin.Context) {
 // GET /v0/management/request-history/export
 func (h *Handler) ExportRequestHistory(c *gin.Context) {
 	history := middleware.GetRequestHistory()
+	if history == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "request history disabled"})
+		return
+	}
 	snapshot := history.Export()
 
 	c.JSON(http.StatusOK, snapshot)
@@ -107,6 +123,10 @@ func (h *Handler) ExportRequestHistory(c *gin.Context) {
 // POST /v0/management/request-history/import
 func (h *Handler) ImportRequestHistory(c *gin.Context) {
 	history := middleware.GetRequestHistory()
+	if history == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "request history disabled"})
+		return
+	}
 
 	data, err := c.GetRawData()
 	if err != nil {
@@ -133,6 +153,10 @@ func (h *Handler) ImportRequestHistory(c *gin.Context) {
 // POST /v0/management/request-history/save
 func (h *Handler) SaveRequestHistory(c *gin.Context) {
 	history := middleware.GetRequestHistory()
+	if history == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "request history disabled"})
+		return
+	}
 	if err := history.Save(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
