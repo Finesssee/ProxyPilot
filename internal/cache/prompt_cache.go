@@ -22,6 +22,9 @@ type PromptCacheConfig struct {
 	Enabled bool `yaml:"enabled" json:"enabled"`
 	// MaxSize is the maximum number of cached prompts.
 	MaxSize int `yaml:"max-size" json:"max-size"`
+	// MaxBytes is the maximum total size (bytes) of cached prompts.
+	// 0 disables size-based eviction.
+	MaxBytes int64 `yaml:"max-bytes" json:"max-bytes"`
 	// TTL is how long prompts are cached.
 	TTL time.Duration `yaml:"ttl" json:"ttl"`
 	// PersistFile is the optional file path to persist cache across restarts.
@@ -53,18 +56,21 @@ type CachedPrompt struct {
 	LastHit time.Time
 	// Provider tracks which provider(s) this prompt was used with.
 	Providers map[string]int
+	// SizeBytes tracks the approximate size of this entry.
+	SizeBytes int64
 }
 
 // PromptCache provides LRU-based caching for system prompts.
 // This tracks repeated system prompts to enable synthetic caching for
 // providers that don't support native prompt caching.
 type PromptCache struct {
-	mu       sync.RWMutex
-	entries  map[string]*CachedPrompt
-	order    []string // LRU order tracking
-	config   PromptCacheConfig
-	stats    PromptCacheStats
-	disabled bool // runtime toggle
+	mu         sync.RWMutex
+	entries    map[string]*CachedPrompt
+	order      []string // LRU order tracking
+	config     PromptCacheConfig
+	stats      PromptCacheStats
+	totalBytes int64
+	disabled   bool // runtime toggle
 }
 
 // PromptCacheStats tracks cache performance metrics.
@@ -157,8 +163,7 @@ func (pc *PromptCache) CacheSystemPrompt(prompt string, provider string) (string
 	if exists {
 		// Check TTL
 		if time.Since(entry.CreatedAt) > pc.config.TTL {
-			delete(pc.entries, hash)
-			pc.removeFromOrderLocked(hash)
+			pc.removeEntryLocked(hash)
 			pc.stats.Evictions++
 			exists = false
 		}
@@ -189,10 +194,13 @@ func (pc *PromptCache) CacheSystemPrompt(prompt string, provider string) (string
 	middleware.RecordPromptCacheMiss()
 
 	// Evict if at capacity
-	for len(pc.entries) >= pc.config.MaxSize && len(pc.order) > 0 {
-		oldest := pc.order[0]
-		delete(pc.entries, oldest)
-		pc.order = pc.order[1:]
+	entrySize := estimatePromptEntrySize(prompt, hash)
+	if pc.config.MaxBytes > 0 && entrySize > pc.config.MaxBytes {
+		return hash, false
+	}
+	for (pc.config.MaxSize > 0 && len(pc.entries) >= pc.config.MaxSize && len(pc.order) > 0) ||
+		(pc.config.MaxBytes > 0 && pc.totalBytes+entrySize > pc.config.MaxBytes && len(pc.order) > 0) {
+		pc.removeEntryLocked(pc.order[0])
 		pc.stats.Evictions++
 	}
 
@@ -212,8 +220,10 @@ func (pc *PromptCache) CacheSystemPrompt(prompt string, provider string) (string
 		HitCount:      0,
 		LastHit:       time.Now(),
 		Providers:     providers,
+		SizeBytes:     entrySize,
 	}
 	pc.order = append(pc.order, hash)
+	pc.totalBytes += entrySize
 	pc.stats.Size = len(pc.entries)
 	middleware.SetPromptCacheSize(len(pc.entries))
 
@@ -240,8 +250,7 @@ func (pc *PromptCache) GetCachedPrompt(hash string) *CachedPrompt {
 	// Check TTL
 	if time.Since(entry.CreatedAt) > pc.config.TTL {
 		pc.mu.Lock()
-		delete(pc.entries, hash)
-		pc.removeFromOrderLocked(hash)
+		pc.removeEntryLocked(hash)
 		pc.stats.Evictions++
 		pc.mu.Unlock()
 		return nil
@@ -298,12 +307,22 @@ func (pc *PromptCache) removeFromOrderLocked(key string) {
 	}
 }
 
+func (pc *PromptCache) removeEntryLocked(key string) {
+	entry := pc.entries[key]
+	if entry != nil {
+		pc.totalBytes -= entry.SizeBytes
+	}
+	delete(pc.entries, key)
+	pc.removeFromOrderLocked(key)
+}
+
 // Clear removes all entries from the cache.
 func (pc *PromptCache) Clear() {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 	pc.entries = make(map[string]*CachedPrompt)
 	pc.order = make([]string, 0, pc.config.MaxSize)
+	pc.totalBytes = 0
 	pc.stats.Size = 0
 	middleware.SetPromptCacheSize(0)
 }
@@ -351,10 +370,9 @@ func (pc *PromptCache) UpdateConfig(cfg PromptCacheConfig) {
 	pc.config = cfg
 	pc.disabled = !cfg.Enabled
 	// Evict if new max size is smaller
-	for len(pc.entries) > cfg.MaxSize && len(pc.order) > 0 {
-		oldest := pc.order[0]
-		delete(pc.entries, oldest)
-		pc.order = pc.order[1:]
+	for (cfg.MaxSize > 0 && len(pc.entries) > cfg.MaxSize && len(pc.order) > 0) ||
+		(cfg.MaxBytes > 0 && pc.totalBytes > cfg.MaxBytes && len(pc.order) > 0) {
+		pc.removeEntryLocked(pc.order[0])
 		pc.stats.Evictions++
 	}
 	pc.stats.Size = len(pc.entries)
@@ -375,6 +393,7 @@ func (pc *PromptCache) EvictExpired() int {
 			continue
 		}
 		if now.Sub(entry.CreatedAt) > pc.config.TTL {
+			pc.totalBytes -= entry.SizeBytes
 			delete(pc.entries, key)
 			evicted++
 			pc.stats.Evictions++
@@ -543,11 +562,14 @@ func (pc *PromptCache) LoadFromFile(path string) error {
 			continue
 		}
 		// Skip if over capacity
-		if len(pc.entries) >= pc.config.MaxSize {
+		entry.SizeBytes = ensurePromptEntrySize(entry)
+		if (pc.config.MaxSize > 0 && len(pc.entries) >= pc.config.MaxSize) ||
+			(pc.config.MaxBytes > 0 && pc.totalBytes+entry.SizeBytes > pc.config.MaxBytes) {
 			break
 		}
 		pc.entries[key] = entry
 		pc.order = append(pc.order, key)
+		pc.totalBytes += entry.SizeBytes
 		loaded++
 	}
 	pc.stats.Size = len(pc.entries)
@@ -567,6 +589,21 @@ func (pc *PromptCache) LoadFromFile(path string) error {
 
 	log.Infof("prompt cache loaded from %s (%d entries)", path, loaded)
 	return nil
+}
+
+func estimatePromptEntrySize(prompt, hash string) int64 {
+	return int64(len(prompt) + len(hash))
+}
+
+func ensurePromptEntrySize(entry *CachedPrompt) int64 {
+	if entry == nil {
+		return 0
+	}
+	if entry.SizeBytes > 0 {
+		return entry.SizeBytes
+	}
+	entry.SizeBytes = estimatePromptEntrySize(entry.Prompt, entry.Hash)
+	return entry.SizeBytes
 }
 
 // StartPeriodicPersistence starts a background goroutine that periodically saves the cache.
