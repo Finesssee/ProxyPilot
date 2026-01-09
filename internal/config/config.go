@@ -55,6 +55,30 @@ type Config struct {
 	// UsageStatisticsEnabled toggles in-memory usage aggregation; when false, usage data is discarded.
 	UsageStatisticsEnabled bool `yaml:"usage-statistics-enabled" json:"usage-statistics-enabled"`
 
+	// UsageSampleRate controls sampling for in-memory usage aggregation (0.0-1.0).
+	// Default: 1.0 (no sampling).
+	UsageSampleRate *float64 `yaml:"usage-sample-rate,omitempty" json:"usage-sample-rate,omitempty"`
+
+	// RequestHistorySampleRate controls sampling for request history storage (0.0-1.0).
+	// Default: 1.0 (no sampling).
+	RequestHistorySampleRate *float64 `yaml:"request-history-sample-rate,omitempty" json:"request-history-sample-rate,omitempty"`
+
+	// MetricsEnabled controls Prometheus metrics collection and /metrics endpoint.
+	// Default: false (opt-in).
+	MetricsEnabled *bool `yaml:"metrics-enabled,omitempty" json:"metrics-enabled,omitempty"`
+
+	// RequestHistoryEnabled controls persistent request history storage.
+	// Default: false (opt-in).
+	RequestHistoryEnabled *bool `yaml:"request-history-enabled,omitempty" json:"request-history-enabled,omitempty"`
+
+	// AgenticHarnessEnabled controls the agentic harness middleware.
+	// Default: true.
+	AgenticHarnessEnabled *bool `yaml:"agentic-harness-enabled,omitempty" json:"agentic-harness-enabled,omitempty"`
+
+	// PromptBudgetEnabled controls the Codex prompt budget middleware.
+	// Default: true.
+	PromptBudgetEnabled *bool `yaml:"prompt-budget-enabled,omitempty" json:"prompt-budget-enabled,omitempty"`
+
 	// DisableCooling disables quota cooldown scheduling when true.
 	DisableCooling bool `yaml:"disable-cooling" json:"disable-cooling"`
 
@@ -71,6 +95,13 @@ type Config struct {
 
 	// WebsocketAuth enables or disables authentication for the WebSocket API.
 	WebsocketAuth bool `yaml:"ws-auth" json:"ws-auth"`
+
+	// AllowUnauthenticated allows requests without API keys when true.
+	// Default: false (deny unauthenticated).
+	AllowUnauthenticated bool `yaml:"allow-unauthenticated" json:"allow-unauthenticated"`
+
+	// CORS controls cross-origin request settings.
+	CORS CORSConfig `yaml:"cors" json:"cors"`
 
 	// GeminiKey defines Gemini API key configurations with optional routing overrides.
 	GeminiKey []GeminiKey `yaml:"gemini-api-key" json:"gemini-api-key"`
@@ -123,6 +154,16 @@ type Config struct {
 	IncognitoBrowser bool `yaml:"incognito-browser" json:"incognito-browser"`
 
 	legacyMigrationPending bool `yaml:"-" json:"-"`
+}
+
+// CORSConfig defines cross-origin request settings.
+// AllowOrigins applies to all non-management endpoints.
+// ManagementAllowOrigins is used for /v0/management endpoints only.
+type CORSConfig struct {
+	AllowOrigins           []string `yaml:"allow-origins,omitempty" json:"allow_origins,omitempty"`
+	ManagementAllowOrigins []string `yaml:"management-allow-origins,omitempty" json:"management_allow_origins,omitempty"`
+	AllowMethods           []string `yaml:"allow-methods,omitempty" json:"allow_methods,omitempty"`
+	AllowHeaders           []string `yaml:"allow-headers,omitempty" json:"allow_headers,omitempty"`
 }
 
 // TLSConfig holds HTTPS server settings.
@@ -235,6 +276,9 @@ type ResponseCacheConfig struct {
 	// MaxSize is the maximum number of cached responses.
 	// Default: 1000
 	MaxSize int `yaml:"max-size" json:"max_size"`
+	// MaxBytes is the maximum total size (bytes) of cached responses.
+	// Default: 0 (disabled)
+	MaxBytes int64 `yaml:"max-bytes" json:"max_bytes"`
 	// TTLSeconds is how long responses are cached in seconds.
 	// Default: 300 (5 minutes)
 	TTLSeconds int `yaml:"ttl-seconds" json:"ttl_seconds"`
@@ -262,6 +306,14 @@ func (c *ResponseCacheConfig) GetMaxSize() int {
 	return c.MaxSize
 }
 
+// GetMaxBytes returns the max bytes with a sensible default (disabled).
+func (c *ResponseCacheConfig) GetMaxBytes() int64 {
+	if c.MaxBytes <= 0 {
+		return 0
+	}
+	return c.MaxBytes
+}
+
 // PromptCacheConfig configures synthetic prompt caching for system prompts.
 type PromptCacheConfig struct {
 	// Enabled controls whether prompt caching is active.
@@ -270,6 +322,9 @@ type PromptCacheConfig struct {
 	// MaxSize is the maximum number of cached prompts.
 	// Default: 500
 	MaxSize int `yaml:"max-size" json:"max_size"`
+	// MaxBytes is the maximum total size (bytes) of cached prompts.
+	// Default: 0 (disabled)
+	MaxBytes int64 `yaml:"max-bytes" json:"max_bytes"`
 	// TTLSeconds is how long prompts are cached in seconds.
 	// Default: 1800 (30 minutes)
 	TTLSeconds int `yaml:"ttl-seconds" json:"ttl_seconds"`
@@ -295,6 +350,74 @@ func (c *PromptCacheConfig) GetMaxSize() int {
 		return 500
 	}
 	return c.MaxSize
+}
+
+// GetMaxBytes returns the max bytes with a sensible default (disabled).
+func (c *PromptCacheConfig) GetMaxBytes() int64 {
+	if c.MaxBytes <= 0 {
+		return 0
+	}
+	return c.MaxBytes
+}
+
+// GetUsageSampleRate returns the usage sample rate (0.0-1.0), defaulting to 1.0.
+func (c *Config) GetUsageSampleRate() float64 {
+	if c == nil || c.UsageSampleRate == nil {
+		return 1.0
+	}
+	if *c.UsageSampleRate < 0 {
+		return 1.0
+	}
+	if *c.UsageSampleRate > 1 {
+		return 1.0
+	}
+	return *c.UsageSampleRate
+}
+
+// GetRequestHistorySampleRate returns the request history sample rate (0.0-1.0), defaulting to 1.0.
+func (c *Config) GetRequestHistorySampleRate() float64 {
+	if c == nil || c.RequestHistorySampleRate == nil {
+		return 1.0
+	}
+	if *c.RequestHistorySampleRate < 0 {
+		return 1.0
+	}
+	if *c.RequestHistorySampleRate > 1 {
+		return 1.0
+	}
+	return *c.RequestHistorySampleRate
+}
+
+// IsMetricsEnabled returns whether Prometheus metrics are enabled (default false).
+func (c *Config) IsMetricsEnabled() bool {
+	if c == nil || c.MetricsEnabled == nil {
+		return false
+	}
+	return *c.MetricsEnabled
+}
+
+// IsRequestHistoryEnabled returns whether request history is enabled (default false).
+func (c *Config) IsRequestHistoryEnabled() bool {
+	if c == nil || c.RequestHistoryEnabled == nil {
+		return false
+	}
+	return *c.RequestHistoryEnabled
+}
+
+// IsAgenticHarnessEnabled returns whether the agentic harness middleware is enabled (default true).
+func (c *Config) IsAgenticHarnessEnabled() bool {
+	if c == nil || c.AgenticHarnessEnabled == nil {
+		return true
+	}
+	return *c.AgenticHarnessEnabled
+}
+
+// IsPromptBudgetEnabled returns whether the prompt budget middleware is enabled (default true).
+func (c *Config) IsPromptBudgetEnabled() bool {
+	if c == nil || c.PromptBudgetEnabled == nil {
+		return true
+	}
+	return *c.PromptBudgetEnabled
 }
 
 // GetThinkingBudgetTokens returns the effective thinking budget in tokens.
