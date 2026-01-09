@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
@@ -70,12 +71,66 @@ type RequestHistoryFilter struct {
 }
 
 var (
-	globalHistory     *RequestHistory
-	globalHistoryOnce sync.Once
+	globalHistory         *RequestHistory
+	globalHistoryOnce     sync.Once
+	historyEnabled        atomic.Bool
+	historySamplePermille atomic.Uint32
+	historyRandSeed       atomic.Uint64
 )
+
+func init() {
+	historySamplePermille.Store(1000)
+	historyRandSeed.Store(uint64(time.Now().UnixNano()))
+}
+
+// SetRequestHistoryEnabled toggles request history persistence.
+func SetRequestHistoryEnabled(enabled bool) {
+	historyEnabled.Store(enabled)
+}
+
+// SetRequestHistorySampleRate sets the sampling rate (0.0-1.0).
+func SetRequestHistorySampleRate(rate float64) {
+	if rate < 0 {
+		rate = 1
+	}
+	if rate > 1 {
+		rate = 1
+	}
+	historySamplePermille.Store(uint32(rate * 1000))
+}
+
+// IsRequestHistoryEnabled returns whether request history is enabled.
+func IsRequestHistoryEnabled() bool {
+	return historyEnabled.Load()
+}
+
+// ShouldSampleRequestHistory returns whether the current request should be sampled.
+func ShouldSampleRequestHistory() bool {
+	rate := historySamplePermille.Load()
+	if rate >= 1000 {
+		return true
+	}
+	if rate == 0 {
+		return false
+	}
+	return fastRandPermille() < rate
+}
+
+func fastRandPermille() uint32 {
+	x := historyRandSeed.Add(0x9e3779b97f4a7c15)
+	x ^= x >> 30
+	x *= 0xbf58476d1ce4e5b9
+	x ^= x >> 27
+	x *= 0x94d049bb133111eb
+	x ^= x >> 31
+	return uint32(x % 1000)
+}
 
 // GetRequestHistory returns the global request history instance.
 func GetRequestHistory() *RequestHistory {
+	if !IsRequestHistoryEnabled() {
+		return nil
+	}
 	globalHistoryOnce.Do(func() {
 		globalHistory = newRequestHistory()
 	})
