@@ -99,13 +99,37 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, auth *cliproxyauth.Au
 
 	from := opts.SourceFormat
 	to := sdktranslator.FromString("antigravity")
-	translated := sdktranslator.TranslateRequest(from, to, req.Model, bytes.Clone(req.Payload), false)
+	switchProject := e.cfg != nil && e.cfg.QuotaExceeded.SwitchProject
+	switchPreviewModel := e.cfg != nil && e.cfg.QuotaExceeded.SwitchPreviewModel
 
-	translated = applyThinkingMetadataCLI(translated, req.Metadata, req.Model)
-	translated = util.ApplyGemini3ThinkingLevelFromMetadataCLI(req.Model, req.Metadata, translated)
-	translated = util.ApplyDefaultThinkingIfNeededCLI(req.Model, translated)
-	translated = normalizeAntigravityThinking(req.Model, translated)
-	translated = applyPayloadConfigWithRoot(e.cfg, req.Model, "antigravity", "request", translated)
+	projects := projectIDCandidatesFromAuth(auth)
+	if !switchProject && len(projects) > 1 {
+		projects = projects[:1]
+	}
+	if len(projects) == 0 {
+		projects = []string{""}
+	}
+
+	models := []string{req.Model}
+	if switchPreviewModel {
+		models = append(models, quotaPreviewFallbackOrder(req.Model)...)
+	}
+	{
+		seen := make(map[string]struct{}, len(models))
+		uniq := make([]string, 0, len(models))
+		for _, m := range models {
+			m = strings.TrimSpace(m)
+			if m == "" {
+				continue
+			}
+			if _, ok := seen[m]; ok {
+				continue
+			}
+			seen[m] = struct{}{}
+			uniq = append(uniq, m)
+		}
+		models = uniq
+	}
 
 	baseURLs := antigravityBaseURLFallbackOrder(auth)
 	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
@@ -114,72 +138,93 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, auth *cliproxyauth.Au
 	var lastBody []byte
 	var lastErr error
 
-	for idx, baseURL := range baseURLs {
-		httpReq, errReq := e.buildRequest(ctx, auth, token, req.Model, translated, false, opts.Alt, baseURL)
-		if errReq != nil {
-			err = errReq
-			return resp, err
-		}
+	for midx, attemptModel := range models {
+		translated := sdktranslator.TranslateRequest(from, to, attemptModel, bytes.Clone(req.Payload), false)
+		translated = applyThinkingMetadataCLI(translated, req.Metadata, attemptModel)
+		translated = util.ApplyGemini3ThinkingLevelFromMetadataCLI(attemptModel, req.Metadata, translated)
+		translated = util.ApplyDefaultThinkingIfNeededCLI(attemptModel, translated)
+		translated = normalizeAntigravityThinking(attemptModel, translated)
+		translated = applyPayloadConfigWithRoot(e.cfg, attemptModel, "antigravity", "request", translated)
 
-		httpResp, errDo := httpClient.Do(httpReq)
-		if errDo != nil {
-			recordAPIResponseError(ctx, e.cfg, errDo)
-			lastStatus = 0
-			lastBody = nil
-			lastErr = errDo
-			if idx+1 < len(baseURLs) {
-				log.Debugf("antigravity executor: request error on base url %s, retrying with fallback base url: %s", baseURL, baseURLs[idx+1])
-				continue
+		for bidx, baseURL := range baseURLs {
+			for pidx, projectID := range projects {
+				httpReq, errReq := e.buildRequest(ctx, auth, token, attemptModel, projectID, translated, false, opts.Alt, baseURL)
+				if errReq != nil {
+					err = errReq
+					return resp, err
+				}
+
+				httpResp, errDo := httpClient.Do(httpReq)
+				if errDo != nil {
+					recordAPIResponseError(ctx, e.cfg, errDo)
+					lastStatus = 0
+					lastBody = nil
+					lastErr = errDo
+					if bidx+1 < len(baseURLs) {
+						log.Debugf("antigravity executor: request error on base url %s, retrying with fallback base url: %s", baseURL, baseURLs[bidx+1])
+						continue
+					}
+					err = errDo
+					return resp, err
+				}
+
+				recordAPIResponseMetadata(ctx, e.cfg, httpResp.StatusCode, httpResp.Header.Clone())
+				bodyBytes, errRead := io.ReadAll(httpResp.Body)
+				if errClose := httpResp.Body.Close(); errClose != nil {
+					log.Errorf("antigravity executor: close response body error: %v", errClose)
+				}
+				if errRead != nil {
+					recordAPIResponseError(ctx, e.cfg, errRead)
+					err = errRead
+					return resp, err
+				}
+				appendAPIResponseChunk(ctx, e.cfg, bodyBytes)
+
+				if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusMultipleChoices {
+					log.Debugf("antigravity executor: upstream error status: %d, body: %s", httpResp.StatusCode, summarizeErrorBody(httpResp.Header.Get("Content-Type"), bodyBytes))
+					lastStatus = httpResp.StatusCode
+					lastBody = append([]byte(nil), bodyBytes...)
+					lastErr = nil
+					if httpResp.StatusCode == http.StatusTooManyRequests {
+						if pidx+1 < len(projects) {
+							log.Debugf("antigravity executor: rate limited on project %s, retrying with next project: %s", projectID, projects[pidx+1])
+							continue
+						}
+						if bidx+1 < len(baseURLs) {
+							log.Debugf("antigravity executor: rate limited on base url %s, retrying with fallback base url: %s", baseURL, baseURLs[bidx+1])
+							continue
+						}
+						if midx+1 < len(models) {
+							log.Debugf("antigravity executor: rate limited, retrying with fallback model: %s", models[midx+1])
+							continue
+						}
+					}
+					retryAfter := antigravityRetryAfter(httpResp.StatusCode, httpResp.Header, bodyBytes)
+					err = statusErr{code: httpResp.StatusCode, msg: formatErrorMessage(bodyBytes, auth), retryAfter: retryAfter}
+					return resp, err
+				}
+
+				reporter.publish(ctx, parseAntigravityUsage(bodyBytes))
+				var param any
+				converted := sdktranslator.TranslateNonStream(ctx, to, from, attemptModel, bytes.Clone(opts.OriginalRequest), translated, bodyBytes, &param)
+				resp = cliproxyexecutor.Response{Payload: []byte(converted)}
+				// #region agent log
+				agentdebug.Log(
+					"H1",
+					"internal/runtime/executor/antigravity_executor.go:Execute:nonstream_done",
+					"nonstream_payload_sizes",
+					map[string]any{
+						"model":           attemptModel,
+						"reqPayloadBytes": len(req.Payload),
+						"translatedBytes": len(translated),
+						"respBytes":       len(resp.Payload),
+					},
+				)
+				// #endregion agent log
+				reporter.ensurePublished(ctx)
+				return resp, nil
 			}
-			err = errDo
-			return resp, err
 		}
-
-		recordAPIResponseMetadata(ctx, e.cfg, httpResp.StatusCode, httpResp.Header.Clone())
-		bodyBytes, errRead := io.ReadAll(httpResp.Body)
-		if errClose := httpResp.Body.Close(); errClose != nil {
-			log.Errorf("antigravity executor: close response body error: %v", errClose)
-		}
-		if errRead != nil {
-			recordAPIResponseError(ctx, e.cfg, errRead)
-			err = errRead
-			return resp, err
-		}
-		appendAPIResponseChunk(ctx, e.cfg, bodyBytes)
-
-		if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusMultipleChoices {
-			log.Debugf("antigravity executor: upstream error status: %d, body: %s", httpResp.StatusCode, summarizeErrorBody(httpResp.Header.Get("Content-Type"), bodyBytes))
-			lastStatus = httpResp.StatusCode
-			lastBody = append([]byte(nil), bodyBytes...)
-			lastErr = nil
-			if httpResp.StatusCode == http.StatusTooManyRequests && idx+1 < len(baseURLs) {
-				log.Debugf("antigravity executor: rate limited on base url %s, retrying with fallback base url: %s", baseURL, baseURLs[idx+1])
-				continue
-			}
-			retryAfter := antigravityRetryAfter(httpResp.StatusCode, httpResp.Header, bodyBytes)
-			err = statusErr{code: httpResp.StatusCode, msg: formatErrorMessage(bodyBytes, auth), retryAfter: retryAfter}
-			return resp, err
-		}
-
-		reporter.publish(ctx, parseAntigravityUsage(bodyBytes))
-		var param any
-		converted := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, bytes.Clone(opts.OriginalRequest), translated, bodyBytes, &param)
-		resp = cliproxyexecutor.Response{Payload: []byte(converted)}
-		// #region agent log
-		agentdebug.Log(
-			"H1",
-			"internal/runtime/executor/antigravity_executor.go:Execute:nonstream_done",
-			"nonstream_payload_sizes",
-			map[string]any{
-				"model":           req.Model,
-				"reqPayloadBytes": len(req.Payload),
-				"translatedBytes": len(translated),
-				"respBytes":       len(resp.Payload),
-			},
-		)
-		// #endregion agent log
-		reporter.ensurePublished(ctx)
-		return resp, nil
 	}
 
 	switch {
@@ -209,12 +254,43 @@ func (e *AntigravityExecutor) executeClaudeNonStream(ctx context.Context, auth *
 	from := opts.SourceFormat
 	to := sdktranslator.FromString("antigravity")
 	translated := sdktranslator.TranslateRequest(from, to, req.Model, bytes.Clone(req.Payload), true)
-
 	translated = applyThinkingMetadataCLI(translated, req.Metadata, req.Model)
 	translated = util.ApplyGemini3ThinkingLevelFromMetadataCLI(req.Model, req.Metadata, translated)
 	translated = util.ApplyDefaultThinkingIfNeededCLI(req.Model, translated)
 	translated = normalizeAntigravityThinking(req.Model, translated)
 	translated = applyPayloadConfigWithRoot(e.cfg, req.Model, "antigravity", "request", translated)
+
+	switchProject := e.cfg != nil && e.cfg.QuotaExceeded.SwitchProject
+	switchPreviewModel := e.cfg != nil && e.cfg.QuotaExceeded.SwitchPreviewModel
+
+	projects := projectIDCandidatesFromAuth(auth)
+	if !switchProject && len(projects) > 1 {
+		projects = projects[:1]
+	}
+	if len(projects) == 0 {
+		projects = []string{""}
+	}
+
+	models := []string{req.Model}
+	if switchPreviewModel {
+		models = append(models, quotaPreviewFallbackOrder(req.Model)...)
+	}
+	{
+		seen := make(map[string]struct{}, len(models))
+		uniq := make([]string, 0, len(models))
+		for _, m := range models {
+			m = strings.TrimSpace(m)
+			if m == "" {
+				continue
+			}
+			if _, ok := seen[m]; ok {
+				continue
+			}
+			seen[m] = struct{}{}
+			uniq = append(uniq, m)
+		}
+		models = uniq
+	}
 
 	baseURLs := antigravityBaseURLFallbackOrder(auth)
 	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
@@ -223,8 +299,13 @@ func (e *AntigravityExecutor) executeClaudeNonStream(ctx context.Context, auth *
 	var lastBody []byte
 	var lastErr error
 
+	projectID := ""
+	if projects := projectIDCandidatesFromAuth(auth); len(projects) > 0 {
+		projectID = projects[0]
+	}
+
 	for idx, baseURL := range baseURLs {
-		httpReq, errReq := e.buildRequest(ctx, auth, token, req.Model, translated, true, opts.Alt, baseURL)
+		httpReq, errReq := e.buildRequest(ctx, auth, token, req.Model, projectID, translated, true, opts.Alt, baseURL)
 		if errReq != nil {
 			err = errReq
 			return resp, err
@@ -551,6 +632,38 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 	translated = normalizeAntigravityThinking(req.Model, translated)
 	translated = applyPayloadConfigWithRoot(e.cfg, req.Model, "antigravity", "request", translated)
 
+	switchProject := e.cfg != nil && e.cfg.QuotaExceeded.SwitchProject
+	switchPreviewModel := e.cfg != nil && e.cfg.QuotaExceeded.SwitchPreviewModel
+
+	projects := projectIDCandidatesFromAuth(auth)
+	if !switchProject && len(projects) > 1 {
+		projects = projects[:1]
+	}
+	if len(projects) == 0 {
+		projects = []string{""}
+	}
+
+	models := []string{req.Model}
+	if switchPreviewModel {
+		models = append(models, quotaPreviewFallbackOrder(req.Model)...)
+	}
+	{
+		seen := make(map[string]struct{}, len(models))
+		uniq := make([]string, 0, len(models))
+		for _, m := range models {
+			m = strings.TrimSpace(m)
+			if m == "" {
+				continue
+			}
+			if _, ok := seen[m]; ok {
+				continue
+			}
+			seen[m] = struct{}{}
+			uniq = append(uniq, m)
+		}
+		models = uniq
+	}
+
 	baseURLs := antigravityBaseURLFallbackOrder(auth)
 	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 
@@ -572,147 +685,168 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 	var lastBody []byte
 	var lastErr error
 
-	for idx, baseURL := range baseURLs {
-		httpReq, errReq := e.buildRequest(ctx, auth, token, req.Model, translated, true, opts.Alt, baseURL)
-		if errReq != nil {
-			err = errReq
-			return nil, err
+	for midx, attemptModel := range models {
+		attemptTranslated := sdktranslator.TranslateRequest(from, to, attemptModel, bytes.Clone(req.Payload), true)
+		attemptTranslated = applyThinkingMetadataCLI(attemptTranslated, req.Metadata, attemptModel)
+		attemptTranslated = util.ApplyGemini3ThinkingLevelFromMetadataCLI(attemptModel, req.Metadata, attemptTranslated)
+		attemptTranslated = util.ApplyDefaultThinkingIfNeededCLI(attemptModel, attemptTranslated)
+		attemptTranslated = normalizeAntigravityThinking(attemptModel, attemptTranslated)
+		attemptTranslated = applyPayloadConfigWithRoot(e.cfg, attemptModel, "antigravity", "request", attemptTranslated)
+
+		for bidx, baseURL := range baseURLs {
+			for pidx, projectID := range projects {
+				httpReq, errReq := e.buildRequest(ctx, auth, token, attemptModel, projectID, attemptTranslated, true, opts.Alt, baseURL)
+				if errReq != nil {
+					err = errReq
+					return nil, err
+				}
+
+				httpResp, errDo := httpClient.Do(httpReq)
+				if errDo != nil {
+					recordAPIResponseError(ctx, e.cfg, errDo)
+					lastStatus = 0
+					lastBody = nil
+					lastErr = errDo
+					if bidx+1 < len(baseURLs) {
+						log.Debugf("antigravity executor: request error on base url %s, retrying with fallback base url: %s", baseURL, baseURLs[bidx+1])
+						continue
+					}
+					err = errDo
+					return nil, err
+				}
+				recordAPIResponseMetadata(ctx, e.cfg, httpResp.StatusCode, httpResp.Header.Clone())
+				if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusMultipleChoices {
+					bodyBytes, errRead := io.ReadAll(httpResp.Body)
+					if errClose := httpResp.Body.Close(); errClose != nil {
+						log.Errorf("antigravity executor: close response body error: %v", errClose)
+					}
+					if errRead != nil {
+						recordAPIResponseError(ctx, e.cfg, errRead)
+						lastStatus = 0
+						lastBody = nil
+						lastErr = errRead
+						if bidx+1 < len(baseURLs) {
+							log.Debugf("antigravity executor: read error on base url %s, retrying with fallback base url: %s", baseURL, baseURLs[bidx+1])
+							continue
+						}
+						err = errRead
+						return nil, err
+					}
+					appendAPIResponseChunk(ctx, e.cfg, bodyBytes)
+					lastStatus = httpResp.StatusCode
+					lastBody = append([]byte(nil), bodyBytes...)
+					lastErr = nil
+					if httpResp.StatusCode == http.StatusTooManyRequests {
+						if pidx+1 < len(projects) {
+							log.Debugf("antigravity executor: rate limited on project %s, retrying with next project: %s", projectID, projects[pidx+1])
+							continue
+						}
+						if bidx+1 < len(baseURLs) {
+							log.Debugf("antigravity executor: rate limited on base url %s, retrying with fallback base url: %s", baseURL, baseURLs[bidx+1])
+							continue
+						}
+						if midx+1 < len(models) {
+							log.Debugf("antigravity executor: rate limited, retrying with fallback model: %s", models[midx+1])
+							continue
+						}
+					}
+					retryAfter := antigravityRetryAfter(httpResp.StatusCode, httpResp.Header, bodyBytes)
+					err = statusErr{code: httpResp.StatusCode, msg: formatErrorMessage(bodyBytes, auth), retryAfter: retryAfter}
+					return nil, err
+				}
+
+				out := make(chan cliproxyexecutor.StreamChunk)
+				stream = out
+				go func(resp *http.Response, model string, translated []byte) {
+					defer close(out)
+					defer func() {
+						if errClose := resp.Body.Close(); errClose != nil {
+							log.Errorf("antigravity executor: close response body error: %v", errClose)
+						}
+					}()
+					scanner := bufio.NewScanner(resp.Body)
+					scanner.Buffer(nil, streamScannerBuffer)
+					var param any
+					scanLines := 0
+					outChunks := 0
+					outBytes := 0
+					maxChunksPerLine := 0
+					maxPayloadBytes := 0
+					for scanner.Scan() {
+						line := scanner.Bytes()
+						appendAPIResponseChunk(ctx, e.cfg, line)
+						scanLines++
+
+						// Filter usage metadata for all models
+						// Only retain usage statistics in the terminal chunk
+						line = FilterSSEUsageMetadata(line)
+
+						payload := jsonPayload(line)
+						if payload == nil {
+							continue
+						}
+						if n := len(payload); n > maxPayloadBytes {
+							maxPayloadBytes = n
+						}
+
+						if detail, ok := parseAntigravityStreamUsage(payload); ok {
+							reporter.publish(ctx, detail)
+						}
+
+						chunks := sdktranslator.TranslateStream(ctx, to, from, model, bytes.Clone(opts.OriginalRequest), translated, bytes.Clone(payload), &param)
+						if len(chunks) > maxChunksPerLine {
+							maxChunksPerLine = len(chunks)
+						}
+						for i := range chunks {
+							out <- cliproxyexecutor.StreamChunk{Payload: []byte(chunks[i])}
+							outChunks++
+							outBytes += len(chunks[i])
+						}
+					}
+					tail := sdktranslator.TranslateStream(ctx, to, from, model, bytes.Clone(opts.OriginalRequest), translated, []byte("[DONE]"), &param)
+					for i := range tail {
+						out <- cliproxyexecutor.StreamChunk{Payload: []byte(tail[i])}
+						outChunks++
+						outBytes += len(tail[i])
+					}
+					if errScan := scanner.Err(); errScan != nil {
+						recordAPIResponseError(ctx, e.cfg, errScan)
+						reporter.publishFailure(ctx)
+						// #region agent log
+						agentdebug.Log(
+							"H5",
+							"internal/runtime/executor/antigravity_executor.go:ExecuteStream:scanner_err",
+							"stream_scanner_error",
+							map[string]any{
+								"model":     model,
+								"scanLines": scanLines,
+								"error":     errScan.Error(),
+							},
+						)
+						// #endregion agent log
+						out <- cliproxyexecutor.StreamChunk{Err: errScan}
+					} else {
+						reporter.ensurePublished(ctx)
+					}
+					// #region agent log
+					agentdebug.Log(
+						"H2",
+						"internal/runtime/executor/antigravity_executor.go:ExecuteStream:done",
+						"stream_totals",
+						map[string]any{
+							"model":            model,
+							"scanLines":        scanLines,
+							"outChunks":        outChunks,
+							"outBytes":         outBytes,
+							"maxChunksPerLine": maxChunksPerLine,
+							"maxPayloadBytes":  maxPayloadBytes,
+						},
+					)
+					// #endregion agent log
+				}(httpResp, attemptModel, attemptTranslated)
+				return stream, nil
+			}
 		}
-
-		httpResp, errDo := httpClient.Do(httpReq)
-		if errDo != nil {
-			recordAPIResponseError(ctx, e.cfg, errDo)
-			lastStatus = 0
-			lastBody = nil
-			lastErr = errDo
-			if idx+1 < len(baseURLs) {
-				log.Debugf("antigravity executor: request error on base url %s, retrying with fallback base url: %s", baseURL, baseURLs[idx+1])
-				continue
-			}
-			err = errDo
-			return nil, err
-		}
-		recordAPIResponseMetadata(ctx, e.cfg, httpResp.StatusCode, httpResp.Header.Clone())
-		if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusMultipleChoices {
-			bodyBytes, errRead := io.ReadAll(httpResp.Body)
-			if errClose := httpResp.Body.Close(); errClose != nil {
-				log.Errorf("antigravity executor: close response body error: %v", errClose)
-			}
-			if errRead != nil {
-				recordAPIResponseError(ctx, e.cfg, errRead)
-				lastStatus = 0
-				lastBody = nil
-				lastErr = errRead
-				if idx+1 < len(baseURLs) {
-					log.Debugf("antigravity executor: read error on base url %s, retrying with fallback base url: %s", baseURL, baseURLs[idx+1])
-					continue
-				}
-				err = errRead
-				return nil, err
-			}
-			appendAPIResponseChunk(ctx, e.cfg, bodyBytes)
-			lastStatus = httpResp.StatusCode
-			lastBody = append([]byte(nil), bodyBytes...)
-			lastErr = nil
-			if httpResp.StatusCode == http.StatusTooManyRequests && idx+1 < len(baseURLs) {
-				log.Debugf("antigravity executor: rate limited on base url %s, retrying with fallback base url: %s", baseURL, baseURLs[idx+1])
-				continue
-			}
-			retryAfter := antigravityRetryAfter(httpResp.StatusCode, httpResp.Header, bodyBytes)
-			err = statusErr{code: httpResp.StatusCode, msg: formatErrorMessage(bodyBytes, auth), retryAfter: retryAfter}
-			return nil, err
-		}
-
-		out := make(chan cliproxyexecutor.StreamChunk)
-		stream = out
-		go func(resp *http.Response) {
-			defer close(out)
-			defer func() {
-				if errClose := resp.Body.Close(); errClose != nil {
-					log.Errorf("antigravity executor: close response body error: %v", errClose)
-				}
-			}()
-			scanner := bufio.NewScanner(resp.Body)
-			scanner.Buffer(nil, streamScannerBuffer)
-			var param any
-			scanLines := 0
-			outChunks := 0
-			outBytes := 0
-			maxChunksPerLine := 0
-			maxPayloadBytes := 0
-			for scanner.Scan() {
-				line := scanner.Bytes()
-				appendAPIResponseChunk(ctx, e.cfg, line)
-				scanLines++
-
-				// Filter usage metadata for all models
-				// Only retain usage statistics in the terminal chunk
-				line = FilterSSEUsageMetadata(line)
-
-				payload := jsonPayload(line)
-				if payload == nil {
-					continue
-				}
-				if n := len(payload); n > maxPayloadBytes {
-					maxPayloadBytes = n
-				}
-
-				if detail, ok := parseAntigravityStreamUsage(payload); ok {
-					reporter.publish(ctx, detail)
-				}
-
-				chunks := sdktranslator.TranslateStream(ctx, to, from, req.Model, bytes.Clone(opts.OriginalRequest), translated, bytes.Clone(payload), &param)
-				if len(chunks) > maxChunksPerLine {
-					maxChunksPerLine = len(chunks)
-				}
-				for i := range chunks {
-					out <- cliproxyexecutor.StreamChunk{Payload: []byte(chunks[i])}
-					outChunks++
-					outBytes += len(chunks[i])
-				}
-			}
-			tail := sdktranslator.TranslateStream(ctx, to, from, req.Model, bytes.Clone(opts.OriginalRequest), translated, []byte("[DONE]"), &param)
-			for i := range tail {
-				out <- cliproxyexecutor.StreamChunk{Payload: []byte(tail[i])}
-				outChunks++
-				outBytes += len(tail[i])
-			}
-			if errScan := scanner.Err(); errScan != nil {
-				recordAPIResponseError(ctx, e.cfg, errScan)
-				reporter.publishFailure(ctx)
-				// #region agent log
-				agentdebug.Log(
-					"H5",
-					"internal/runtime/executor/antigravity_executor.go:ExecuteStream:scanner_err",
-					"stream_scanner_error",
-					map[string]any{
-						"model":     req.Model,
-						"scanLines": scanLines,
-						"error":     errScan.Error(),
-					},
-				)
-				// #endregion agent log
-				out <- cliproxyexecutor.StreamChunk{Err: errScan}
-			} else {
-				reporter.ensurePublished(ctx)
-			}
-			// #region agent log
-			agentdebug.Log(
-				"H2",
-				"internal/runtime/executor/antigravity_executor.go:ExecuteStream:done",
-				"stream_totals",
-				map[string]any{
-					"model":            req.Model,
-					"scanLines":        scanLines,
-					"outChunks":        outChunks,
-					"outBytes":         outBytes,
-					"maxChunksPerLine": maxChunksPerLine,
-					"maxPayloadBytes":  maxPayloadBytes,
-				},
-			)
-			// #endregion agent log
-		}(httpResp)
-		return stream, nil
 	}
 
 	switch {
@@ -1174,7 +1308,7 @@ func (e *AntigravityExecutor) refreshToken(ctx context.Context, auth *cliproxyau
 	return auth, nil
 }
 
-func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *cliproxyauth.Auth, token, modelName string, payload []byte, stream bool, alt, baseURL string) (*http.Request, error) {
+func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *cliproxyauth.Auth, token, modelName, projectID string, payload []byte, stream bool, alt, baseURL string) (*http.Request, error) {
 	if token == "" {
 		return nil, statusErr{code: http.StatusUnauthorized, msg: "missing access token"}
 	}
@@ -1202,13 +1336,7 @@ func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *cliproxyau
 		requestURL.WriteString(url.QueryEscape(alt))
 	}
 
-	// Extract project_id from auth metadata if available
-	projectID := ""
-	if auth != nil && auth.Metadata != nil {
-		if pid, ok := auth.Metadata["project_id"].(string); ok {
-			projectID = strings.TrimSpace(pid)
-		}
-	}
+	projectID = strings.TrimSpace(projectID)
 	payload = geminiToAntigravity(modelName, payload, projectID, stream)
 	payload, _ = sjson.SetBytes(payload, "model", alias2ModelName(modelName))
 
