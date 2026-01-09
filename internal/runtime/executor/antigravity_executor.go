@@ -46,9 +46,11 @@ const (
 	antigravityModelsPath          = "/v1internal:fetchAvailableModels"
 	antigravityClientID            = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
 	antigravityClientSecret        = "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"
-	defaultAntigravityAgent        = "antigravity/1.104.0 darwin/arm64"
+	defaultAntigravityAgent        = "antigravity/1.11.5 windows/amd64"
 	antigravityAuthType            = "antigravity"
 	refreshSkew                    = 3000 * time.Second
+	antigravityXGoogAPIClient      = "gl-node/22.17.0"
+	antigravityClientMetadata      = "ideType=IDE_UNSPECIFIED,platform=PLATFORM_UNSPECIFIED,pluginType=GEMINI"
 )
 
 var (
@@ -796,6 +798,8 @@ func (e *AntigravityExecutor) CountTokens(ctx context.Context, auth *cliproxyaut
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("Authorization", "Bearer "+token)
 		httpReq.Header.Set("User-Agent", resolveUserAgent(auth))
+		httpReq.Header.Set("X-Goog-Api-Client", antigravityXGoogAPIClient)
+		httpReq.Header.Set("Client-Metadata", antigravityClientMetadata)
 		httpReq.Header.Set("Accept", "application/json")
 		if host := resolveHost(base); host != "" {
 			httpReq.Host = host
@@ -892,6 +896,8 @@ func FetchAntigravityModels(ctx context.Context, auth *cliproxyauth.Auth, cfg *c
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("Authorization", "Bearer "+token)
 		httpReq.Header.Set("User-Agent", resolveUserAgent(auth))
+		httpReq.Header.Set("X-Goog-Api-Client", antigravityXGoogAPIClient)
+		httpReq.Header.Set("Client-Metadata", antigravityClientMetadata)
 		if host := resolveHost(baseURL); host != "" {
 			httpReq.Host = host
 		}
@@ -1232,6 +1238,8 @@ func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *cliproxyau
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+token)
 	httpReq.Header.Set("User-Agent", resolveUserAgent(auth))
+	httpReq.Header.Set("X-Goog-Api-Client", antigravityXGoogAPIClient)
+	httpReq.Header.Set("Client-Metadata", antigravityClientMetadata)
 	if stream {
 		httpReq.Header.Set("Accept", "text/event-stream")
 	} else {
