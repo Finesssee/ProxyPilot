@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
 )
 
 // SummarizerExecutor defines the interface for executing summarization requests
@@ -420,6 +422,13 @@ func (a *ManagerAuthAdapter) Execute(ctx context.Context, providers []string, re
 	switch r := resp.(type) {
 	case []byte:
 		return r, nil
+	case cliproxyexecutor.Response:
+		return r.Payload, nil
+	case *cliproxyexecutor.Response:
+		if r != nil {
+			return r.Payload, nil
+		}
+		return nil, errors.New("manager auth adapter: nil response")
 	case interface{ GetPayload() []byte }:
 		return r.GetPayload(), nil
 	default:
