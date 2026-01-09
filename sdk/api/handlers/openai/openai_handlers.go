@@ -495,7 +495,7 @@ func (h *OpenAIAPIHandler) handleStreamingResponse(c *gin.Context, rawJSON []byt
 			if !ok {
 				// Stream closed without data? Send DONE or just headers.
 				setSSEHeaders()
-				_, _ = fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+				handlers.WriteSSEDone(c.Writer)
 				flusher.Flush()
 				cliCancel(nil)
 				return
@@ -504,7 +504,7 @@ func (h *OpenAIAPIHandler) handleStreamingResponse(c *gin.Context, rawJSON []byt
 			// Success! Commit to streaming headers.
 			setSSEHeaders()
 
-			_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(chunk))
+			handlers.WriteSSEData(c.Writer, chunk)
 			flusher.Flush()
 
 			// Continue streaming the rest
@@ -597,7 +597,7 @@ func (h *OpenAIAPIHandler) handleCompletionsStreamingResponse(c *gin.Context, ra
 		case chunk, ok := <-dataChan:
 			if !ok {
 				setSSEHeaders()
-				_, _ = fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+				handlers.WriteSSEDone(c.Writer)
 				flusher.Flush()
 				cliCancel(nil)
 				return
@@ -609,7 +609,7 @@ func (h *OpenAIAPIHandler) handleCompletionsStreamingResponse(c *gin.Context, ra
 			// Write the first chunk
 			converted := convertChatCompletionsStreamChunkToCompletions(chunk)
 			if converted != nil {
-				_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(converted))
+				handlers.WriteSSEData(c.Writer, converted)
 				flusher.Flush()
 			}
 
@@ -652,7 +652,7 @@ func (h *OpenAIAPIHandler) handleCompletionsStreamingResponse(c *gin.Context, ra
 func (h *OpenAIAPIHandler) handleStreamResult(c *gin.Context, flusher http.Flusher, cancel func(error), data <-chan []byte, errs <-chan *interfaces.ErrorMessage) {
 	h.ForwardStream(c, flusher, cancel, data, errs, handlers.StreamForwardOptions{
 		WriteChunk: func(chunk []byte) {
-			_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(chunk))
+			handlers.WriteSSEData(c.Writer, chunk)
 		},
 		WriteTerminalError: func(errMsg *interfaces.ErrorMessage) {
 			if errMsg == nil {
@@ -667,10 +667,10 @@ func (h *OpenAIAPIHandler) handleStreamResult(c *gin.Context, flusher http.Flush
 				errText = errMsg.Error.Error()
 			}
 			body := handlers.BuildErrorResponseBody(status, errText)
-			_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(body))
+			handlers.WriteSSEData(c.Writer, body)
 		},
 		WriteDone: func() {
-			_, _ = fmt.Fprint(c.Writer, "data: [DONE]\n\n")
+			handlers.WriteSSEDone(c.Writer)
 		},
 	})
 }

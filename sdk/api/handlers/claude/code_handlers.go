@@ -282,7 +282,7 @@ func (h *ClaudeCodeAPIHandler) forwardClaudeStream(c *gin.Context, flusher http.
 			c.Status(status)
 
 			errorBytes, _ := json.Marshal(h.toClaudeError(errMsg))
-			_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", errorBytes)
+			handlers.WriteSSEError(c.Writer, errorBytes, false)
 		},
 	})
 }

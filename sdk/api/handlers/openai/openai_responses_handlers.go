@@ -226,7 +226,7 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesStream(c *gin.Context, flush
 				errText = errMsg.Error.Error()
 			}
 			body := handlers.BuildErrorResponseBody(status, errText)
-			_, _ = fmt.Fprintf(c.Writer, "\nevent: error\ndata: %s\n\n", string(body))
+			handlers.WriteSSEError(c.Writer, body, true)
 		},
 		WriteDone: func() {
 			_, _ = c.Writer.Write([]byte("\n"))
