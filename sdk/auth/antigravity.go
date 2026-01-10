@@ -534,8 +534,8 @@ func parseAntigravityAccountInfo(loadResp map[string]any) *AntigravityAccountInf
 	return info
 }
 
-// ImportFromGeminiCLI imports token from Gemini CLI's token file.
-// This is useful for users who have already logged in via Gemini CLI
+// ImportFromAntigravityIDE imports token from Antigravity IDE's token file.
+// This is useful for users who have already logged in via Antigravity IDE
 // and want to use the same credentials in ProxyPilot.
 //
 // Parameters:
@@ -545,11 +545,11 @@ func parseAntigravityAccountInfo(loadResp map[string]any) *AntigravityAccountInf
 // Returns:
 //   - *coreauth.Auth: The imported auth record
 //   - error: An error if the import fails
-func (AntigravityAuthenticator) ImportFromGeminiCLI(ctx context.Context, cfg *config.Config) (*coreauth.Auth, error) {
-	// Load token from Gemini CLI
-	tokenData, err := antigravityauth.LoadGeminiCLIToken()
+func (AntigravityAuthenticator) ImportFromAntigravityIDE(ctx context.Context, cfg *config.Config) (*coreauth.Auth, error) {
+	// Load token from Antigravity IDE
+	tokenData, err := antigravityauth.LoadAntigravityToken()
 	if err != nil {
-		return nil, fmt.Errorf("failed to load Gemini CLI token: %w", err)
+		return nil, fmt.Errorf("failed to load Antigravity IDE token: %w", err)
 	}
 
 	// Get email from token or fetch from API
@@ -642,7 +642,7 @@ func (AntigravityAuthenticator) ImportFromGeminiCLI(ctx context.Context, cfg *co
 		UpdatedAt: now,
 		Metadata:  metadata,
 		Attributes: map[string]string{
-			"source": "gemini-cli-import",
+			"source": "antigravity-ide-import",
 			"email":  email,
 		},
 		// NextRefreshAfter is set to 5 minutes before expiry
@@ -651,9 +651,9 @@ func (AntigravityAuthenticator) ImportFromGeminiCLI(ctx context.Context, cfg *co
 
 	// Display success message
 	if email != "" {
-		fmt.Printf("\n✓ Imported Antigravity token from Gemini CLI (Account: %s)\n", email)
+		fmt.Printf("\n✓ Imported Antigravity token from Antigravity IDE (Account: %s)\n", email)
 	} else {
-		fmt.Println("\n✓ Imported Antigravity token from Gemini CLI")
+		fmt.Println("\n✓ Imported Antigravity token from Antigravity IDE")
 	}
 	if projectID != "" {
 		fmt.Printf("  Project: %s\n", projectID)
