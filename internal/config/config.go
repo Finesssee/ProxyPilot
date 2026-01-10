@@ -1187,6 +1187,7 @@ func mergeMappingPreserve(dst, src *yaml.Node) {
 		copyNodeShallow(dst, src)
 		return
 	}
+	// Only update existing keys in dst; new keys added only if non-zero value
 	for i := 0; i+1 < len(src.Content); i += 2 {
 		sk := src.Content[i]
 		sv := src.Content[i+1]
@@ -1326,6 +1327,7 @@ func isZeroValueNode(node *yaml.Node) bool {
 	}
 	return false
 }
+
 
 // deepCopyNode creates a deep copy of a yaml.Node graph.
 func deepCopyNode(n *yaml.Node) *yaml.Node {
