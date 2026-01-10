@@ -1,5 +1,5 @@
 // Package antigravity provides token loading utilities for importing
-// credentials from Gemini CLI into the Antigravity provider.
+// credentials from Antigravity IDE into the Antigravity provider.
 package antigravity
 
 import (
@@ -11,11 +11,13 @@ import (
 	"time"
 )
 
-// GeminiCLIToken represents the OAuth token structure stored by Gemini CLI.
-// The token is stored in ~/.gemini/oauth_creds.json on Unix systems
-// or %USERPROFILE%\.gemini\oauth_creds.json on Windows.
-type GeminiCLIToken struct {
-	// Token contains the OAuth2 token data from Gemini CLI.
+// AntigravityToken represents the OAuth token structure stored by Antigravity IDE.
+// Storage locations:
+//   - Linux: ~/.antigravity/oauth_creds.json
+//   - macOS: ~/Library/Application Support/Antigravity/oauth_creds.json
+//   - Windows: %APPDATA%\Antigravity\oauth_creds.json
+type AntigravityToken struct {
+	// Token contains the OAuth2 token data from Antigravity IDE.
 	Token *OAuthToken `json:"token,omitempty"`
 
 	// Legacy fields for backwards compatibility with older token formats.
@@ -47,7 +49,7 @@ type OAuthToken struct {
 }
 
 // GetAccessToken returns the access token, checking both nested and legacy fields.
-func (t *GeminiCLIToken) GetAccessToken() string {
+func (t *AntigravityToken) GetAccessToken() string {
 	if t.Token != nil && t.Token.AccessToken != "" {
 		return t.Token.AccessToken
 	}
@@ -55,7 +57,7 @@ func (t *GeminiCLIToken) GetAccessToken() string {
 }
 
 // GetRefreshToken returns the refresh token, checking both nested and legacy fields.
-func (t *GeminiCLIToken) GetRefreshToken() string {
+func (t *AntigravityToken) GetRefreshToken() string {
 	if t.Token != nil && t.Token.RefreshToken != "" {
 		return t.Token.RefreshToken
 	}
@@ -63,7 +65,7 @@ func (t *GeminiCLIToken) GetRefreshToken() string {
 }
 
 // GetExpiry returns the token expiry time.
-func (t *GeminiCLIToken) GetExpiry() time.Time {
+func (t *AntigravityToken) GetExpiry() time.Time {
 	// Try nested token first
 	if t.Token != nil {
 		if t.Token.Expiry != "" {
@@ -96,7 +98,7 @@ func (t *GeminiCLIToken) GetExpiry() time.Time {
 }
 
 // IsExpired returns true if the token has expired.
-func (t *GeminiCLIToken) IsExpired() bool {
+func (t *AntigravityToken) IsExpired() bool {
 	expiry := t.GetExpiry()
 	if expiry.IsZero() {
 		return false // Can't determine, assume not expired
@@ -104,34 +106,44 @@ func (t *GeminiCLIToken) IsExpired() bool {
 	return time.Now().After(expiry)
 }
 
-// geminiCLITokenPath returns the path to Gemini CLI's oauth_creds.json file.
-func geminiCLITokenPath() (string, error) {
-	var homeDir string
-
-	if runtime.GOOS == "windows" {
-		homeDir = os.Getenv("USERPROFILE")
-		if homeDir == "" {
-			homeDir = os.Getenv("HOME")
+// antigravityTokenPath returns the path to Antigravity IDE's oauth_creds.json file.
+// It checks OS-specific locations where Antigravity stores its credentials.
+func antigravityTokenPath() (string, error) {
+	switch runtime.GOOS {
+	case "windows":
+		// Windows: %APPDATA%\Antigravity\oauth_creds.json
+		appData := os.Getenv("APPDATA")
+		if appData == "" {
+			return "", fmt.Errorf("APPDATA environment variable not set")
 		}
-	} else {
-		homeDir = os.Getenv("HOME")
-	}
+		return filepath.Join(appData, "Antigravity", "oauth_creds.json"), nil
 
-	if homeDir == "" {
-		return "", fmt.Errorf("cannot determine home directory")
-	}
+	case "darwin":
+		// macOS: ~/Library/Application Support/Antigravity/oauth_creds.json
+		homeDir := os.Getenv("HOME")
+		if homeDir == "" {
+			return "", fmt.Errorf("HOME environment variable not set")
+		}
+		return filepath.Join(homeDir, "Library", "Application Support", "Antigravity", "oauth_creds.json"), nil
 
-	return filepath.Join(homeDir, ".gemini", "oauth_creds.json"), nil
+	default:
+		// Linux and others: ~/.antigravity/oauth_creds.json
+		homeDir := os.Getenv("HOME")
+		if homeDir == "" {
+			return "", fmt.Errorf("HOME environment variable not set")
+		}
+		return filepath.Join(homeDir, ".antigravity", "oauth_creds.json"), nil
+	}
 }
 
-// LoadGeminiCLIToken loads the OAuth token from Gemini CLI's storage location.
-// It reads from ~/.gemini/oauth_creds.json (or %USERPROFILE%\.gemini\oauth_creds.json on Windows).
+// LoadAntigravityToken loads the OAuth token from Antigravity IDE's storage location.
+// It reads from the OS-specific location where Antigravity stores credentials.
 //
 // Returns:
-//   - *GeminiCLIToken: The loaded token data
+//   - *AntigravityToken: The loaded token data
 //   - error: An error if the file cannot be read or parsed
-func LoadGeminiCLIToken() (*GeminiCLIToken, error) {
-	tokenPath, err := geminiCLITokenPath()
+func LoadAntigravityToken() (*AntigravityToken, error) {
+	tokenPath, err := antigravityTokenPath()
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine token path: %w", err)
 	}
@@ -139,12 +151,12 @@ func LoadGeminiCLIToken() (*GeminiCLIToken, error) {
 	data, err := os.ReadFile(tokenPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("Gemini CLI token not found at %s. Please run 'gemini login' first", tokenPath)
+			return nil, fmt.Errorf("Antigravity IDE token not found at %s. Please login to Antigravity IDE first", tokenPath)
 		}
 		return nil, fmt.Errorf("failed to read token file: %w", err)
 	}
 
-	var token GeminiCLIToken
+	var token AntigravityToken
 	if err := json.Unmarshal(data, &token); err != nil {
 		return nil, fmt.Errorf("failed to parse token file: %w", err)
 	}
@@ -157,18 +169,34 @@ func LoadGeminiCLIToken() (*GeminiCLIToken, error) {
 	return &token, nil
 }
 
-// LoadGeminiCLITokenFromPath loads the OAuth token from a specific file path.
+// LoadAntigravityTokenFromPath loads the OAuth token from a specific file path.
 // This is useful for testing or when the token is stored in a non-standard location.
-func LoadGeminiCLITokenFromPath(path string) (*GeminiCLIToken, error) {
+func LoadAntigravityTokenFromPath(path string) (*AntigravityToken, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read token file: %w", err)
 	}
 
-	var token GeminiCLIToken
+	var token AntigravityToken
 	if err := json.Unmarshal(data, &token); err != nil {
 		return nil, fmt.Errorf("failed to parse token file: %w", err)
 	}
 
 	return &token, nil
+}
+
+// Backwards compatibility aliases for existing code
+// TODO: Remove these after updating all callers
+
+// GeminiCLIToken is an alias for AntigravityToken for backwards compatibility.
+type GeminiCLIToken = AntigravityToken
+
+// LoadGeminiCLIToken is an alias for LoadAntigravityToken for backwards compatibility.
+func LoadGeminiCLIToken() (*AntigravityToken, error) {
+	return LoadAntigravityToken()
+}
+
+// LoadGeminiCLITokenFromPath is an alias for LoadAntigravityTokenFromPath for backwards compatibility.
+func LoadGeminiCLITokenFromPath(path string) (*AntigravityToken, error) {
+	return LoadAntigravityTokenFromPath(path)
 }

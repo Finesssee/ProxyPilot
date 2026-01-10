@@ -10,26 +10,26 @@ import (
 func TestGetAccessToken(t *testing.T) {
 	tests := []struct {
 		name     string
-		token    GeminiCLIToken
+		token    AntigravityToken
 		expected string
 	}{
 		{
 			name: "nested token",
-			token: GeminiCLIToken{
+			token: AntigravityToken{
 				Token: &OAuthToken{AccessToken: "nested-token"},
 			},
 			expected: "nested-token",
 		},
 		{
 			name: "legacy token",
-			token: GeminiCLIToken{
+			token: AntigravityToken{
 				AccessToken: "legacy-token",
 			},
 			expected: "legacy-token",
 		},
 		{
 			name: "nested takes precedence",
-			token: GeminiCLIToken{
+			token: AntigravityToken{
 				Token:       &OAuthToken{AccessToken: "nested-token"},
 				AccessToken: "legacy-token",
 			},
@@ -37,7 +37,7 @@ func TestGetAccessToken(t *testing.T) {
 		},
 		{
 			name:     "empty token",
-			token:    GeminiCLIToken{},
+			token:    AntigravityToken{},
 			expected: "",
 		},
 	}
@@ -55,19 +55,19 @@ func TestGetAccessToken(t *testing.T) {
 func TestGetRefreshToken(t *testing.T) {
 	tests := []struct {
 		name     string
-		token    GeminiCLIToken
+		token    AntigravityToken
 		expected string
 	}{
 		{
 			name: "nested token",
-			token: GeminiCLIToken{
+			token: AntigravityToken{
 				Token: &OAuthToken{RefreshToken: "nested-refresh"},
 			},
 			expected: "nested-refresh",
 		},
 		{
 			name: "legacy token",
-			token: GeminiCLIToken{
+			token: AntigravityToken{
 				RefreshToken: "legacy-refresh",
 			},
 			expected: "legacy-refresh",
@@ -90,13 +90,13 @@ func TestGetExpiry(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		token       GeminiCLIToken
+		token       AntigravityToken
 		expectZero  bool
 		expectAfter time.Time
 	}{
 		{
 			name: "nested expiry",
-			token: GeminiCLIToken{
+			token: AntigravityToken{
 				Token: &OAuthToken{Expiry: futureTime},
 			},
 			expectZero:  false,
@@ -104,7 +104,7 @@ func TestGetExpiry(t *testing.T) {
 		},
 		{
 			name: "legacy expires_at",
-			token: GeminiCLIToken{
+			token: AntigravityToken{
 				ExpiresAt: futureTime,
 			},
 			expectZero:  false,
@@ -112,7 +112,7 @@ func TestGetExpiry(t *testing.T) {
 		},
 		{
 			name: "expires_in",
-			token: GeminiCLIToken{
+			token: AntigravityToken{
 				ExpiresIn: 3600,
 			},
 			expectZero:  false,
@@ -120,7 +120,7 @@ func TestGetExpiry(t *testing.T) {
 		},
 		{
 			name:       "empty token",
-			token:      GeminiCLIToken{},
+			token:      AntigravityToken{},
 			expectZero: true,
 		},
 	}
@@ -150,26 +150,26 @@ func TestIsExpired(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		token    GeminiCLIToken
+		token    AntigravityToken
 		expected bool
 	}{
 		{
 			name: "expired token",
-			token: GeminiCLIToken{
+			token: AntigravityToken{
 				Token: &OAuthToken{Expiry: pastTime},
 			},
 			expected: true,
 		},
 		{
 			name: "valid token",
-			token: GeminiCLIToken{
+			token: AntigravityToken{
 				Token: &OAuthToken{Expiry: futureTime},
 			},
 			expected: false,
 		},
 		{
 			name:     "no expiry info - assume valid",
-			token:    GeminiCLIToken{},
+			token:    AntigravityToken{},
 			expected: false,
 		},
 	}
@@ -184,7 +184,7 @@ func TestIsExpired(t *testing.T) {
 	}
 }
 
-func TestLoadGeminiCLITokenFromPath(t *testing.T) {
+func TestLoadAntigravityTokenFromPath(t *testing.T) {
 	// Create a temp file with valid token data
 	tmpDir := t.TempDir()
 	tokenPath := filepath.Join(tmpDir, "oauth_creds.json")
@@ -203,9 +203,9 @@ func TestLoadGeminiCLITokenFromPath(t *testing.T) {
 		t.Fatalf("Failed to write test token: %v", err)
 	}
 
-	token, err := LoadGeminiCLITokenFromPath(tokenPath)
+	token, err := LoadAntigravityTokenFromPath(tokenPath)
 	if err != nil {
-		t.Fatalf("LoadGeminiCLITokenFromPath() error = %v", err)
+		t.Fatalf("LoadAntigravityTokenFromPath() error = %v", err)
 	}
 
 	if token.GetAccessToken() != "test-access-token" {
@@ -222,14 +222,14 @@ func TestLoadGeminiCLITokenFromPath(t *testing.T) {
 	}
 }
 
-func TestLoadGeminiCLITokenFromPath_NotFound(t *testing.T) {
-	_, err := LoadGeminiCLITokenFromPath("/nonexistent/path/oauth_creds.json")
+func TestLoadAntigravityTokenFromPath_NotFound(t *testing.T) {
+	_, err := LoadAntigravityTokenFromPath("/nonexistent/path/oauth_creds.json")
 	if err == nil {
 		t.Error("Expected error for nonexistent file, got nil")
 	}
 }
 
-func TestLoadGeminiCLITokenFromPath_InvalidJSON(t *testing.T) {
+func TestLoadAntigravityTokenFromPath_InvalidJSON(t *testing.T) {
 	tmpDir := t.TempDir()
 	tokenPath := filepath.Join(tmpDir, "oauth_creds.json")
 
@@ -237,7 +237,7 @@ func TestLoadGeminiCLITokenFromPath_InvalidJSON(t *testing.T) {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
-	_, err := LoadGeminiCLITokenFromPath(tokenPath)
+	_, err := LoadAntigravityTokenFromPath(tokenPath)
 	if err == nil {
 		t.Error("Expected error for invalid JSON, got nil")
 	}
