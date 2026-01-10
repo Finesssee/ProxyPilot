@@ -297,6 +297,14 @@ Long-context features are inspired by research from the AI community:
 
 Special thanks to these teams for sharing their work and insights.
 
+### Community Projects
+
+Projects built on CLIProxyAPI:
+
+- **[Quotio](https://github.com/nguyenphutrong/quotio)** - Native macOS menu bar app with real-time quota tracking and smart auto-failover
+- **[CodMate](https://github.com/loocor/CodMate)** - Native macOS SwiftUI app for managing CLI AI sessions with Git review and project organization
+- **[Claude Proxy VSCode](https://github.com/uzhao/claude-proxy-vscode)** - VSCode extension for quick switching between Claude Code models
+
 ---
 
 ## License

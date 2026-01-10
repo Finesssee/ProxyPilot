@@ -57,9 +57,12 @@ GEMINI.md
 # Tooling metadata
 .vscode/*
 .claude/*
+.codex/*
 .gemini/*
 .serena/*
 .agent/*
+.agents/*
+.opencode/*
 .bmad/*
 _bmad/*
 _bmad-output/*
