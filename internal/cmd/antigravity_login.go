@@ -43,23 +43,23 @@ func DoAntigravityLogin(cfg *config.Config, options *LoginOptions) {
 	fmt.Println("Antigravity authentication successful!")
 }
 
-// DoAntigravityImport imports tokens from Gemini CLI's storage (~/.gemini/oauth_creds.json)
+// DoAntigravityImport imports tokens from Antigravity IDE's storage
 // and saves them as Antigravity credentials for use with ProxyPilot.
 func DoAntigravityImport(cfg *config.Config) {
 	manager := newAuthManager()
 
 	authenticator := sdkAuth.NewAntigravityAuthenticator()
 	auth, ok := authenticator.(interface {
-		ImportFromGeminiCLI(ctx context.Context, cfg *config.Config) (*coreauth.Auth, error)
+		ImportFromAntigravityIDE(ctx context.Context, cfg *config.Config) (*coreauth.Auth, error)
 	})
 	if !ok {
-		log.Error("Antigravity authenticator does not support ImportFromGeminiCLI")
+		log.Error("Antigravity authenticator does not support ImportFromAntigravityIDE")
 		return
 	}
 
-	record, err := auth.ImportFromGeminiCLI(context.Background(), cfg)
+	record, err := auth.ImportFromAntigravityIDE(context.Background(), cfg)
 	if err != nil {
-		log.Errorf("Failed to import from Gemini CLI: %v", err)
+		log.Errorf("Failed to import from Antigravity IDE: %v", err)
 		return
 	}
 
@@ -70,5 +70,5 @@ func DoAntigravityImport(cfg *config.Config) {
 	}
 
 	fmt.Printf("Token saved to %s\n", savedPath)
-	fmt.Println("You can now use Antigravity provider with your Gemini CLI credentials!")
+	fmt.Println("You can now use Antigravity provider with your Antigravity IDE credentials!")
 }
