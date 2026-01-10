@@ -712,18 +712,23 @@ func (m *Manager) normalizeProviders(providers []string) []string {
 }
 
 // rotateProviders returns a rotated view of the providers list starting from the
-// current offset for the model. Unlike upstream, we don't auto-increment here;
-// advanceProviderCursor is called separately after a successful request.
+// current offset for the model, and atomically increments the offset for the next call.
+// This ensures concurrent requests get different starting providers.
+// For gemini-3 models with both antigravity and gemini-cli, order is preserved.
 func (m *Manager) rotateProviders(model string, providers []string) []string {
 	if len(providers) == 0 {
 		return nil
 	}
+	// For gemini-3 models with both providers, keep antigravity primary
 	if shouldKeepProviderOrder(model, providers) {
 		return providers
 	}
-	m.mu.RLock()
+
+	// Atomic read-and-increment: get current offset and advance cursor in one lock
+	m.mu.Lock()
 	offset := m.providerOffsets[model]
-	m.mu.RUnlock()
+	m.providerOffsets[model] = (offset + 1) % len(providers)
+	m.mu.Unlock()
 
 	if len(providers) > 0 {
 		offset %= len(providers)
@@ -738,22 +743,6 @@ func (m *Manager) rotateProviders(model string, providers []string) []string {
 	rotated = append(rotated, providers[offset:]...)
 	rotated = append(rotated, providers[:offset]...)
 	return rotated
-}
-
-func (m *Manager) advanceProviderCursor(model string, providers []string) {
-	if len(providers) == 0 {
-		m.mu.Lock()
-		delete(m.providerOffsets, model)
-		m.mu.Unlock()
-		return
-	}
-	if shouldKeepProviderOrder(model, providers) {
-		return
-	}
-	m.mu.Lock()
-	current := m.providerOffsets[model]
-	m.providerOffsets[model] = (current + 1) % len(providers)
-	m.mu.Unlock()
 }
 
 func shouldKeepProviderOrder(model string, providers []string) bool {
