@@ -79,6 +79,7 @@ func main() {
 	var kiroAWSAuthCode bool
 	var kiroImport bool
 	var amazonqImport bool
+	var antigravityImport bool
 	var minimaxLogin bool
 	var zhipuLogin bool
 	// var githubCopilotLogin bool // REMOVED - GitHub Copilot excluded
@@ -116,6 +117,7 @@ func main() {
 	flag.BoolVar(&kiroAWSAuthCode, "kiro-aws-authcode", false, "Login to Kiro using AWS Builder ID (authorization code flow, better UX)")
 	flag.BoolVar(&kiroImport, "kiro-import", false, "Import Kiro token from Kiro IDE (~/.aws/sso/cache/kiro-auth-token.json)")
 	flag.BoolVar(&amazonqImport, "amazonq-import", false, "Import Amazon Q CLI token from SQLite database")
+	flag.BoolVar(&antigravityImport, "antigravity-import", false, "Import Antigravity token from Gemini CLI (~/.gemini/oauth_creds.json)")
 	flag.BoolVar(&minimaxLogin, "minimax-login", false, "Add MiniMax API key")
 	flag.BoolVar(&zhipuLogin, "zhipu-login", false, "Add Zhipu AI API key")
 	// GitHub Copilot login removed
@@ -592,6 +594,8 @@ func main() {
 		cmd.DoKiroImport(cfg, options)
 	} else if amazonqImport {
 		cmd.DoAmazonQImport(cfg, options)
+	} else if antigravityImport {
+		cmd.DoAntigravityImport(cfg)
 	} else if minimaxLogin {
 		cmd.DoMiniMaxLogin(cfg, options)
 	} else if zhipuLogin {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
+	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -40,4 +41,34 @@ func DoAntigravityLogin(cfg *config.Config, options *LoginOptions) {
 		fmt.Printf("Authenticated as %s\n", record.Label)
 	}
 	fmt.Println("Antigravity authentication successful!")
+}
+
+// DoAntigravityImport imports tokens from Gemini CLI's storage (~/.gemini/oauth_creds.json)
+// and saves them as Antigravity credentials for use with ProxyPilot.
+func DoAntigravityImport(cfg *config.Config) {
+	manager := newAuthManager()
+
+	authenticator := sdkAuth.NewAntigravityAuthenticator()
+	auth, ok := authenticator.(interface {
+		ImportFromGeminiCLI(ctx context.Context, cfg *config.Config) (*coreauth.Auth, error)
+	})
+	if !ok {
+		log.Error("Antigravity authenticator does not support ImportFromGeminiCLI")
+		return
+	}
+
+	record, err := auth.ImportFromGeminiCLI(context.Background(), cfg)
+	if err != nil {
+		log.Errorf("Failed to import from Gemini CLI: %v", err)
+		return
+	}
+
+	savedPath, errSave := manager.SaveAuth(record, cfg)
+	if errSave != nil {
+		log.Errorf("Failed to save imported token: %v", errSave)
+		return
+	}
+
+	fmt.Printf("Token saved to %s\n", savedPath)
+	fmt.Println("You can now use Antigravity provider with your Gemini CLI credentials!")
 }

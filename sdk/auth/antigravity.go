@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	antigravityauth "github.com/router-for-me/CLIProxyAPI/v6/internal/auth/antigravity"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/browser"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
@@ -531,4 +532,132 @@ func parseAntigravityAccountInfo(loadResp map[string]any) *AntigravityAccountInf
 		}
 	}
 	return info
+}
+
+// ImportFromGeminiCLI imports token from Gemini CLI's token file.
+// This is useful for users who have already logged in via Gemini CLI
+// and want to use the same credentials in ProxyPilot.
+//
+// Parameters:
+//   - ctx: The context for the operation
+//   - cfg: The application configuration
+//
+// Returns:
+//   - *coreauth.Auth: The imported auth record
+//   - error: An error if the import fails
+func (AntigravityAuthenticator) ImportFromGeminiCLI(ctx context.Context, cfg *config.Config) (*coreauth.Auth, error) {
+	// Load token from Gemini CLI
+	tokenData, err := antigravityauth.LoadGeminiCLIToken()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load Gemini CLI token: %w", err)
+	}
+
+	// Get email from token or fetch from API
+	email := tokenData.Email
+	projectID := tokenData.ProjectID
+	tierID := ""
+	var allowedTiers []map[string]any
+
+	// If email is not in token, try to fetch user info
+	if email == "" && tokenData.GetAccessToken() != "" {
+		httpClient := util.SetProxy(&cfg.SDKConfig, &http.Client{})
+		if info, errInfo := fetchAntigravityUserInfo(ctx, tokenData.GetAccessToken(), httpClient); errInfo == nil && strings.TrimSpace(info.Email) != "" {
+			email = strings.TrimSpace(info.Email)
+		}
+	}
+
+	// Try to fetch project/tier info if not in token
+	if projectID == "" && tokenData.GetAccessToken() != "" {
+		httpClient := util.SetProxy(&cfg.SDKConfig, &http.Client{})
+		if accountInfo, errProject := fetchAntigravityAccountInfo(ctx, tokenData.GetAccessToken(), httpClient); errProject == nil && accountInfo != nil {
+			projectID = accountInfo.ProjectID
+			tierID = accountInfo.TierID
+			allowedTiers = accountInfo.AllowedTiers
+		}
+	}
+
+	// Parse expiry time
+	expiresAt := tokenData.GetExpiry()
+	if expiresAt.IsZero() {
+		// Default to 1 hour from now if no expiry
+		expiresAt = time.Now().Add(1 * time.Hour)
+	}
+
+	// Calculate expires_in (seconds until expiry)
+	expiresIn := int64(time.Until(expiresAt).Seconds())
+	if expiresIn < 0 {
+		expiresIn = 0
+	}
+
+	now := time.Now()
+	metadata := map[string]any{
+		"type":          "antigravity",
+		"access_token":  tokenData.GetAccessToken(),
+		"refresh_token": tokenData.GetRefreshToken(),
+		"expires_in":    expiresIn,
+		"timestamp":     now.UnixMilli(),
+		"expired":       expiresAt.Format(time.RFC3339),
+	}
+	if email != "" {
+		metadata["email"] = email
+	}
+	if projectID != "" {
+		metadata["project_id"] = projectID
+	}
+	if tierID != "" {
+		metadata["tier_id"] = tierID
+	}
+	if len(allowedTiers) > 0 {
+		metadata["allowed_tiers"] = allowedTiers
+	}
+
+	// Add client credentials if available for token refresh
+	if tokenData.Token != nil {
+		if tokenData.Token.ClientID != "" {
+			metadata["client_id"] = tokenData.Token.ClientID
+		}
+		if tokenData.Token.ClientSecret != "" {
+			metadata["client_secret"] = tokenData.Token.ClientSecret
+		}
+	}
+
+	fileName := sanitizeAntigravityFileName(email)
+	label := email
+	if label == "" {
+		label = "antigravity"
+	}
+
+	// Check if token is expired and warn user
+	if tokenData.IsExpired() {
+		fmt.Println("Warning: The imported token is expired. ProxyPilot will attempt to refresh it on first use.")
+	}
+
+	record := &coreauth.Auth{
+		ID:        fileName,
+		Provider:  "antigravity",
+		FileName:  fileName,
+		Label:     label,
+		Status:    coreauth.StatusActive,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Metadata:  metadata,
+		Attributes: map[string]string{
+			"source": "gemini-cli-import",
+			"email":  email,
+		},
+		// NextRefreshAfter is set to 5 minutes before expiry
+		NextRefreshAfter: expiresAt.Add(-5 * time.Minute),
+	}
+
+	// Display success message
+	if email != "" {
+		fmt.Printf("\n✓ Imported Antigravity token from Gemini CLI (Account: %s)\n", email)
+	} else {
+		fmt.Println("\n✓ Imported Antigravity token from Gemini CLI")
+	}
+	if projectID != "" {
+		fmt.Printf("  Project: %s\n", projectID)
+	}
+
+	return record, nil
 }
