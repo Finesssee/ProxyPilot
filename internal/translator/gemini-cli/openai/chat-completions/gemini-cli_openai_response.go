@@ -8,6 +8,7 @@ package chat_completions
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -49,35 +50,20 @@ func ConvertCliResponseToOpenAI(_ context.Context, _ string, originalRequestRawJ
 		}
 	}
 
-	trimmed := bytes.TrimSpace(rawJSON)
-	if bytes.HasPrefix(trimmed, []byte("data:")) {
-		trimmed = bytes.TrimSpace(trimmed[len("data:"):])
-	}
-
-	if bytes.Equal(trimmed, []byte("[DONE]")) {
+	if bytes.Equal(rawJSON, []byte("[DONE]")) {
 		return []string{}
-	}
-
-	// Ignore non-JSON frames (e.g. keep-alives) instead of emitting empty chunks.
-	if len(trimmed) == 0 || !gjson.ValidBytes(trimmed) {
-		return []string{}
-	}
-
-	payload := trimmed
-	if responseResult := gjson.GetBytes(trimmed, "response"); responseResult.Exists() && responseResult.IsObject() {
-		payload = []byte(responseResult.Raw)
 	}
 
 	// Initialize the OpenAI SSE template.
 	template := `{"id":"","object":"chat.completion.chunk","created":12345,"model":"model","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":null,"tool_calls":null},"finish_reason":null,"native_finish_reason":null}]}`
 
 	// Extract and set the model version.
-	if modelVersionResult := gjson.GetBytes(payload, "modelVersion"); modelVersionResult.Exists() {
+	if modelVersionResult := gjson.GetBytes(rawJSON, "response.modelVersion"); modelVersionResult.Exists() {
 		template, _ = sjson.Set(template, "model", modelVersionResult.String())
 	}
 
 	// Extract and set the creation timestamp.
-	if createTimeResult := gjson.GetBytes(payload, "createTime"); createTimeResult.Exists() {
+	if createTimeResult := gjson.GetBytes(rawJSON, "response.createTime"); createTimeResult.Exists() {
 		t, err := time.Parse(time.RFC3339Nano, createTimeResult.String())
 		if err == nil {
 			(*param).(*convertCliResponseToOpenAIChatParams).UnixTimestamp = t.Unix()
@@ -88,18 +74,18 @@ func ConvertCliResponseToOpenAI(_ context.Context, _ string, originalRequestRawJ
 	}
 
 	// Extract and set the response ID.
-	if responseIDResult := gjson.GetBytes(payload, "responseId"); responseIDResult.Exists() {
+	if responseIDResult := gjson.GetBytes(rawJSON, "response.responseId"); responseIDResult.Exists() {
 		template, _ = sjson.Set(template, "id", responseIDResult.String())
 	}
 
 	// Extract and set the finish reason.
-	if finishReasonResult := gjson.GetBytes(payload, "candidates.0.finishReason"); finishReasonResult.Exists() {
+	if finishReasonResult := gjson.GetBytes(rawJSON, "response.candidates.0.finishReason"); finishReasonResult.Exists() {
 		template, _ = sjson.Set(template, "choices.0.finish_reason", strings.ToLower(finishReasonResult.String()))
 		template, _ = sjson.Set(template, "choices.0.native_finish_reason", strings.ToLower(finishReasonResult.String()))
 	}
 
 	// Extract and set usage metadata (token counts).
-	if usageResult := gjson.GetBytes(payload, "usageMetadata"); usageResult.Exists() {
+	if usageResult := gjson.GetBytes(rawJSON, "response.usageMetadata"); usageResult.Exists() {
 		if candidatesTokenCountResult := usageResult.Get("candidatesTokenCount"); candidatesTokenCountResult.Exists() {
 			template, _ = sjson.Set(template, "usage.completion_tokens", candidatesTokenCountResult.Int())
 		}
@@ -115,7 +101,7 @@ func ConvertCliResponseToOpenAI(_ context.Context, _ string, originalRequestRawJ
 	}
 
 	// Process the main content part of the response.
-	partsResult := gjson.GetBytes(payload, "candidates.0.content.parts")
+	partsResult := gjson.GetBytes(rawJSON, "response.candidates.0.content.parts")
 	hasFunctionCall := false
 	if partsResult.IsArray() {
 		partResults := partsResult.Array()
@@ -190,11 +176,18 @@ func ConvertCliResponseToOpenAI(_ context.Context, _ string, originalRequestRawJ
 					template, _ = sjson.SetRaw(template, "choices.0.delta.images", `[]`)
 				}
 				imageIndex := len(gjson.Get(template, "choices.0.delta.images").Array())
-				imagePayload := `{"type":"image_url","image_url":{"url":""}}`
-				imagePayload, _ = sjson.Set(imagePayload, "index", imageIndex)
-				imagePayload, _ = sjson.Set(imagePayload, "image_url.url", imageURL)
+				imagePayload, err := json.Marshal(map[string]any{
+					"index": imageIndex,
+					"type":  "image_url",
+					"image_url": map[string]string{
+						"url": imageURL,
+					},
+				})
+				if err != nil {
+					continue
+				}
 				template, _ = sjson.Set(template, "choices.0.delta.role", "assistant")
-				template, _ = sjson.SetRaw(template, "choices.0.delta.images.-1", imagePayload)
+				template, _ = sjson.SetRaw(template, "choices.0.delta.images.-1", string(imagePayload))
 			}
 		}
 	}
@@ -222,9 +215,8 @@ func ConvertCliResponseToOpenAI(_ context.Context, _ string, originalRequestRawJ
 //   - string: An OpenAI-compatible JSON response containing all message content and metadata
 func ConvertCliResponseToOpenAINonStream(ctx context.Context, modelName string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) string {
 	responseResult := gjson.GetBytes(rawJSON, "response")
-	payload := rawJSON
-	if responseResult.Exists() && responseResult.IsObject() {
-		payload = []byte(responseResult.Raw)
+	if responseResult.Exists() {
+		return ConvertGeminiResponseToOpenAINonStream(ctx, modelName, originalRequestRawJSON, requestRawJSON, []byte(responseResult.Raw), param)
 	}
-	return ConvertGeminiResponseToOpenAINonStream(ctx, modelName, originalRequestRawJSON, requestRawJSON, payload, param)
+	return ""
 }
