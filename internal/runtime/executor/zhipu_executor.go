@@ -229,6 +229,11 @@ func (e *ZhipuExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecu
 	return cliproxyexecutor.Response{}, statusErr{code: http.StatusNotImplemented, msg: "embeddings not supported"}
 }
 
+// HttpRequest injects Zhipu credentials and executes an arbitrary HTTP request.
+func (e *ZhipuExecutor) HttpRequest(_ context.Context, _ *cliproxyauth.Auth, _ *http.Request) (*http.Response, error) {
+	return nil, statusErr{code: http.StatusNotImplemented, msg: "http request not supported for zhipu"}
+}
+
 func (e *ZhipuExecutor) Refresh(_ context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
 	// Zhipu uses API keys, no refresh needed
 	return auth, nil

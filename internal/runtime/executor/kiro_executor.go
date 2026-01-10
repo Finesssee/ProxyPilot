@@ -3332,3 +3332,8 @@ func (e *KiroExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecut
 		msg:  "embeddings not supported: AWS CodeWhisperer/Amazon Q Developer does not provide an embeddings API; use Ollama, Gemini, or OpenAI-compatible provider for embeddings",
 	}
 }
+
+// HttpRequest injects Kiro credentials and executes an arbitrary HTTP request.
+func (e *KiroExecutor) HttpRequest(_ context.Context, _ *cliproxyauth.Auth, _ *http.Request) (*http.Response, error) {
+	return nil, statusErr{code: http.StatusNotImplemented, msg: "http request not supported for kiro"}
+}

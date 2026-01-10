@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -120,6 +121,10 @@ func (e *mockExecutor) Embed(ctx context.Context, auth *Auth, req cliproxyexecut
 		return e.embedFunc(ctx, auth, req, opts)
 	}
 	return cliproxyexecutor.Response{Payload: []byte(`{"embeddings":[]}`)}, nil
+}
+
+func (e *mockExecutor) HttpRequest(_ context.Context, _ *Auth, _ *http.Request) (*http.Response, error) {
+	return nil, errors.New("mock executor: HttpRequest not implemented")
 }
 
 func (e *mockExecutor) getExecuteCount() int {

@@ -60,6 +60,10 @@ func (e *failOnceStreamExecutor) Embed(context.Context, *coreauth.Auth, coreexec
 	return coreexecutor.Response{}, coreexecutor.ErrNotImplemented
 }
 
+func (e *failOnceStreamExecutor) HttpRequest(_ context.Context, _ *coreauth.Auth, _ *http.Request) (*http.Response, error) {
+	return nil, coreexecutor.ErrNotImplemented
+}
+
 func (e *failOnceStreamExecutor) Calls() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()

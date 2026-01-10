@@ -229,6 +229,11 @@ func (e *MiniMaxExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexe
 	return cliproxyexecutor.Response{}, statusErr{code: http.StatusNotImplemented, msg: "embeddings not supported"}
 }
 
+// HttpRequest injects MiniMax credentials and executes an arbitrary HTTP request.
+func (e *MiniMaxExecutor) HttpRequest(_ context.Context, _ *cliproxyauth.Auth, _ *http.Request) (*http.Response, error) {
+	return nil, statusErr{code: http.StatusNotImplemented, msg: "http request not supported for minimax"}
+}
+
 func (e *MiniMaxExecutor) Refresh(_ context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
 	// MiniMax uses API keys, no refresh needed
 	return auth, nil
