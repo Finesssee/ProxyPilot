@@ -108,9 +108,22 @@ func main() {
 	var listAccounts bool
 	var cleanupExpired bool
 	var removeAccount string
+	var refreshTokens string
 	var jsonOutput bool
 	var quietMode bool
 	var verboseMode bool
+
+	// Usage and logs flags
+	var showUsage bool
+	var showLogs bool
+	var logLines int
+
+	// Model and export flags
+	var listModels bool
+	var exportAccounts string
+	var importAccounts string
+	var includeTokens bool
+	var forceImport bool
 
 	// Define command-line flags for different operation modes.
 	flag.BoolVar(&login, "login", false, "Login Google Account")
@@ -153,9 +166,19 @@ func main() {
 	flag.BoolVar(&listAccounts, "list-accounts", false, "List all configured accounts and exit")
 	flag.BoolVar(&cleanupExpired, "cleanup-expired", false, "Remove expired tokens and exit")
 	flag.StringVar(&removeAccount, "remove-account", "", "Remove a specific account by name and exit")
+	flag.StringVar(&refreshTokens, "refresh", "", "Force token refresh (all, or email/id to refresh specific)")
 	flag.BoolVar(&jsonOutput, "json", false, "Output in JSON format (overrides --quiet)")
 	flag.BoolVar(&quietMode, "quiet", false, "Run in quiet mode (overrides --verbose)")
 	flag.BoolVar(&verboseMode, "verbose", false, "Run in verbose mode")
+
+	flag.BoolVar(&listModels, "list-models", false, "List available models per provider and exit")
+	flag.StringVar(&exportAccounts, "export-accounts", "", "Export accounts to JSON file (use - for stdout)")
+	flag.StringVar(&importAccounts, "import-accounts", "", "Import accounts from JSON file")
+	flag.BoolVar(&includeTokens, "include-tokens", false, "Include sensitive tokens in export (use with -export-accounts)")
+	flag.BoolVar(&forceImport, "force", false, "Force overwrite existing accounts on import")
+	flag.BoolVar(&showUsage, "usage", false, "Show token usage statistics and exit")
+	flag.BoolVar(&showLogs, "logs", false, "View recent proxy logs and exit")
+	flag.IntVar(&logLines, "n", 50, "Number of log lines to show (used with -logs)")
 
 	flag.CommandLine.Usage = func() {
 		out := flag.CommandLine.Output()
@@ -212,6 +235,18 @@ func main() {
 		// Default mode to "status" if not specified
 		if switchMode == "" {
 			switchMode = "status"
+		}
+	}
+
+	// Pre-process -refresh flag: if -refresh is present without a value, treat as -refresh=all
+	for i, arg := range os.Args[1:] {
+		if arg == "-refresh" || arg == "--refresh" {
+			// Check if next arg exists and is not another flag
+			nextIdx := i + 2 // +1 for 1-based slice, +1 for next
+			if nextIdx >= len(os.Args) || strings.HasPrefix(os.Args[nextIdx], "-") {
+				os.Args[i+1] = "-refresh=all"
+			}
+			break
 		}
 	}
 
@@ -592,6 +627,24 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	} else if listModels {
+		if err := cmd.ListModels(jsonOutput); err != nil {
+			log.Errorf("list-models failed: %v", err)
+			os.Exit(1)
+		}
+		return
+	} else if exportAccounts != "" {
+		if err := cmd.ExportAccounts(exportAccounts, includeTokens, jsonOutput); err != nil {
+			log.Errorf("export-accounts failed: %v", err)
+			os.Exit(1)
+		}
+		return
+	} else if importAccounts != "" {
+		if err := cmd.ImportAccounts(importAccounts, forceImport, jsonOutput); err != nil {
+			log.Errorf("import-accounts failed: %v", err)
+			os.Exit(1)
+		}
+		return
 	} else if cleanupExpired {
 		if err := cmd.CleanupExpired(false); err != nil {
 			log.Errorf("cleanup-expired failed: %v", err)
@@ -601,6 +654,28 @@ func main() {
 	} else if removeAccount != "" {
 		if err := cmd.RemoveAccount(removeAccount); err != nil {
 			log.Errorf("remove-account failed: %v", err)
+			os.Exit(1)
+		}
+		return
+	} else if refreshTokens != "" {
+		identifier := ""
+		if refreshTokens != "all" {
+			identifier = refreshTokens
+		}
+		if err := cmd.RefreshTokens(cfg, identifier, jsonOutput); err != nil {
+			log.Errorf("refresh failed: %v", err)
+			os.Exit(1)
+		}
+		return
+	} else if showUsage {
+		if err := cmd.ShowUsage(jsonOutput); err != nil {
+			log.Errorf("usage failed: %v", err)
+			os.Exit(1)
+		}
+		return
+	} else if showLogs {
+		if err := cmd.ShowLogs(logLines, jsonOutput); err != nil {
+			log.Errorf("logs failed: %v", err)
 			os.Exit(1)
 		}
 		return
