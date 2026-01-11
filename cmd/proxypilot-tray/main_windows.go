@@ -120,6 +120,14 @@ func run(repoRoot, configPath string) {
 		qwenItem.Disable()
 		anthropicItem.Disable()
 
+		// Accounts submenu
+		accountsMenu := systray.AddMenuItem("Accounts", "Account management")
+		copyAccountListItem := accountsMenu.AddSubMenuItem("Copy Account List", "Copy detailed account list to clipboard")
+		cleanupExpiredItem := accountsMenu.AddSubMenuItem("Cleanup Expired", "Remove expired auth tokens")
+		accountsMenu.AddSubMenuItem("", "").Disable() // separator
+		exportAccountsItem := accountsMenu.AddSubMenuItem("Export Accounts...", "Export accounts to file")
+		importAccountsItem := accountsMenu.AddSubMenuItem("Import Accounts...", "Import accounts from file")
+
 		// Diagnostics submenu
 		diagMenu := systray.AddMenuItem("Diagnostics", "Diagnostic tools")
 		copyDiagItem := diagMenu.AddSubMenuItem("Copy Diagnostics", "Copy diagnostics to clipboard")
@@ -232,6 +240,20 @@ func run(repoRoot, configPath string) {
 							copyToClipboard(text)
 						}
 					}()
+				case <-copyAccountListItem.ClickedCh:
+					go func() {
+						if text := captureAccountList(); text != "" {
+							copyToClipboard(text)
+						}
+					}()
+				case <-cleanupExpiredItem.ClickedCh:
+					go func() {
+						runCLI("-cleanup-expired")
+					}()
+				case <-exportAccountsItem.ClickedCh:
+					go exportAccountsDialog()
+				case <-importAccountsItem.ClickedCh:
+					go importAccountsDialog()
 				case <-openLogsItem.ClickedCh:
 					desktopctl.OpenLogsFolder(repoRoot, configPath)
 				case <-openAuthItem.ClickedCh:
@@ -770,6 +792,11 @@ func captureAccountStatus() string {
 	return runCLI("-status")
 }
 
+// captureAccountList captures detailed account list by running CLI
+func captureAccountList() string {
+	return runCLI("-list-accounts")
+}
+
 // copyAccountStatusToClipboard copies account status summary to clipboard
 func copyAccountStatusToClipboard(engine *EmbeddedEngine) error {
 	text := captureAccountStatus()
@@ -777,6 +804,34 @@ func copyAccountStatusToClipboard(engine *EmbeddedEngine) error {
 		return fmt.Errorf("no account status available")
 	}
 	return copyToClipboard(text)
+}
+
+// exportAccountsDialog opens a file save dialog and exports accounts
+func exportAccountsDialog() {
+	// Use a default filename in the user's home directory
+	home, _ := os.UserHomeDir()
+	defaultPath := filepath.Join(home, "proxypilot-accounts.json")
+	
+	// Run export command
+	output := runCLI("-export-accounts", defaultPath)
+	if output != "" {
+		copyToClipboard(fmt.Sprintf("Accounts exported to: %s\n\n%s", defaultPath, output))
+	}
+}
+
+// importAccountsDialog opens a file picker and imports accounts
+func importAccountsDialog() {
+	// Check for default export location
+	home, _ := os.UserHomeDir()
+	defaultPath := filepath.Join(home, "proxypilot-accounts.json")
+	
+	// Check if default file exists
+	if _, err := os.Stat(defaultPath); err == nil {
+		output := runCLI("-import-accounts", defaultPath, "-force")
+		if output != "" {
+			copyToClipboard(fmt.Sprintf("Accounts imported from: %s\n\n%s", defaultPath, output))
+		}
+	}
 }
 
 // runCLI executes the ProxyPilot CLI with given args and returns output
