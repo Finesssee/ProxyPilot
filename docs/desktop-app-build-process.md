@@ -102,7 +102,7 @@ cp static/icon.ico internal/trayicon/icon.ico
 Generate `.syso` files for embedding icons in executables:
 
 ```bash
-cd cmd/cliproxytray
+cd cmd/proxypilot-tray
 goversioninfo -icon="../../static/icon.ico"
 ```
 
@@ -115,7 +115,7 @@ This creates `resource.syso` files that Go automatically includes during build.
 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/proxypilot.exe ./cmd/server
 
 # Build tray app (with -H windowsgui to hide console)
-GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -H windowsgui" -o dist/ProxyPilot.exe ./cmd/cliproxytray
+GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -H windowsgui" -o dist/ProxyPilot.exe ./cmd/proxypilot-tray
 ```
 
 ### Step 5: Build Installer
@@ -131,7 +131,7 @@ Output: `dist/ProxyPilot-0.1.0-Setup.exe`
 
 ### Version Info Configuration
 
-**cmd/cliproxytray/versioninfo.json**
+**cmd/proxypilot-tray/versioninfo.json**
 ```json
 {
   "FixedFileInfo": {
@@ -149,7 +149,7 @@ Output: `dist/ProxyPilot-0.1.0-Setup.exe`
 
 ### Tray Process Manager
 
-**cmd/cliproxytray/engine.go** - Manages the CLI process:
+**cmd/proxypilot-tray/engine.go** - Manages the CLI process:
 - Spawns/stops `proxypilot.exe` subprocess
 - Monitors process health
 - Passes configuration and management password
@@ -258,7 +258,7 @@ ProxyPilot/
 ├── cmd/
 │   ├── server/
 │   │   └── main.go              # CLI entry point
-│   └── cliproxytray/
+│   └── proxypilot-tray/
 │       ├── main_windows.go      # Tray app entry point
 │       ├── engine.go            # CLI process manager
 │       ├── versioninfo.json     # Version/icon config

@@ -131,11 +131,11 @@ func buildBinaries(repoRoot, binRoot string) error {
 	}
 
 	if runtime.GOOS == "windows" {
-		if err := run(repoRoot, "go", "build", "-ldflags", "-H=windowsgui", "-o", trayExe, "./cmd/cliproxytray"); err != nil {
+		if err := run(repoRoot, "go", "build", "-ldflags", "-H=windowsgui", "-o", trayExe, "./cmd/proxypilot-tray"); err != nil {
 			return err
 		}
 	} else {
-		if err := run(repoRoot, "go", "build", "-o", trayExe, "./cmd/cliproxytray"); err != nil {
+		if err := run(repoRoot, "go", "build", "-o", trayExe, "./cmd/proxypilot-tray"); err != nil {
 			return err
 		}
 	}

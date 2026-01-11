@@ -38,7 +38,7 @@ jobs:
         run: |
           mkdir -p dist
           # Build tray app (includes embedded dashboard)
-          go build -ldflags="-s -w -H=windowsgui" -o dist/ProxyPilot.exe ./cmd/cliproxytray
+          go build -ldflags="-s -w -H=windowsgui" -o dist/ProxyPilot.exe ./cmd/proxypilot-tray
 
       - name: Build Installer UI
         run: |

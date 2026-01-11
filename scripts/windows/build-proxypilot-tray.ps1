@@ -19,7 +19,7 @@ Write-Host "  out: $outPath"
 Push-Location $repoRoot
 try {
   # -H windowsgui => no console window when launched normally.
-  go build -ldflags "-H windowsgui" -o $outPath .\\cmd\\cliproxytray
+  go build -ldflags "-H windowsgui" -o $outPath .\\cmd\\proxypilot-tray
 } finally {
   Pop-Location
 }

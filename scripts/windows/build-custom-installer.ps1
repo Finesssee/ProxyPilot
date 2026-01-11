@@ -106,8 +106,8 @@ $proxyPilotExe = Join-Path $distDir "ProxyPilot.exe"
 
 Push-Location $repoRoot
 try {
-    Write-Host "  Compiling cmd/cliproxytray..."
-    go build -ldflags="-s -w -H=windowsgui" -o $proxyPilotExe .\cmd\cliproxytray
+    Write-Host "  Compiling cmd/proxypilot-tray..."
+    go build -ldflags="-s -w -H=windowsgui" -o $proxyPilotExe .\cmd\proxypilot-tray
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Exit "Failed to build ProxyPilot.exe"

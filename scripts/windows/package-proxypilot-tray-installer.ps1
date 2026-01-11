@@ -18,7 +18,7 @@ if (-not (Test-Path -LiteralPath $iexpress)) {
 }
 
 # Build single binary (tray app with embedded engine)
-& (Join-Path $repoRoot "scripts\\windows\\build-cliproxytray.ps1")
+& (Join-Path $repoRoot "scripts\\windows\\build-proxypilot-tray.ps1")
 
 $distRoot = Join-Path $repoRoot "dist"
 Ensure-Dir $distRoot

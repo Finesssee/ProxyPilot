@@ -7,7 +7,7 @@ function Get-RepoRoot {
 
 $repoRoot = Get-RepoRoot
 
-& (Join-Path $repoRoot "scripts\\windows\\build-cliproxytray.ps1")
+& (Join-Path $repoRoot "scripts\\windows\\build-proxypilot-tray.ps1")
 
 $distDir = Join-Path $repoRoot "dist\\ProxyPilot"
 if (Test-Path -LiteralPath $distDir) {

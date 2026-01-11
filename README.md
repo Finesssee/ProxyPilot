@@ -254,7 +254,7 @@ prompt-cache:
 | Binary | Description |
 |--------|-------------|
 | `proxypilot` | Main CLI with server and config switching |
-| `cliproxytray` | System tray app |
+| `proxypilot-tray` | System tray app |
 
 ---
 
