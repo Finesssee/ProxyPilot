@@ -22,6 +22,7 @@ import (
 	"github.com/getlantern/systray"
 	"github.com/jchv/go-webview2"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/api/middleware"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/cmd"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/desktopctl"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/integrations"
@@ -101,6 +102,7 @@ func run(repoRoot, configPath string) {
 		// Main actions
 		openDashboard := systray.AddMenuItem("Open Dashboard", "Open ProxyPilot Dashboard")
 		toggleItem := systray.AddMenuItem("Start Proxy", "Start/Stop proxy")
+		refreshTokensItem := systray.AddMenuItem("Refresh Tokens", "Refresh all auth tokens")
 		copyURLItem := systray.AddMenuItem("Copy API URL", "Copy http://127.0.0.1:8317/v1")
 		systray.AddSeparator()
 
@@ -140,18 +142,35 @@ func run(repoRoot, configPath string) {
 		// Update UI based on status
 		refresh := func() {
 			st := engine.Status()
+			
+			// Get account count
+			accountCount := 0
+			if store := sdkAuth.GetTokenStore(); store != nil {
+				if auths, err := store.List(context.Background()); err == nil {
+					accountCount = len(auths)
+				}
+			}
+			
 			if st.Running {
 				port := st.Port
 				if port <= 0 {
 					port = 8318
 				}
 				statusItem.SetTitle(fmt.Sprintf("● Running on :%d", port))
-				systray.SetTooltip(fmt.Sprintf("ProxyPilot - Running (:%d)", port))
+				if accountCount > 0 {
+					systray.SetTooltip(fmt.Sprintf("ProxyPilot - Running (:%d) - %d accounts", port, accountCount))
+				} else {
+					systray.SetTooltip(fmt.Sprintf("ProxyPilot - Running (:%d)", port))
+				}
 				toggleItem.SetTitle("Stop Proxy")
 				toggleItem.SetTooltip("Stop the proxy")
 			} else {
 				statusItem.SetTitle("○ Stopped")
-				systray.SetTooltip("ProxyPilot - Stopped")
+				if accountCount > 0 {
+					systray.SetTooltip(fmt.Sprintf("ProxyPilot - Stopped - %d accounts", accountCount))
+				} else {
+					systray.SetTooltip("ProxyPilot - Stopped")
+				}
 				toggleItem.SetTitle("Start Proxy")
 				toggleItem.SetTooltip("Start the proxy")
 			}
@@ -180,6 +199,10 @@ func run(repoRoot, configPath string) {
 						engine.Start(cfg, configPath, password)
 					}
 					refresh()
+				case <-refreshTokensItem.ClickedCh:
+					go func() {
+						_ = cmd.RefreshTokens(cfg, "", false) // Refresh all, no JSON output
+					}()
 				case <-copyURLItem.ClickedCh:
 					copyToClipboard(fmt.Sprintf("http://127.0.0.1:%d/v1", thinkingProxyPort))
 				case <-copyDiagItem.ClickedCh:
