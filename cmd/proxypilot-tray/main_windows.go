@@ -123,6 +123,11 @@ func run(repoRoot, configPath string) {
 		// Diagnostics submenu
 		diagMenu := systray.AddMenuItem("Diagnostics", "Diagnostic tools")
 		copyDiagItem := diagMenu.AddSubMenuItem("Copy Diagnostics", "Copy diagnostics to clipboard")
+		copyStatusItem := diagMenu.AddSubMenuItem("Copy Account Status", "Copy account health summary to clipboard")
+		copyUsageItem := diagMenu.AddSubMenuItem("Copy Usage Stats", "Copy usage statistics to clipboard")
+		copyModelsItem := diagMenu.AddSubMenuItem("Copy Model List", "Copy available models to clipboard")
+		copyLogsItem := diagMenu.AddSubMenuItem("Copy Recent Logs", "Copy recent log entries to clipboard")
+		diagMenu.AddSubMenuItem("", "").Disable() // separator
 		openLogsItem := diagMenu.AddSubMenuItem("Open Logs Folder", "Open logs folder in explorer")
 		openAuthItem := diagMenu.AddSubMenuItem("Open Auth Folder", "Open auth folder in explorer")
 
@@ -207,6 +212,26 @@ func run(repoRoot, configPath string) {
 					copyToClipboard(fmt.Sprintf("http://127.0.0.1:%d/v1", thinkingProxyPort))
 				case <-copyDiagItem.ClickedCh:
 					copyDiagnosticsToClipboard(engine)
+				case <-copyStatusItem.ClickedCh:
+					copyAccountStatusToClipboard(engine)
+				case <-copyUsageItem.ClickedCh:
+					go func() {
+						if text := captureUsageStats(); text != "" {
+							copyToClipboard(text)
+						}
+					}()
+				case <-copyModelsItem.ClickedCh:
+					go func() {
+						if text := captureModelList(); text != "" {
+							copyToClipboard(text)
+						}
+					}()
+				case <-copyLogsItem.ClickedCh:
+					go func() {
+						if text := captureRecentLogs(); text != "" {
+							copyToClipboard(text)
+						}
+					}()
 				case <-openLogsItem.ClickedCh:
 					desktopctl.OpenLogsFolder(repoRoot, configPath)
 				case <-openAuthItem.ClickedCh:
@@ -723,4 +748,69 @@ func quoteWindowsCommand(exe string, args []string) string {
 		}
 	}
 	return strings.Join(quoted, " ")
+}
+
+// captureUsageStats captures usage statistics output by running CLI
+func captureUsageStats() string {
+	return runCLI("-usage")
+}
+
+// captureModelList captures model list output by running CLI
+func captureModelList() string {
+	return runCLI("-list-models")
+}
+
+// captureRecentLogs captures recent log entries by running CLI
+func captureRecentLogs() string {
+	return runCLI("-logs", "100")
+}
+
+// captureAccountStatus captures account status output by running CLI
+func captureAccountStatus() string {
+	return runCLI("-status")
+}
+
+// copyAccountStatusToClipboard copies account status summary to clipboard
+func copyAccountStatusToClipboard(engine *EmbeddedEngine) error {
+	text := captureAccountStatus()
+	if text == "" {
+		return fmt.Errorf("no account status available")
+	}
+	return copyToClipboard(text)
+}
+
+// runCLI executes the ProxyPilot CLI with given args and returns output
+func runCLI(args ...string) string {
+	// Find CLI executable next to tray executable
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Dir(exe)
+	
+	// Try common CLI binary names
+	candidates := []string{
+		filepath.Join(dir, "ProxyPilot.exe"),
+		filepath.Join(dir, "proxypilot.exe"),
+		filepath.Join(dir, "server.exe"),
+	}
+	
+	var cliPath string
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			cliPath = c
+			break
+		}
+	}
+	if cliPath == "" {
+		return ""
+	}
+	
+	cmd := exec.Command(cliPath, args...)
+	cmd.Env = os.Environ()
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return string(out)
 }
