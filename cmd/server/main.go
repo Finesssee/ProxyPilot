@@ -102,6 +102,16 @@ func main() {
 	var noIncognito bool
 	var useIncognito bool
 
+	// Account management flags
+	var showVersion bool
+	var showStatus bool
+	var listAccounts bool
+	var cleanupExpired bool
+	var removeAccount string
+	var jsonOutput bool
+	var quietMode bool
+	var verboseMode bool
+
 	// Define command-line flags for different operation modes.
 	flag.BoolVar(&login, "login", false, "Login Google Account")
 	flag.BoolVar(&codexLogin, "codex-login", false, "Login to Codex using OAuth")
@@ -137,6 +147,15 @@ func main() {
 	flag.StringVar(&configPath, "config", DefaultConfigPath, "Configure File Path")
 	flag.StringVar(&vertexImport, "vertex-import", "", "Import Vertex service account key JSON file")
 	flag.StringVar(&password, "password", "", "")
+
+	flag.BoolVar(&showVersion, "version", false, "Show ProxyPilot version and exit")
+	flag.BoolVar(&showStatus, "status", false, "Show ProxyPilot status and exit")
+	flag.BoolVar(&listAccounts, "list-accounts", false, "List all configured accounts and exit")
+	flag.BoolVar(&cleanupExpired, "cleanup-expired", false, "Remove expired tokens and exit")
+	flag.StringVar(&removeAccount, "remove-account", "", "Remove a specific account by name and exit")
+	flag.BoolVar(&jsonOutput, "json", false, "Output in JSON format (overrides --quiet)")
+	flag.BoolVar(&quietMode, "quiet", false, "Run in quiet mode (overrides --verbose)")
+	flag.BoolVar(&verboseMode, "verbose", false, "Run in verbose mode")
 
 	flag.CommandLine.Usage = func() {
 		out := flag.CommandLine.Output()
@@ -551,6 +570,33 @@ func main() {
 	if vertexImport != "" {
 		// Handle Vertex service account import
 		cmd.DoVertexImport(cfg, vertexImport)
+	} else if showVersion {
+		// Version already printed at startup, just exit
+		return
+	} else if showStatus {
+		if err := cmd.ShowStatus(jsonOutput); err != nil {
+			log.Errorf("status failed: %v", err)
+			os.Exit(1)
+		}
+		return
+	} else if listAccounts {
+		if err := cmd.ListAccounts(jsonOutput); err != nil {
+			log.Errorf("list-accounts failed: %v", err)
+			os.Exit(1)
+		}
+		return
+	} else if cleanupExpired {
+		if err := cmd.CleanupExpired(false); err != nil {
+			log.Errorf("cleanup-expired failed: %v", err)
+			os.Exit(1)
+		}
+		return
+	} else if removeAccount != "" {
+		if err := cmd.RemoveAccount(removeAccount); err != nil {
+			log.Errorf("remove-account failed: %v", err)
+			os.Exit(1)
+		}
+		return
 	} else if login {
 		// Handle Google/Gemini login
 		cmd.DoLogin(cfg, projectID, options)
