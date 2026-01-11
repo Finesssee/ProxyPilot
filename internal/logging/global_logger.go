@@ -150,3 +150,22 @@ func closeLogOutputs() {
 		ginErrorWriter = nil
 	}
 }
+
+// SetLogLevel adjusts the global log level.
+// Valid levels: "debug", "info", "warn", "error", "quiet" (disables all logging).
+func SetLogLevel(level string) {
+	switch strings.ToLower(level) {
+	case "debug", "verbose":
+		log.SetLevel(log.DebugLevel)
+	case "info":
+		log.SetLevel(log.InfoLevel)
+	case "warn", "warning":
+		log.SetLevel(log.WarnLevel)
+	case "error":
+		log.SetLevel(log.ErrorLevel)
+	case "quiet", "silent":
+		log.SetLevel(log.FatalLevel) // Only fatal errors shown
+	default:
+		log.SetLevel(log.InfoLevel)
+	}
+}

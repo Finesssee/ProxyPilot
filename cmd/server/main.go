@@ -539,6 +539,13 @@ func main() {
 	// Set the log level based on the configuration.
 	util.SetLogLevel(cfg)
 
+	// CLI flags override config-based log level
+	if quietMode {
+		logging.SetLogLevel("quiet")
+	} else if verboseMode {
+		logging.SetLogLevel("verbose")
+	}
+
 	if resolvedAuthDir, errResolveAuthDir := util.ResolveAuthDir(cfg.AuthDir); errResolveAuthDir != nil {
 		log.Errorf("failed to resolve auth directory: %v", errResolveAuthDir)
 		return
