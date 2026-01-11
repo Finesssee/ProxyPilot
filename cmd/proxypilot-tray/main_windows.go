@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/getlantern/systray"
@@ -878,6 +879,11 @@ func runCLI(args ...string) string {
 	
 	cmd := exec.Command(cliPath, args...)
 	cmd.Env = os.Environ()
+	// Hide console window on Windows
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: 0x08000000, // CREATE_NO_WINDOW
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
