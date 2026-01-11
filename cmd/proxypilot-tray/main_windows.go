@@ -122,7 +122,6 @@ func run(repoRoot, configPath string) {
 		accountsMenu := systray.AddMenuItem("Accounts", "Account management")
 		copyAccountListItem := accountsMenu.AddSubMenuItem("Copy Account List", "Copy detailed account list to clipboard")
 		cleanupExpiredItem := accountsMenu.AddSubMenuItem("Cleanup Expired", "Remove expired auth tokens")
-		accountsMenu.AddSubMenuItem("", "").Disable() // separator
 		exportAccountsItem := accountsMenu.AddSubMenuItem("Export Accounts...", "Export accounts to file")
 		importAccountsItem := accountsMenu.AddSubMenuItem("Import Accounts...", "Import accounts from file")
 
@@ -133,7 +132,6 @@ func run(repoRoot, configPath string) {
 		copyUsageItem := diagMenu.AddSubMenuItem("Copy Usage Stats", "Copy usage statistics to clipboard")
 		copyModelsItem := diagMenu.AddSubMenuItem("Copy Model List", "Copy available models to clipboard")
 		copyLogsItem := diagMenu.AddSubMenuItem("Copy Recent Logs", "Copy recent log entries to clipboard")
-		diagMenu.AddSubMenuItem("", "").Disable() // separator
 		openLogsItem := diagMenu.AddSubMenuItem("Open Logs Folder", "Open logs folder in explorer")
 		openAuthItem := diagMenu.AddSubMenuItem("Open Auth Folder", "Open auth folder in explorer")
 
