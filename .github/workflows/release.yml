@@ -1,9 +1,7 @@
-name: Build Release
+name: Build Windows Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  # Only run manually - not on every tag
   workflow_dispatch:
     inputs:
       version:

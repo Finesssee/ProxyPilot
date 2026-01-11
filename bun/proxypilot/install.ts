@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 
-import { $ } from "bun";
-import { existsSync, chmodSync } from "fs";
+import { chmodSync } from "fs";
 import { join } from "path";
+import pkg from "./package.json";
 
-const VERSION = "0.2.0";
+const VERSION = pkg.version;
 const REPO = "Finesssee/ProxyPilot";
 
 const PLATFORM_MAP: Record<string, string> = {

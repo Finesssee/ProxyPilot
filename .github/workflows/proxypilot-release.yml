@@ -73,7 +73,8 @@ jobs:
         run: |
           mkdir -p release
           find artifacts -type f -exec cp {} release/ \;
-          ls -la release/
+          cd release && sha256sum * > checksums.txt
+          ls -la
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
