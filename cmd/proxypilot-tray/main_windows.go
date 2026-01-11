@@ -106,19 +106,16 @@ func run(repoRoot, configPath string) {
 		copyURLItem := systray.AddMenuItem("Copy API URL", "Copy http://127.0.0.1:8317/v1")
 		systray.AddSeparator()
 
-		// Providers submenu
-		providersMenu := systray.AddMenuItem("Providers", "Provider status")
-		claudeItem := providersMenu.AddSubMenuItem("○ Claude - Inactive", "Claude provider status")
-		geminiItem := providersMenu.AddSubMenuItem("○ Gemini - Inactive", "Gemini provider status")
-		codexItem := providersMenu.AddSubMenuItem("○ Codex - Inactive", "Codex provider status")
-		qwenItem := providersMenu.AddSubMenuItem("○ Qwen - Inactive", "Qwen provider status")
-		anthropicItem := providersMenu.AddSubMenuItem("○ Anthropic - Inactive", "Anthropic provider status")
-		// Disable provider items (they're informational only for now)
-		claudeItem.Disable()
-		geminiItem.Disable()
-		codexItem.Disable()
-		qwenItem.Disable()
-		anthropicItem.Disable()
+		// Providers submenu - click to login
+		providersMenu := systray.AddMenuItem("Providers", "Login to providers")
+		claudeLoginItem := providersMenu.AddSubMenuItem("Login Claude", "Login to Claude using OAuth")
+		geminiLoginItem := providersMenu.AddSubMenuItem("Login Gemini", "Login to Gemini using OAuth")
+		codexLoginItem := providersMenu.AddSubMenuItem("Login Codex", "Login to OpenAI Codex using OAuth")
+		qwenLoginItem := providersMenu.AddSubMenuItem("Login Qwen", "Login to Qwen using OAuth")
+		antigravityLoginItem := providersMenu.AddSubMenuItem("Login Antigravity", "Login to Antigravity using OAuth")
+		kiroLoginItem := providersMenu.AddSubMenuItem("Login Kiro", "Login to Kiro using OAuth")
+		minimaxLoginItem := providersMenu.AddSubMenuItem("Login MiniMax", "Add MiniMax API key")
+		zhipuLoginItem := providersMenu.AddSubMenuItem("Login Zhipu", "Add Zhipu AI API key")
 
 		// Accounts submenu
 		accountsMenu := systray.AddMenuItem("Accounts", "Account management")
@@ -218,6 +215,22 @@ func run(repoRoot, configPath string) {
 					}()
 				case <-copyURLItem.ClickedCh:
 					copyToClipboard(fmt.Sprintf("http://127.0.0.1:%d/v1", thinkingProxyPort))
+				case <-claudeLoginItem.ClickedCh:
+					go startOAuthFlow(engine, getOAuthEndpoint("claude"))
+				case <-geminiLoginItem.ClickedCh:
+					go startOAuthFlow(engine, getOAuthEndpoint("gemini-cli"))
+				case <-codexLoginItem.ClickedCh:
+					go startOAuthFlow(engine, getOAuthEndpoint("codex"))
+				case <-qwenLoginItem.ClickedCh:
+					go startOAuthFlow(engine, getOAuthEndpoint("qwen"))
+				case <-antigravityLoginItem.ClickedCh:
+					go startOAuthFlow(engine, getOAuthEndpoint("antigravity"))
+				case <-kiroLoginItem.ClickedCh:
+					go startOAuthFlow(engine, getOAuthEndpoint("kiro"))
+				case <-minimaxLoginItem.ClickedCh:
+					go runCLI("-minimax-login")
+				case <-zhipuLoginItem.ClickedCh:
+					go runCLI("-zhipu-login")
 				case <-copyDiagItem.ClickedCh:
 					copyDiagnosticsToClipboard(engine)
 				case <-copyStatusItem.ClickedCh:
@@ -506,14 +519,16 @@ func getOAuthEndpoint(provider string) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "antigravity":
 		return "/v0/management/antigravity-auth-url"
-	case "gemini-cli", "geminicli":
+	case "gemini-cli", "geminicli", "gemini":
 		return "/v0/management/gemini-cli-auth-url"
-	case "codex":
+	case "codex", "openai":
 		return "/v0/management/codex-auth-url"
 	case "claude", "anthropic":
 		return "/v0/management/anthropic-auth-url"
 	case "qwen":
 		return "/v0/management/qwen-auth-url"
+	case "kiro":
+		return "/v0/management/kiro-auth-url"
 	default:
 		return ""
 	}
