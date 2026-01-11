@@ -224,19 +224,3 @@ func LoadAntigravityTokenFromPath(path string) (*AntigravityToken, error) {
 
 	return &token, nil
 }
-
-// Backwards compatibility aliases for existing code
-// TODO: Remove these after updating all callers
-
-// GeminiCLIToken is an alias for AntigravityToken for backwards compatibility.
-type GeminiCLIToken = AntigravityToken
-
-// LoadGeminiCLIToken is an alias for LoadAntigravityToken for backwards compatibility.
-func LoadGeminiCLIToken() (*AntigravityToken, error) {
-	return LoadAntigravityToken()
-}
-
-// LoadGeminiCLITokenFromPath is an alias for LoadAntigravityTokenFromPath for backwards compatibility.
-func LoadGeminiCLITokenFromPath(path string) (*AntigravityToken, error) {
-	return LoadAntigravityTokenFromPath(path)
-}
