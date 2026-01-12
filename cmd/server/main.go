@@ -24,6 +24,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/store"
 	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/translator"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/tui"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
@@ -125,6 +126,13 @@ func main() {
 	var includeTokens bool
 	var forceImport bool
 
+	// Windows service flags
+	var runAsService bool
+	var serviceCmd string
+
+	// TUI flag
+	var launchTUI bool
+
 	// Define command-line flags for different operation modes.
 	flag.BoolVar(&login, "login", false, "Login Google Account")
 	flag.BoolVar(&codexLogin, "codex-login", false, "Login to Codex using OAuth")
@@ -179,6 +187,13 @@ func main() {
 	flag.BoolVar(&showUsage, "usage", false, "Show token usage statistics and exit")
 	flag.BoolVar(&showLogs, "logs", false, "View recent proxy logs and exit")
 	flag.IntVar(&logLines, "n", 50, "Number of log lines to show (used with -logs)")
+
+	// Windows service flags
+	flag.BoolVar(&runAsService, "service", false, "Run as Windows service (internal)")
+	flag.StringVar(&serviceCmd, "service-cmd", "", "Service command: install, uninstall, start, stop, status")
+
+	// TUI flag
+	flag.BoolVar(&launchTUI, "tui", false, "Launch interactive terminal dashboard")
 
 	flag.CommandLine.Usage = func() {
 		out := flag.CommandLine.Output()
@@ -252,6 +267,20 @@ func main() {
 
 	// Parse the command-line flags.
 	flag.Parse()
+
+	// Handle Windows service commands early (before config loading)
+	if serviceCmd != "" {
+		if handleServiceCommand([]string{serviceCmd, configPath}) {
+			return
+		}
+	}
+	if runAsService {
+		if err := runService(configPath); err != nil {
+			log.Errorf("service error: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	// Core application variables.
 	var err error
@@ -517,9 +546,9 @@ func main() {
 		cfg, err = config.LoadConfigOptional(configFilePath, isCloudDeploy)
 	}
 	if err != nil {
-		// For switch command, config is optional - use defaults
-		if subcommandSwitch || switchAgent != "" {
-			cfg = &config.Config{Port: 8317}
+		// For switch command and TUI, config is optional - use defaults
+		if subcommandSwitch || switchAgent != "" || launchTUI {
+			cfg = &config.Config{Port: 8318}
 		} else {
 			log.Errorf("failed to load config: %v", err)
 			return
@@ -618,6 +647,14 @@ func main() {
 	} else if showStatus {
 		if err := cmd.ShowStatus(jsonOutput); err != nil {
 			log.Errorf("status failed: %v", err)
+			os.Exit(1)
+		}
+		return
+	} else if launchTUI {
+		proxyURL := fmt.Sprintf("http://127.0.0.1:%d", cfg.Port)
+		mgmtKey, _ := desktopctl.GetManagementPassword()
+		if err := tui.Run(proxyURL, mgmtKey); err != nil {
+			log.Errorf("tui failed: %v", err)
 			os.Exit(1)
 		}
 		return
