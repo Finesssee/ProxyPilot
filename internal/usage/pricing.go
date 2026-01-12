@@ -11,85 +11,139 @@ type ModelPricing struct {
 }
 
 // PricingTable maps model name patterns to their pricing.
-// Prices are in USD per million tokens (as of Dec 2024).
+// Prices are in USD per million tokens (as of Jan 2026).
 var PricingTable = map[string]ModelPricing{
 	// Anthropic Claude models
-	"claude-opus-4":           {15.00, 75.00, 1.50},
-	"claude-sonnet-4":         {3.00, 15.00, 0.30},
-	"claude-3-5-sonnet":       {3.00, 15.00, 0.30},
-	"claude-3-5-haiku":        {0.80, 4.00, 0.08},
-	"claude-3-opus":           {15.00, 75.00, 1.50},
-	"claude-3-sonnet":         {3.00, 15.00, 0.30},
-	"claude-3-haiku":          {0.25, 1.25, 0.025},
+	"claude-opus-4-5":          {15.00, 75.00, 1.50},
+	"claude-opus-4":            {15.00, 75.00, 1.50},
+	"claude-sonnet-4-5":        {3.00, 15.00, 0.30},
+	"claude-sonnet-4":          {3.00, 15.00, 0.30},
+	"claude-haiku-4-5":         {0.80, 4.00, 0.08},
+	"claude-3-5-sonnet":        {3.00, 15.00, 0.30},
+	"claude-3-5-haiku":         {0.80, 4.00, 0.08},
+	"claude-3-opus":            {15.00, 75.00, 1.50},
+	"claude-3-sonnet":          {3.00, 15.00, 0.30},
+	"claude-3-haiku":           {0.25, 1.25, 0.025},
 
-	// OpenAI GPT models
-	"gpt-4o":                  {2.50, 10.00, 1.25},
-	"gpt-4o-mini":             {0.15, 0.60, 0.075},
-	"gpt-4-turbo":             {10.00, 30.00, 5.00},
-	"gpt-4":                   {30.00, 60.00, 15.00},
-	"gpt-3.5-turbo":           {0.50, 1.50, 0.25},
-	"o1":                      {15.00, 60.00, 7.50},
-	"o1-mini":                 {3.00, 12.00, 1.50},
-	"o1-preview":              {15.00, 60.00, 7.50},
-	"o3-mini":                 {1.10, 4.40, 0.55},
+	// OpenAI GPT/Codex models
+	"gpt-5.2":                  {10.00, 30.00, 5.00},
+	"gpt-5.2-codex":            {10.00, 30.00, 5.00},
+	"gpt-5-codex":              {8.00, 24.00, 4.00},
+	"gpt-4o":                   {2.50, 10.00, 1.25},
+	"gpt-4o-mini":              {0.15, 0.60, 0.075},
+	"gpt-4-turbo":              {10.00, 30.00, 5.00},
+	"gpt-4":                    {30.00, 60.00, 15.00},
+	"gpt-3.5-turbo":            {0.50, 1.50, 0.25},
+	"o1":                       {15.00, 60.00, 7.50},
+	"o1-mini":                  {3.00, 12.00, 1.50},
+	"o1-preview":               {15.00, 60.00, 7.50},
+	"o3-mini":                  {1.10, 4.40, 0.55},
 
 	// Google Gemini models
-	"gemini-2.0-flash":        {0.10, 0.40, 0.025},
-	"gemini-1.5-pro":          {1.25, 5.00, 0.3125},
-	"gemini-1.5-flash":        {0.075, 0.30, 0.01875},
-	"gemini-1.5-flash-8b":     {0.0375, 0.15, 0.01},
-	"gemini-1.0-pro":          {0.50, 1.50, 0.125},
+	"gemini-3-pro":             {1.25, 5.00, 0.3125},
+	"gemini-3-flash":           {0.15, 0.60, 0.0375},
+	"gemini-2.5-pro":           {1.25, 5.00, 0.3125},
+	"gemini-2.5-flash":         {0.15, 0.60, 0.0375},
+	"gemini-2.0-flash":         {0.10, 0.40, 0.025},
+	"gemini-1.5-pro":           {1.25, 5.00, 0.3125},
+	"gemini-1.5-flash":         {0.075, 0.30, 0.01875},
+	"gemini-1.5-flash-8b":      {0.0375, 0.15, 0.01},
+	"gemini-1.0-pro":           {0.50, 1.50, 0.125},
 
-	// Qwen models (via API providers)
-	"qwen-turbo":              {0.30, 0.60, 0.15},
-	"qwen-plus":               {0.80, 2.00, 0.40},
-	"qwen-max":                {2.40, 9.60, 1.20},
-	"qwq-32b":                 {0.15, 0.60, 0.075},
+	// Kiro (AWS CodeWhisperer) - subscription-based, estimate as Claude pricing
+	"kiro-claude-sonnet":       {3.00, 15.00, 0.30},
+	"kiro-claude-haiku":        {0.80, 4.00, 0.08},
+	"kiro":                     {3.00, 15.00, 0.30},
+
+	// Qwen models
+	"qwen-turbo":               {0.30, 0.60, 0.15},
+	"qwen-plus":                {0.80, 2.00, 0.40},
+	"qwen-max":                 {2.40, 9.60, 1.20},
+	"qwq-32b":                  {0.15, 0.60, 0.075},
 
 	// DeepSeek models
-	"deepseek-chat":           {0.14, 0.28, 0.07},
-	"deepseek-reasoner":       {0.55, 2.19, 0.275},
+	"deepseek-chat":            {0.14, 0.28, 0.07},
+	"deepseek-reasoner":        {0.55, 2.19, 0.275},
 
-	// Codex/Copilot (estimated)
-	"codex":                   {0.00, 0.00, 0.00}, // Free tier proxy
-	"copilot":                 {0.00, 0.00, 0.00}, // Free tier proxy
+	// MiniMax models
+	"minimax-m2":               {0.50, 1.50, 0.25},
+	"minimax-m2.1":             {0.60, 1.80, 0.30},
+
+	// Zhipu GLM models
+	"glm-4.5":                  {1.00, 3.00, 0.50},
+	"glm-4.6":                  {1.20, 3.60, 0.60},
+	"glm-4.7":                  {1.50, 4.50, 0.75},
+	"glm-4":                    {1.00, 3.00, 0.50},
+
+	// Free tier proxy (subscription-based)
+	"codex":                    {0.00, 0.00, 0.00},
+	"copilot":                  {0.00, 0.00, 0.00},
 }
 
 // DirectAPIPricing stores the "official" direct API pricing for comparison.
 // This is used to calculate savings when using ProxyPilot vs direct API.
 var DirectAPIPricing = map[string]ModelPricing{
-	// Same as PricingTable - these are the direct API prices
-	"claude-opus-4":     {15.00, 75.00, 1.50},
-	"claude-sonnet-4":   {3.00, 15.00, 0.30},
-	"claude-3-5-sonnet": {3.00, 15.00, 0.30},
-	"claude-3-5-haiku":  {0.80, 4.00, 0.08},
-	"claude-3-opus":     {15.00, 75.00, 1.50},
-	"claude-3-sonnet":   {3.00, 15.00, 0.30},
-	"claude-3-haiku":    {0.25, 1.25, 0.025},
+	// Anthropic Claude models
+	"claude-opus-4-5":          {15.00, 75.00, 1.50},
+	"claude-opus-4":            {15.00, 75.00, 1.50},
+	"claude-sonnet-4-5":        {3.00, 15.00, 0.30},
+	"claude-sonnet-4":          {3.00, 15.00, 0.30},
+	"claude-haiku-4-5":         {0.80, 4.00, 0.08},
+	"claude-3-5-sonnet":        {3.00, 15.00, 0.30},
+	"claude-3-5-haiku":         {0.80, 4.00, 0.08},
+	"claude-3-opus":            {15.00, 75.00, 1.50},
+	"claude-3-sonnet":          {3.00, 15.00, 0.30},
+	"claude-3-haiku":           {0.25, 1.25, 0.025},
 
-	"gpt-4o":            {2.50, 10.00, 1.25},
-	"gpt-4o-mini":       {0.15, 0.60, 0.075},
-	"gpt-4-turbo":       {10.00, 30.00, 5.00},
-	"gpt-4":             {30.00, 60.00, 15.00},
-	"gpt-3.5-turbo":     {0.50, 1.50, 0.25},
-	"o1":                {15.00, 60.00, 7.50},
-	"o1-mini":           {3.00, 12.00, 1.50},
-	"o1-preview":        {15.00, 60.00, 7.50},
-	"o3-mini":           {1.10, 4.40, 0.55},
+	// OpenAI GPT/Codex models
+	"gpt-5.2":                  {10.00, 30.00, 5.00},
+	"gpt-5.2-codex":            {10.00, 30.00, 5.00},
+	"gpt-5-codex":              {8.00, 24.00, 4.00},
+	"gpt-4o":                   {2.50, 10.00, 1.25},
+	"gpt-4o-mini":              {0.15, 0.60, 0.075},
+	"gpt-4-turbo":              {10.00, 30.00, 5.00},
+	"gpt-4":                    {30.00, 60.00, 15.00},
+	"gpt-3.5-turbo":            {0.50, 1.50, 0.25},
+	"o1":                       {15.00, 60.00, 7.50},
+	"o1-mini":                  {3.00, 12.00, 1.50},
+	"o1-preview":               {15.00, 60.00, 7.50},
+	"o3-mini":                  {1.10, 4.40, 0.55},
 
-	"gemini-2.0-flash":    {0.10, 0.40, 0.025},
-	"gemini-1.5-pro":      {1.25, 5.00, 0.3125},
-	"gemini-1.5-flash":    {0.075, 0.30, 0.01875},
-	"gemini-1.5-flash-8b": {0.0375, 0.15, 0.01},
-	"gemini-1.0-pro":      {0.50, 1.50, 0.125},
+	// Google Gemini models
+	"gemini-3-pro":             {1.25, 5.00, 0.3125},
+	"gemini-3-flash":           {0.15, 0.60, 0.0375},
+	"gemini-2.5-pro":           {1.25, 5.00, 0.3125},
+	"gemini-2.5-flash":         {0.15, 0.60, 0.0375},
+	"gemini-2.0-flash":         {0.10, 0.40, 0.025},
+	"gemini-1.5-pro":           {1.25, 5.00, 0.3125},
+	"gemini-1.5-flash":         {0.075, 0.30, 0.01875},
+	"gemini-1.5-flash-8b":      {0.0375, 0.15, 0.01},
+	"gemini-1.0-pro":           {0.50, 1.50, 0.125},
 
-	"qwen-turbo": {0.30, 0.60, 0.15},
-	"qwen-plus":  {0.80, 2.00, 0.40},
-	"qwen-max":   {2.40, 9.60, 1.20},
-	"qwq-32b":    {0.15, 0.60, 0.075},
+	// Kiro - subscription-based so "direct" would be the subscription cost
+	"kiro-claude-sonnet":       {3.00, 15.00, 0.30},
+	"kiro-claude-haiku":        {0.80, 4.00, 0.08},
+	"kiro":                     {3.00, 15.00, 0.30},
 
-	"deepseek-chat":     {0.14, 0.28, 0.07},
-	"deepseek-reasoner": {0.55, 2.19, 0.275},
+	// Qwen models
+	"qwen-turbo":               {0.30, 0.60, 0.15},
+	"qwen-plus":                {0.80, 2.00, 0.40},
+	"qwen-max":                 {2.40, 9.60, 1.20},
+	"qwq-32b":                  {0.15, 0.60, 0.075},
+
+	// DeepSeek models
+	"deepseek-chat":            {0.14, 0.28, 0.07},
+	"deepseek-reasoner":        {0.55, 2.19, 0.275},
+
+	// MiniMax models
+	"minimax-m2":               {0.50, 1.50, 0.25},
+	"minimax-m2.1":             {0.60, 1.80, 0.30},
+
+	// Zhipu GLM models
+	"glm-4.5":                  {1.00, 3.00, 0.50},
+	"glm-4.6":                  {1.20, 3.60, 0.60},
+	"glm-4.7":                  {1.50, 4.50, 0.75},
+	"glm-4":                    {1.00, 3.00, 0.50},
 }
 
 // GetModelPricing returns the pricing for a given model.
