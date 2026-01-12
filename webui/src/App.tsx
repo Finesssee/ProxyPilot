@@ -16,6 +16,7 @@ import {
   AccountUsage,
   ThinkingBudgetSettings,
   CacheStats,
+  RateLimitsStatus,
 } from '@/components/dashboard'
 import { Header } from '@/components/layout/Header'
 import { StatusBar } from '@/components/layout/StatusBar'
@@ -136,6 +137,7 @@ function DashboardContent() {
           <div className="space-y-6">
             {mgmtKey ? (
               <>
+                <RateLimitsStatus />
                 <CacheStats />
                 <UsageStats />
                 <AccountUsage />
