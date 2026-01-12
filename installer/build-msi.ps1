@@ -2,7 +2,7 @@
 # Requires: dotnet tool install --global wix
 
 param(
-    [string]$Version = "0.2.8",
+    [string]$Version = "0.2.9",
     [string]$SourceDir = "..\dist",
     [string]$OutDir = "..\dist"
 )

@@ -2,7 +2,7 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
 
 PackageIdentifier: ProxyPilot.ProxyPilot
-PackageVersion: 0.2.8
+PackageVersion: 0.2.9
 InstallerLocale: en-US
 InstallerType: inno
 Scope: user
@@ -15,7 +15,7 @@ Commands:
   - proxypilot
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/Finesssee/ProxyPilot/releases/download/v0.2.8/ProxyPilot-0.2.8-Setup.exe
+    InstallerUrl: https://github.com/Finesssee/ProxyPilot/releases/download/v0.2.9/ProxyPilot-0.2.9-Setup.exe
     InstallerSha256: # TODO: Add SHA256 hash after building
     InstallerSwitches:
       Silent: /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
