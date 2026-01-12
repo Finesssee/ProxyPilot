@@ -1,0 +1,41 @@
+# Created using wingetcreate 1.6.0.0
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.6.0.schema.json
+
+PackageIdentifier: ProxyPilot.ProxyPilot
+PackageVersion: 0.2.8
+PackageLocale: en-US
+Publisher: ProxyPilot
+PublisherUrl: https://github.com/Finesssee/ProxyPilot
+PublisherSupportUrl: https://github.com/Finesssee/ProxyPilot/issues
+Author: Finessse
+PackageName: ProxyPilot
+PackageUrl: https://github.com/Finesssee/ProxyPilot
+License: MIT
+LicenseUrl: https://github.com/Finesssee/ProxyPilot/blob/main/LICENSE
+Copyright: Copyright (c) 2024-2026 ProxyPilot Contributors
+ShortDescription: Local API proxy for AI coding tools with OAuth, token refresh, and format translation.
+Description: |
+  ProxyPilot is a powerful local API proxy that lets you use your existing Claude Code,
+  Codex, Gemini, Kiro, and Qwen subscriptions with any AI coding tool – no separate API keys required.
+
+  Features:
+  - 10 Auth Providers: Claude, Codex (OpenAI), Gemini, Kiro (AWS), Qwen, and more
+  - Universal API Translation: Auto-converts between OpenAI, Anthropic, and Gemini formats
+  - OAuth Integration: Browser-based login with automatic token refresh
+  - Multi-Account Support: Round-robin distribution with automatic failover
+  - System Tray: Native Windows tray app for quick access
+  - 60+ Management APIs: Full control via REST endpoints
+Moniker: proxypilot
+Tags:
+  - ai
+  - api
+  - claude
+  - codex
+  - developer
+  - gemini
+  - openai
+  - proxy
+  - cli
+ReleaseNotesUrl: https://github.com/Finesssee/ProxyPilot/releases
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ProxyPilot MSI Installer (WiX v4)
+  Build: wix build -o ProxyPilot.msi proxypilot.wxs
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="ProxyPilot"
+    Manufacturer="ProxyPilot"
+    Version="!(bind.FileVersion.ProxyPilot.exe)"
+    UpgradeCode="3D9053A0-3F6A-47D7-9D91-8BB1D1CC2A4F"
+    Scope="perUser">
+
+    <SummaryInformation
+      Description="ProxyPilot - Local API proxy for AI coding tools"
+      Manufacturer="ProxyPilot" />
+
+    <!-- Upgrade handling -->
+    <MajorUpgrade
+      DowngradeErrorMessage="A newer version of ProxyPilot is already installed."
+      Schedule="afterInstallInitialize" />
+
+    <!-- Media -->
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- Custom icon for Add/Remove Programs -->
+    <Icon Id="icon.ico" SourceFile="$(var.SourceDir)\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="icon.ico" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/Finesssee/ProxyPilot" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Finesssee/ProxyPilot" />
+
+    <!-- Features -->
+    <Feature Id="MainFeature" Title="ProxyPilot" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+      <ComponentGroupRef Id="StartMenuShortcuts" />
+    </Feature>
+
+    <Feature Id="AutoStart" Title="Start with Windows" Level="1">
+      <ComponentRef Id="AutoStartRegistry" />
+    </Feature>
+
+    <!-- Standard directories -->
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="INSTALLFOLDER" Name="ProxyPilot" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="ProxyPilot" />
+    </StandardDirectory>
+
+    <!-- Product components -->
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <Component Id="ProxyPilot.exe" Guid="*">
+        <File Id="ProxyPilot.exe" Source="$(var.SourceDir)\ProxyPilot.exe" KeyPath="yes" />
+      </Component>
+
+      <Component Id="ProxyPilotTray.exe" Guid="*">
+        <File Id="ProxyPilotTray.exe" Source="$(var.SourceDir)\proxypilot-tray.exe" KeyPath="yes" />
+      </Component>
+
+      <Component Id="icon.ico" Guid="*">
+        <File Id="icon.ico" Source="$(var.SourceDir)\icon.ico" KeyPath="yes" />
+      </Component>
+
+      <Component Id="config.example.yaml" Guid="*">
+        <File Id="config.example.yaml" Source="$(var.SourceDir)\config.example.yaml" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Start Menu shortcuts -->
+    <ComponentGroup Id="StartMenuShortcuts" Directory="ApplicationProgramsFolder">
+      <Component Id="AppShortcut" Guid="*">
+        <Shortcut Id="AppShortcut"
+          Name="ProxyPilot"
+          Description="ProxyPilot - Local API Proxy"
+          Target="[INSTALLFOLDER]proxypilot-tray.exe"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="icon.ico" />
+
+        <Shortcut Id="UninstallShortcut"
+          Name="Uninstall ProxyPilot"
+          Description="Uninstall ProxyPilot"
+          Target="[SystemFolder]msiexec.exe"
+          Arguments="/x [ProductCode]" />
+
+        <RemoveFolder Id="CleanUpShortCut" Directory="ApplicationProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\ProxyPilot" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Auto-start registry -->
+    <Component Id="AutoStartRegistry" Directory="INSTALLFOLDER" Guid="*">
+      <RegistryValue
+        Root="HKCU"
+        Key="Software\Microsoft\Windows\CurrentVersion\Run"
+        Name="ProxyPilot"
+        Type="string"
+        Value="&quot;[INSTALLFOLDER]proxypilot-tray.exe&quot;"
+        KeyPath="yes" />
+    </Component>
+
+    <!-- Custom actions -->
+    <CustomAction Id="KillTray" Execute="deferred" Impersonate="no" Return="ignore"
+      ExeCommand="[SystemFolder]taskkill.exe /F /IM proxypilot-tray.exe" />
+
+    <InstallExecuteSequence>
+      <Custom Action="KillTray" Before="RemoveFiles" Condition="Installed" />
+    </InstallExecuteSequence>
+
+    <!-- Launch after install -->
+    <CustomAction Id="LaunchApp"
+      FileRef="ProxyPilotTray.exe"
+      ExeCommand=""
+      Impersonate="yes"
+      Return="asyncNoWait" />
+
+    <UI>
+      <UIRef Id="WixUI_InstallDir" />
+      <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    </UI>
+
+  </Package>
+</Wix>
