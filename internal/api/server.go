@@ -573,6 +573,10 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/usage/export", s.mgmt.ExportUsageStatistics)
 		mgmt.POST("/usage/import", s.mgmt.ImportUsageStatistics)
 
+		// Rate limit monitoring
+		mgmt.GET("/rate-limits", s.mgmt.GetRateLimits)
+		mgmt.GET("/rate-limits/summary", s.mgmt.GetRateLimitsSummary)
+
 		// Request monitoring and history routes
 		mgmt.GET("/requests", s.mgmt.GetRequests)
 		mgmt.GET("/request-history", s.mgmt.GetRequestHistory)
