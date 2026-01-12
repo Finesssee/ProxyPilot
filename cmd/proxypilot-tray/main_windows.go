@@ -33,6 +33,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/updates"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/winutil"
 	configaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access/config"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
 )
@@ -45,6 +46,19 @@ var dashboardMu sync.Mutex
 var dashboardOpen bool
 
 func main() {
+	// Single-instance check - prevent multiple tray apps
+	instance, err := winutil.AcquireSingleInstance("ProxyPilotTray")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to check for existing instance: %v\n", err)
+		os.Exit(1)
+	}
+	if instance == nil {
+		// Another instance is already running
+		_ = winutil.ShowToast("ProxyPilot", "Another instance is already running")
+		os.Exit(0)
+	}
+	defer instance.Release()
+
 	var repoRoot string
 	var configPath string
 	flag.StringVar(&repoRoot, "repo", "", "Repo root (used to locate logs/)")
@@ -129,11 +143,27 @@ func run(repoRoot, configPath string) {
 		diagMenu := systray.AddMenuItem("Diagnostics", "Diagnostic tools")
 		copyDiagItem := diagMenu.AddSubMenuItem("Copy Diagnostics", "Copy diagnostics to clipboard")
 		copyStatusItem := diagMenu.AddSubMenuItem("Copy Account Status", "Copy account health summary to clipboard")
+		copyRateLimitsItem := diagMenu.AddSubMenuItem("Copy Rate Limits", "Copy rate limit status to clipboard")
 		copyUsageItem := diagMenu.AddSubMenuItem("Copy Usage Stats", "Copy usage statistics to clipboard")
 		copyModelsItem := diagMenu.AddSubMenuItem("Copy Model List", "Copy available models to clipboard")
 		copyLogsItem := diagMenu.AddSubMenuItem("Copy Recent Logs", "Copy recent log entries to clipboard")
 		openLogsItem := diagMenu.AddSubMenuItem("Open Logs Folder", "Open logs folder in explorer")
 		openAuthItem := diagMenu.AddSubMenuItem("Open Auth Folder", "Open auth folder in explorer")
+
+		// Settings submenu
+		settingsMenu := systray.AddMenuItem("Settings", "Application settings")
+		startupItem := settingsMenu.AddSubMenuItem("Start with Windows", "Launch ProxyPilot on Windows startup")
+		autoProxyItem := settingsMenu.AddSubMenuItem("Auto-start Proxy", "Automatically start proxy when tray launches")
+		checkUpdateItem := settingsMenu.AddSubMenuItem("Check for Updates", "Check for new versions")
+		defenderExclusionItem := settingsMenu.AddSubMenuItem("Add to Windows Defender Exclusions", "Prevent Defender from scanning ProxyPilot (requires admin)")
+
+		// Set initial checkbox states
+		if enabled, _, _ := desktopctl.IsWindowsRunAutostartEnabled(autostartAppName); enabled {
+			startupItem.Check()
+		}
+		if autoProxy, _ := desktopctl.GetAutoStartProxy(); autoProxy {
+			autoProxyItem.Check()
+		}
 
 		systray.AddSeparator()
 		quitItem := systray.AddMenuItem("Quit", "Quit ProxyPilot")
@@ -147,6 +177,9 @@ func run(repoRoot, configPath string) {
 				}
 			}()
 		}
+
+		// Check for updates on startup (silently, in background)
+		go checkForUpdatesOnStartup()
 
 		// Update UI based on status
 		refresh := func() {
@@ -234,6 +267,12 @@ func run(repoRoot, configPath string) {
 					copyDiagnosticsToClipboard(engine)
 				case <-copyStatusItem.ClickedCh:
 					copyAccountStatusToClipboard(engine)
+				case <-copyRateLimitsItem.ClickedCh:
+					go func() {
+						if text := captureRateLimits(engine); text != "" {
+							copyToClipboard(text)
+						}
+					}()
 				case <-copyUsageItem.ClickedCh:
 					go func() {
 						if text := captureUsageStats(); text != "" {
@@ -272,6 +311,46 @@ func run(repoRoot, configPath string) {
 					if dir, err := desktopctl.AuthDirFor(configPath); err == nil {
 						desktopctl.OpenFolder(dir)
 					}
+				case <-startupItem.ClickedCh:
+					go func() {
+						if startupItem.Checked() {
+							// Disable startup
+							if err := desktopctl.DisableWindowsRunAutostart(autostartAppName); err == nil {
+								startupItem.Uncheck()
+								_ = winutil.ShowToast("ProxyPilot", "Removed from Windows startup")
+							}
+						} else {
+							// Enable startup
+							cmd, err := autostartCommand(repoRoot, configPath)
+							if err == nil {
+								if err := desktopctl.EnableWindowsRunAutostart(autostartAppName, cmd); err == nil {
+									startupItem.Check()
+									_ = winutil.ShowToast("ProxyPilot", "Added to Windows startup")
+								}
+							}
+						}
+					}()
+				case <-autoProxyItem.ClickedCh:
+					go func() {
+						if autoProxyItem.Checked() {
+							_ = desktopctl.SetAutoStartProxy(false)
+							autoProxyItem.Uncheck()
+						} else {
+							_ = desktopctl.SetAutoStartProxy(true)
+							autoProxyItem.Check()
+						}
+					}()
+				case <-checkUpdateItem.ClickedCh:
+					go checkForUpdatesWithToast()
+				case <-defenderExclusionItem.ClickedCh:
+					go func() {
+						authDir, _ := desktopctl.AuthDirFor(configPath)
+						if err := winutil.PromptDefenderExclusion(authDir); err != nil {
+							_ = winutil.ShowToast("ProxyPilot", fmt.Sprintf("Failed: %v", err))
+						} else {
+							_ = winutil.ShowToast("ProxyPilot", "Defender exclusion prompt shown (requires admin approval)")
+						}
+					}()
 				case <-quitItem.ClickedCh:
 					systray.Quit()
 					return
@@ -811,6 +890,80 @@ func captureAccountList() string {
 	return runCLI("-list-accounts")
 }
 
+// captureRateLimits fetches rate limit status from the API
+func captureRateLimits(engine *EmbeddedEngine) string {
+	st := engine.Status()
+	if !st.Running {
+		return "Rate Limits: Proxy not running"
+	}
+
+	port := st.Port
+	if port <= 0 {
+		port = 8318
+	}
+
+	url := fmt.Sprintf("http://127.0.0.1:%d/v0/management/rate-limits/summary", port)
+	resp, err := http.Get(url)
+	if err != nil {
+		return fmt.Sprintf("Failed to fetch rate limits: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var summary struct {
+		Total        int    `json:"total"`
+		Available    int    `json:"available"`
+		CoolingDown  int    `json:"cooling_down"`
+		Disabled     int    `json:"disabled"`
+		NextRecoveryIn string `json:"next_recovery_in,omitempty"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&summary); err != nil {
+		return fmt.Sprintf("Failed to parse rate limits: %v", err)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("=== Rate Limit Status ===\n\n")
+	sb.WriteString(fmt.Sprintf("Total Credentials: %d\n", summary.Total))
+	sb.WriteString(fmt.Sprintf("Available: %d\n", summary.Available))
+	sb.WriteString(fmt.Sprintf("Cooling Down: %d\n", summary.CoolingDown))
+	sb.WriteString(fmt.Sprintf("Disabled: %d\n", summary.Disabled))
+	if summary.NextRecoveryIn != "" {
+		sb.WriteString(fmt.Sprintf("\nNext Recovery In: %s\n", summary.NextRecoveryIn))
+	}
+
+	// Also get detailed info
+	detailURL := fmt.Sprintf("http://127.0.0.1:%d/v0/management/rate-limits", port)
+	detailResp, err := http.Get(detailURL)
+	if err == nil {
+		defer detailResp.Body.Close()
+		var detail struct {
+			Credentials []struct {
+				AuthID        string `json:"auth_id"`
+				Provider      string `json:"provider"`
+				Email         string `json:"email,omitempty"`
+				QuotaExceeded bool   `json:"quota_exceeded"`
+				RecoverIn     string `json:"recover_in,omitempty"`
+			} `json:"credentials"`
+		}
+		if err := json.NewDecoder(detailResp.Body).Decode(&detail); err == nil && len(detail.Credentials) > 0 {
+			sb.WriteString("\n=== Per-Credential Status ===\n")
+			for _, cred := range detail.Credentials {
+				status := "✓ OK"
+				if cred.QuotaExceeded {
+					status = fmt.Sprintf("⏳ Cooling (%s)", cred.RecoverIn)
+				}
+				name := cred.Email
+				if name == "" {
+					name = cred.AuthID[:8]
+				}
+				sb.WriteString(fmt.Sprintf("\n[%s] %s: %s", cred.Provider, name, status))
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	return sb.String()
+}
+
 // copyAccountStatusToClipboard copies account status summary to clipboard
 func copyAccountStatusToClipboard(engine *EmbeddedEngine) error {
 	text := captureAccountStatus()
@@ -887,4 +1040,30 @@ func runCLI(args ...string) string {
 		return ""
 	}
 	return string(out)
+}
+
+// checkForUpdatesWithToast checks for updates and shows a toast notification
+func checkForUpdatesWithToast() {
+	info, err := updates.CheckForUpdates()
+	if err != nil {
+		_ = winutil.ShowToast("ProxyPilot", "Failed to check for updates")
+		return
+	}
+	if info.Available {
+		_ = winutil.ShowToast("ProxyPilot", fmt.Sprintf("Update available: v%s", info.Version))
+		// Open release page
+		_ = desktopctl.OpenBrowser(info.DownloadURL)
+	} else {
+		_ = winutil.ShowToast("ProxyPilot", "You're running the latest version")
+	}
+}
+
+// checkForUpdatesOnStartup silently checks for updates on startup
+func checkForUpdatesOnStartup() {
+	time.Sleep(5 * time.Second) // Wait for tray to fully load
+	info, err := updates.CheckForUpdates()
+	if err != nil || !info.Available {
+		return
+	}
+	_ = winutil.ShowToast("ProxyPilot Update", fmt.Sprintf("v%s is available! Click 'Check for Updates' to download.", info.Version))
 }
