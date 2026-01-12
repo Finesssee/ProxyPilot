@@ -115,3 +115,4 @@ build/
 # Local files
 PLAN-*.md
 config-debug.yaml
+.wix/

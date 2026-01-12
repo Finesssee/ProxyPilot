@@ -3,7 +3,8 @@
   ProxyPilot MSI Installer (WiX v4)
   Build: wix build -o ProxyPilot.msi proxypilot.wxs
 -->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package
     Name="ProxyPilot"
     Manufacturer="ProxyPilot"
@@ -100,8 +101,8 @@
     </Component>
 
     <!-- Custom actions -->
-    <CustomAction Id="KillTray" Execute="deferred" Impersonate="no" Return="ignore"
-      ExeCommand="[SystemFolder]taskkill.exe /F /IM proxypilot-tray.exe" />
+    <CustomAction Id="KillTray" Directory="SystemFolder" Execute="deferred" Impersonate="no" Return="ignore"
+      ExeCommand="taskkill.exe /F /IM proxypilot-tray.exe" />
 
     <InstallExecuteSequence>
       <Custom Action="KillTray" Before="RemoveFiles" Condition="Installed" />
@@ -114,10 +115,7 @@
       Impersonate="yes"
       Return="asyncNoWait" />
 
-    <UI>
-      <UIRef Id="WixUI_InstallDir" />
-      <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
-    </UI>
+    <ui:WixUI Id="WixUI_Minimal" />
 
   </Package>
 </Wix>
