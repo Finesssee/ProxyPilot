@@ -104,6 +104,9 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	body, _ = sjson.SetBytes(body, "model", upstreamModel)
 	body, _ = sjson.SetBytes(body, "stream", true)
 	body, _ = sjson.DeleteBytes(body, "previous_response_id")
+	if !gjson.GetBytes(body, "instructions").Exists() {
+		body, _ = sjson.SetBytes(body, "instructions", "")
+	}
 
 	url := strings.TrimSuffix(baseURL, "/") + "/responses"
 	httpReq, err := e.cacheHelper(ctx, from, url, req, body)
@@ -211,6 +214,9 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	body = applyPayloadConfig(e.cfg, req.Model, body)
 	body, _ = sjson.DeleteBytes(body, "previous_response_id")
 	body, _ = sjson.SetBytes(body, "model", upstreamModel)
+	if !gjson.GetBytes(body, "instructions").Exists() {
+		body, _ = sjson.SetBytes(body, "instructions", "")
+	}
 
 	url := strings.TrimSuffix(baseURL, "/") + "/responses"
 	httpReq, err := e.cacheHelper(ctx, from, url, req, body)
@@ -319,6 +325,9 @@ func (e *CodexExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth
 	body, _ = sjson.SetBytes(body, "model", upstreamModel)
 	body, _ = sjson.DeleteBytes(body, "previous_response_id")
 	body, _ = sjson.SetBytes(body, "stream", false)
+	if !gjson.GetBytes(body, "instructions").Exists() {
+		body, _ = sjson.SetBytes(body, "instructions", "")
+	}
 
 	enc, err := tokenizerForCodexModel(modelForCounting)
 	if err != nil {
