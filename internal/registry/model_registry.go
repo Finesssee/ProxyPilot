@@ -50,6 +50,11 @@ type ModelInfo struct {
 	// Thinking holds provider-specific reasoning/thinking budget capabilities.
 	// This is optional and currently used for Gemini thinking budget normalization.
 	Thinking *ThinkingSupport `json:"thinking,omitempty"`
+
+	// UserDefined indicates whether this model was registered via user configuration
+	// (e.g., openai-compatibility.*.models[], *-api-key.models[]).
+	// User-defined models skip thinking validation and pass through to upstream.
+	UserDefined bool `json:"-"`
 }
 
 // ThinkingSupport describes a model family's supported internal reasoning budget range.
@@ -969,4 +974,20 @@ func (r *ModelRegistry) GetModelsForClient(clientID string) []*ModelInfo {
 		}
 	}
 	return result
+}
+
+// LookupModelInfo looks up model information by model ID from the global registry.
+// Returns nil if the model is not found.
+//
+// This is a convenience function for use by the thinking package to validate
+// model capabilities without needing direct registry access.
+func LookupModelInfo(modelID string) *ModelInfo {
+	registry := GetGlobalRegistry()
+	registry.mutex.RLock()
+	defer registry.mutex.RUnlock()
+
+	if reg, ok := registry.models[modelID]; ok && reg.Info != nil {
+		return reg.Info
+	}
+	return nil
 }
