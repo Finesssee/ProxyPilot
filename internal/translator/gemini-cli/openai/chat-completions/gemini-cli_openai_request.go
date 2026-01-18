@@ -35,7 +35,7 @@ func ConvertOpenAIRequestToGeminiCLI(modelName string, inputRawJSON []byte, _ bo
 	// Model
 	out, _ = sjson.SetBytes(out, "model", modelName)
 
-	// Reasoning effort -> thinkingBudget/include_thoughts
+	// Reasoning effort -> thinkingBudget/includeThoughts
 	// Note: OpenAI official fields take precedence over extra_body.google.thinking_config
 	re := gjson.GetBytes(rawJSON, "reasoning_effort")
 	hasOfficialThinking := re.Exists()
@@ -61,11 +61,11 @@ func ConvertOpenAIRequestToGeminiCLI(modelName string, inputRawJSON []byte, _ bo
 			}
 
 			if v := tc.Get("includeThoughts"); v.Exists() {
-				out, _ = sjson.SetBytes(out, "request.generationConfig.thinkingConfig.include_thoughts", v.Bool())
-			} else if v := tc.Get("include_thoughts"); v.Exists() {
-				out, _ = sjson.SetBytes(out, "request.generationConfig.thinkingConfig.include_thoughts", v.Bool())
+				out, _ = sjson.SetBytes(out, "request.generationConfig.thinkingConfig.includeThoughts", v.Bool())
+			} else if v := tc.Get("includeThoughts"); v.Exists() {
+				out, _ = sjson.SetBytes(out, "request.generationConfig.thinkingConfig.includeThoughts", v.Bool())
 			} else if setBudget && budget != 0 {
-				out, _ = sjson.SetBytes(out, "request.generationConfig.thinkingConfig.include_thoughts", true)
+				out, _ = sjson.SetBytes(out, "request.generationConfig.thinkingConfig.includeThoughts", true)
 			}
 		}
 	}

@@ -388,13 +388,13 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 		out, _ = sjson.SetRaw(out, "request.tools", toolsJSON)
 	}
 
-	// Map Anthropic thinking -> Gemini thinkingBudget/include_thoughts when type==enabled
+	// Map Anthropic thinking -> Gemini thinkingBudget/includeThoughts when type==enabled
 	if t := gjson.GetBytes(rawJSON, "thinking"); t.Exists() && t.IsObject() && util.ModelSupportsThinking(modelName) {
 		if t.Get("type").String() == "enabled" {
 			if b := t.Get("budget_tokens"); b.Exists() && b.Type == gjson.Number {
 				budget := int(b.Int())
 				out, _ = sjson.Set(out, "request.generationConfig.thinkingConfig.thinkingBudget", budget)
-				out, _ = sjson.Set(out, "request.generationConfig.thinkingConfig.include_thoughts", true)
+				out, _ = sjson.Set(out, "request.generationConfig.thinkingConfig.includeThoughts", true)
 			}
 		}
 	}

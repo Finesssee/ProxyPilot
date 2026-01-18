@@ -35,7 +35,7 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 	// Model
 	out, _ = sjson.SetBytes(out, "model", modelName)
 
-	// Reasoning effort -> thinkingBudget/include_thoughts
+	// Reasoning effort -> thinkingBudget/includeThoughts
 	// Note: OpenAI official fields take precedence over extra_body.google.thinking_config
 	// Only apply numeric budgets for models that use budgets (not discrete levels) to avoid
 	// incorrectly applying thinkingBudget for level-based models like gpt-5. Gemini 3 models
@@ -79,11 +79,11 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 			}
 
 			if v := tc.Get("includeThoughts"); v.Exists() {
-				out, _ = sjson.SetBytes(out, "generationConfig.thinkingConfig.include_thoughts", v.Bool())
-			} else if v := tc.Get("include_thoughts"); v.Exists() {
-				out, _ = sjson.SetBytes(out, "generationConfig.thinkingConfig.include_thoughts", v.Bool())
+				out, _ = sjson.SetBytes(out, "generationConfig.thinkingConfig.includeThoughts", v.Bool())
+			} else if v := tc.Get("includeThoughts"); v.Exists() {
+				out, _ = sjson.SetBytes(out, "generationConfig.thinkingConfig.includeThoughts", v.Bool())
 			} else if setBudget && budget != 0 {
-				out, _ = sjson.SetBytes(out, "generationConfig.thinkingConfig.include_thoughts", true)
+				out, _ = sjson.SetBytes(out, "generationConfig.thinkingConfig.includeThoughts", true)
 			}
 		}
 	}

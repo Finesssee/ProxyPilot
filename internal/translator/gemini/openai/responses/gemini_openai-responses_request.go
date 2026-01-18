@@ -411,11 +411,11 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 				out, _ = sjson.Set(out, "generationConfig.thinkingConfig.thinkingBudget", budget)
 				setBudget = true
 			}
-			if v := tc.Get("include_thoughts"); v.Exists() {
-				out, _ = sjson.Set(out, "generationConfig.thinkingConfig.include_thoughts", v.Bool())
+			if v := tc.Get("includeThoughts"); v.Exists() {
+				out, _ = sjson.Set(out, "generationConfig.thinkingConfig.includeThoughts", v.Bool())
 			} else if setBudget {
 				if budget != 0 {
-					out, _ = sjson.Set(out, "generationConfig.thinkingConfig.include_thoughts", true)
+					out, _ = sjson.Set(out, "generationConfig.thinkingConfig.includeThoughts", true)
 				}
 			}
 		}
