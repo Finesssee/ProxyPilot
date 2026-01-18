@@ -83,7 +83,7 @@ func (s *Server) Start(configPath, password string) error {
 
 	// Setup logging with config-driven output
 	logging.SetupBaseLogger()
-	logging.ConfigureLogOutput(cfg.LoggingToFile, cfg.LogsMaxTotalSizeMB)
+	logging.ConfigureLogOutput(cfg)
 
 	// Create context with cancel
 	ctx, cancel := context.WithCancel(context.Background())

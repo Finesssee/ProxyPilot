@@ -91,7 +91,7 @@ func run(repoRoot, configPath string) {
 	// Load config
 	cfg, err := config.LoadConfigOptional(configPath, false)
 	if err == nil && cfg != nil {
-		logging.ConfigureLogOutput(cfg.LoggingToFile, cfg.LogsMaxTotalSizeMB)
+		logging.ConfigureLogOutput(cfg)
 		util.SetLogLevel(cfg)
 	}
 	if cfg == nil {

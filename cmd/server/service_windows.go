@@ -53,7 +53,7 @@ func (s *proxyService) Execute(args []string, r <-chan svc.ChangeRequest, change
 	}
 
 	// Configure logging
-	logging.ConfigureLogOutput(cfg.LoggingToFile, cfg.LogsMaxTotalSizeMB)
+	logging.ConfigureLogOutput(cfg)
 
 	// Register token store
 	sdkAuth.RegisterTokenStore(sdkAuth.NewFileTokenStore())

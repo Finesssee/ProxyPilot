@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -27,6 +28,9 @@ var (
 // This formatter adds timestamp, level, request ID, and source location to each log entry.
 // Format: [2025-12-23 20:14:04] [debug] [manager.go:524] | a1b2c3d4 | Use API key sk-9...0RHO for model gpt-5.2
 type LogFormatter struct{}
+
+// logFieldOrder defines the display order for common log fields.
+var logFieldOrder = []string{"provider", "model", "mode", "budget", "level", "original_value", "min", "max", "clamped_to", "error"}
 
 // Format renders a single log entry with custom formatting.
 func (m *LogFormatter) Format(entry *log.Entry) ([]byte, error) {
@@ -51,11 +55,25 @@ func (m *LogFormatter) Format(entry *log.Entry) ([]byte, error) {
 	}
 	levelStr := fmt.Sprintf("%-5s", level)
 
+	// Build fields string (only print fields in logFieldOrder)
+	var fieldsStr string
+	if len(entry.Data) > 0 {
+		var fields []string
+		for _, k := range logFieldOrder {
+			if v, ok := entry.Data[k]; ok {
+				fields = append(fields, fmt.Sprintf("%s=%v", k, v))
+			}
+		}
+		if len(fields) > 0 {
+			fieldsStr = " " + strings.Join(fields, " ")
+		}
+	}
+
 	var formatted string
 	if entry.Caller != nil {
-		formatted = fmt.Sprintf("[%s] [%s] [%s] [%s:%d] %s\n", timestamp, reqID, levelStr, filepath.Base(entry.Caller.File), entry.Caller.Line, message)
+		formatted = fmt.Sprintf("[%s] [%s] [%s] [%s:%d] %s%s\n", timestamp, reqID, levelStr, filepath.Base(entry.Caller.File), entry.Caller.Line, message, fieldsStr)
 	} else {
-		formatted = fmt.Sprintf("[%s] [%s] [%s] %s\n", timestamp, reqID, levelStr, message)
+		formatted = fmt.Sprintf("[%s] [%s] [%s] %s%s\n", timestamp, reqID, levelStr, message, fieldsStr)
 	}
 	buffer.WriteString(formatted)
 
@@ -64,16 +82,11 @@ func (m *LogFormatter) Format(entry *log.Entry) ([]byte, error) {
 
 // SetupBaseLogger configures the shared logrus instance and Gin writers.
 // It is safe to call multiple times; initialization happens only once.
-// The global ring buffer is automatically added as a hook to capture all logs.
 func SetupBaseLogger() {
 	setupOnce.Do(func() {
 		log.SetOutput(os.Stdout)
-		log.SetLevel(log.InfoLevel)
 		log.SetReportCaller(true)
 		log.SetFormatter(&LogFormatter{})
-
-		// Add the global ring buffer as a hook to capture all logs for the TUI
-		log.AddHook(GlobalBuffer)
 
 		ginInfoWriter = log.StandardLogger().Writer()
 		gin.DefaultWriter = ginInfoWriter
@@ -88,22 +101,57 @@ func SetupBaseLogger() {
 	})
 }
 
+// isDirWritable checks if the specified directory exists and is writable by attempting to create and remove a test file.
+func isDirWritable(dir string) bool {
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+
+	testFile := filepath.Join(dir, ".perm_test")
+	f, err := os.Create(testFile)
+	if err != nil {
+		return false
+	}
+
+	defer func() {
+		_ = f.Close()
+		_ = os.Remove(testFile)
+	}()
+	return true
+}
+
+// ResolveLogDirectory determines the directory used for application logs.
+func ResolveLogDirectory(cfg *config.Config) string {
+	logDir := "logs"
+	if base := util.WritablePath(); base != "" {
+		return filepath.Join(base, "logs")
+	}
+	if cfg == nil {
+		return logDir
+	}
+	if !isDirWritable(logDir) {
+		authDir := strings.TrimSpace(cfg.AuthDir)
+		if authDir != "" {
+			logDir = filepath.Join(authDir, "logs")
+		}
+	}
+	return logDir
+}
+
 // ConfigureLogOutput switches the global log destination between rotating files and stdout.
 // When logsMaxTotalSizeMB > 0, a background cleaner removes the oldest log files in the logs directory
 // until the total size is within the limit.
-func ConfigureLogOutput(loggingToFile bool, logsMaxTotalSizeMB int) error {
+func ConfigureLogOutput(cfg *config.Config) error {
 	SetupBaseLogger()
 
 	writerMu.Lock()
 	defer writerMu.Unlock()
 
-	logDir := "logs"
-	if base := util.WritablePath(); base != "" {
-		logDir = filepath.Join(base, "logs")
-	}
+	logDir := ResolveLogDirectory(cfg)
 
 	protectedPath := ""
-	if loggingToFile {
+	if cfg.LoggingToFile {
 		if err := os.MkdirAll(logDir, 0o755); err != nil {
 			return fmt.Errorf("logging: failed to create log directory: %w", err)
 		}
@@ -127,7 +175,7 @@ func ConfigureLogOutput(loggingToFile bool, logsMaxTotalSizeMB int) error {
 		log.SetOutput(os.Stdout)
 	}
 
-	configureLogDirCleanerLocked(logDir, logsMaxTotalSizeMB, protectedPath)
+	configureLogDirCleanerLocked(logDir, cfg.LogsMaxTotalSizeMB, protectedPath)
 	return nil
 }
 
@@ -151,21 +199,24 @@ func closeLogOutputs() {
 	}
 }
 
-// SetLogLevel adjusts the global log level.
-// Valid levels: "debug", "info", "warn", "error", "quiet" (disables all logging).
+// SetLogLevel sets the logrus log level based on a string level name.
+// Supported levels: debug, verbose, info, warn, warning, error, quiet, silent.
+// Unknown levels default to InfoLevel.
 func SetLogLevel(level string) {
-	switch strings.ToLower(level) {
+	var newLevel log.Level
+	switch strings.ToLower(strings.TrimSpace(level)) {
 	case "debug", "verbose":
-		log.SetLevel(log.DebugLevel)
+		newLevel = log.DebugLevel
 	case "info":
-		log.SetLevel(log.InfoLevel)
+		newLevel = log.InfoLevel
 	case "warn", "warning":
-		log.SetLevel(log.WarnLevel)
+		newLevel = log.WarnLevel
 	case "error":
-		log.SetLevel(log.ErrorLevel)
+		newLevel = log.ErrorLevel
 	case "quiet", "silent":
-		log.SetLevel(log.FatalLevel) // Only fatal errors shown
+		newLevel = log.FatalLevel
 	default:
-		log.SetLevel(log.InfoLevel)
+		newLevel = log.InfoLevel
 	}
+	log.SetLevel(newLevel)
 }
