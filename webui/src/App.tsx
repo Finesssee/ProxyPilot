@@ -20,6 +20,7 @@ import {
 } from '@/components/dashboard'
 import { Header } from '@/components/layout/Header'
 import { StatusBar } from '@/components/layout/StatusBar'
+import { UpdateBanner } from '@/components/layout/UpdateBanner'
 import { IconRail, navigationItems } from '@/components/ui/icon-rail'
 
 type ViewId = 'command' | 'providers' | 'routing' | 'memory' | 'logs' | 'requests' | 'analytics'
@@ -181,17 +182,29 @@ function DashboardContent() {
       </div>
 
       {/* Main Content - fills remaining space */}
-      <main
-        key={activeView}
-        className="animate-fade-in-up"
+      <div
         style={{
           gridRow: 2,
-          overflow: 'auto',
-          padding: '24px',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
         }}
       >
-        {renderViewContent()}
-      </main>
+        {/* Update notification banner */}
+        <UpdateBanner />
+
+        {/* Scrollable content */}
+        <main
+          key={activeView}
+          className="animate-fade-in-up flex-1"
+          style={{
+            overflow: 'auto',
+            padding: '24px',
+          }}
+        >
+          {renderViewContent()}
+        </main>
+      </div>
 
       {/* Status Bar - spans full width */}
       <div style={{ gridColumn: '1 / -1' }}>
