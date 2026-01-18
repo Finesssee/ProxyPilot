@@ -36,6 +36,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/winutil"
 	configaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access/config"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
+	log "github.com/sirupsen/logrus"
 )
 
 const autostartAppName = "ProxyPilot"
@@ -72,6 +73,20 @@ func main() {
 func run(repoRoot, configPath string) {
 	// Initialize logging
 	logging.SetupBaseLogger()
+
+	// Check startup health - auto-rollback on crash loops
+	if health, err := updates.RecordStartup(); err == nil {
+		if health.ShouldRollback {
+			fmt.Fprintf(os.Stderr, "Detected crash loop (%d rapid restarts), triggering auto-rollback\n", health.StartupCount)
+			if result, err := updates.Rollback(); err == nil && result.Success {
+				_ = winutil.ShowToast("ProxyPilot", "Auto-rollback triggered due to startup failures. Restarting with previous version...")
+				// On Windows, execute the rollback script and exit
+				if result.NeedsRestart {
+					os.Exit(0) // Let the rollback script restart us
+				}
+			}
+		}
+	}
 
 	// Load config
 	cfg, err := config.LoadConfigOptional(configPath, false)
@@ -155,6 +170,12 @@ func run(repoRoot, configPath string) {
 		startupItem := settingsMenu.AddSubMenuItem("Start with Windows", "Launch ProxyPilot on Windows startup")
 		autoProxyItem := settingsMenu.AddSubMenuItem("Auto-start Proxy", "Automatically start proxy when tray launches")
 		checkUpdateItem := settingsMenu.AddSubMenuItem("Check for Updates", "Check for new versions")
+		installUpdateItem := settingsMenu.AddSubMenuItem("Download & Install Update", "Download and install the latest version")
+		installUpdateItem.Hide() // Hidden until an update is available
+		rollbackItem := settingsMenu.AddSubMenuItem("Rollback to Previous Version", "Restore the previous version")
+		if !updates.CanRollback() {
+			rollbackItem.Disable()
+		}
 		defenderExclusionItem := settingsMenu.AddSubMenuItem("Add to Windows Defender Exclusions", "Prevent Defender from scanning ProxyPilot (requires admin)")
 
 		// Set initial checkbox states
@@ -178,8 +199,34 @@ func run(repoRoot, configPath string) {
 			}()
 		}
 
-		// Check for updates on startup (silently, in background)
-		go checkForUpdatesOnStartup()
+		// Check for updates on startup (silently, in background) with configurable polling
+		var latestUpdateInfo *updates.UpdateInfo
+		var updateMu sync.Mutex
+		if cfg.Updates.IsAutoCheckEnabled() {
+			updates.StartGlobalPoller(
+				cfg.Updates.GetCheckInterval(),
+				cfg.Updates.GetChannel(),
+				func(info *updates.UpdateInfo) {
+					if info != nil && info.Available {
+						updateMu.Lock()
+						latestUpdateInfo = info
+						updateMu.Unlock()
+						installUpdateItem.SetTitle(fmt.Sprintf("Download & Install v%s", info.Version))
+						installUpdateItem.Show()
+						if cfg.Updates.IsNotifyOnUpdateEnabled() {
+							_ = winutil.ShowToast("ProxyPilot Update", fmt.Sprintf("v%s is available! Click 'Check for Updates' to download.", info.Version))
+						}
+					}
+				},
+			)
+		}
+
+		// Mark as healthy after 30 seconds of successful operation
+		// This clears the startup failure counter
+		go func() {
+			time.Sleep(30 * time.Second)
+			_ = updates.MarkHealthy()
+		}()
 
 		// Update UI based on status
 		refresh := func() {
@@ -342,6 +389,36 @@ func run(repoRoot, configPath string) {
 					}()
 				case <-checkUpdateItem.ClickedCh:
 					go checkForUpdatesWithToast()
+				case <-installUpdateItem.ClickedCh:
+					go func() {
+						updateMu.Lock()
+						info := latestUpdateInfo
+						updateMu.Unlock()
+						if info == nil || !info.Available {
+							_ = winutil.ShowToast("ProxyPilot", "No update available")
+							return
+						}
+						performOneClickUpdate(info)
+					}()
+				case <-rollbackItem.ClickedCh:
+					go func() {
+						if !updates.CanRollback() {
+							_ = winutil.ShowToast("ProxyPilot", "No previous version available for rollback")
+							return
+						}
+						result, err := updates.Rollback()
+						if err != nil {
+							_ = winutil.ShowToast("ProxyPilot", fmt.Sprintf("Rollback failed: %v", err))
+							return
+						}
+						if result.Success {
+							_ = winutil.ShowToast("ProxyPilot", fmt.Sprintf("Rolling back to v%s...", result.RestoredVersion))
+							if result.NeedsRestart {
+								// Execute the rollback script
+								systray.Quit()
+							}
+						}
+					}()
 				case <-defenderExclusionItem.ClickedCh:
 					go func() {
 						authDir, _ := desktopctl.AuthDirFor(configPath)
@@ -357,7 +434,18 @@ func run(repoRoot, configPath string) {
 				}
 			}
 		}()
-	}, func() {})
+	}, func() {
+		// onExit: Graceful cleanup when systray exits
+		log.Info("systray exiting, cleaning up...")
+		if engine.IsRunning() {
+			if err := engine.Stop(); err != nil {
+				log.Warnf("error stopping engine on exit: %v", err)
+			}
+		}
+		// Stop the update poller
+		updates.StopGlobalPoller()
+		log.Info("cleanup complete")
+	})
 }
 
 type closeFn func() error
@@ -1066,4 +1154,61 @@ func checkForUpdatesOnStartup() {
 		return
 	}
 	_ = winutil.ShowToast("ProxyPilot Update", fmt.Sprintf("v%s is available! Click 'Check for Updates' to download.", info.Version))
+}
+
+// performOneClickUpdate downloads, verifies, and installs the update
+func performOneClickUpdate(info *updates.UpdateInfo) {
+	if info == nil || !info.Available {
+		_ = winutil.ShowToast("ProxyPilot", "No update available")
+		return
+	}
+
+	_ = winutil.ShowToast("ProxyPilot", fmt.Sprintf("Downloading v%s...", info.Version))
+
+	// Download with progress
+	result, err := updates.DownloadUpdate(info.Version, func(progress updates.DownloadProgress) {
+		// Could update a progress indicator here in the future
+	})
+	if err != nil {
+		_ = winutil.ShowToast("ProxyPilot", fmt.Sprintf("Download failed: %v", err))
+		return
+	}
+
+	// Verify the download
+	verifyResult, err := updates.VerifyDownload(result)
+	if err != nil {
+		_ = winutil.ShowToast("ProxyPilot", fmt.Sprintf("Verification failed: %v", err))
+		return
+	}
+	if !verifyResult.Valid {
+		_ = winutil.ShowToast("ProxyPilot", fmt.Sprintf("Verification failed: %s", verifyResult.Message))
+		return
+	}
+
+	_ = winutil.ShowToast("ProxyPilot", "Preparing to install update...")
+
+	// Prepare the update (extract if needed)
+	executablePath, err := updates.PrepareInstall(result)
+	if err != nil {
+		_ = winutil.ShowToast("ProxyPilot", fmt.Sprintf("Preparation failed: %v", err))
+		return
+	}
+
+	// Install
+	installResult, err := updates.InstallUpdate(executablePath)
+	if err != nil {
+		_ = winutil.ShowToast("ProxyPilot", fmt.Sprintf("Installation failed: %v", err))
+		return
+	}
+
+	if installResult.Success {
+		if installResult.NeedsRestart {
+			_ = winutil.ShowToast("ProxyPilot", "Update installed! Restarting...")
+			// The install script will restart the app
+		} else {
+			_ = winutil.ShowToast("ProxyPilot", "Update installed successfully!")
+		}
+	} else {
+		_ = winutil.ShowToast("ProxyPilot", fmt.Sprintf("Installation failed: %s", installResult.Message))
+	}
 }
