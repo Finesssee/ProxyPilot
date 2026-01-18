@@ -45,6 +45,8 @@
 - 🤖 **Agentic Harness** - Guided workflow for coding agents (Anthropic research)
 - 💾 **Session Memory** - Persistent storage across conversation turns
 - 🎨 **System Tray** - Native Windows tray app for quick access
+- 🔄 **Auto-Updates** - Background update checking with one-click install
+- ⏪ **Rollback Support** - Automatic crash detection with version recovery
 - 📡 **60+ Management APIs** - Full control via REST endpoints
 
 ---
@@ -246,6 +248,60 @@ response-cache:
 prompt-cache:
   enabled: false
 ```
+
+---
+
+## Auto-Updates
+
+ProxyPilot includes a built-in auto-update system that checks for new releases and allows one-click installation.
+
+### Configuration
+
+**Config** (`config.yaml`):
+```yaml
+updates:
+  auto-check: true              # Enable background update checking (default: true)
+  check-interval-hours: 24      # How often to check (default: 24)
+  notify-on-update: true        # Show toast notification when update available (default: true)
+  channel: stable               # Update channel: "stable" or "prerelease" (default: stable)
+```
+
+### Features
+
+- **Background Polling** - Checks for updates at configurable intervals
+- **Dashboard Banner** - Proactive notification when update is available
+- **One-Click Install** - Download, verify, and install from the tray menu
+- **Session Dismissal** - Dismissed banners won't reappear until next session
+
+### Tray Menu
+
+When an update is available:
+- **Settings → Download & Install vX.X.X** - One-click update flow
+- **Settings → Check for Updates** - Manual check
+
+---
+
+## Rollback Support
+
+ProxyPilot automatically backs up the previous version during updates and can restore it if something goes wrong.
+
+### Automatic Recovery
+
+- **Crash Detection** - Tracks rapid restarts within a 30-second window
+- **Auto-Rollback** - After 3 rapid failures, automatically restores previous version
+- **Health Marking** - After 30 seconds of stable operation, clears the failure counter
+
+### Manual Rollback
+
+From the tray menu:
+- **Settings → Rollback to Previous Version** - Restore the previous version
+
+### How It Works
+
+1. During update, current binary is saved as `.old` backup
+2. Rollback metadata stored in `%APPDATA%/ProxyPilot/updates/`
+3. On crash loop detection, previous version is automatically restored
+4. After successful startup (30s), backup can be cleaned up
 
 ---
 
