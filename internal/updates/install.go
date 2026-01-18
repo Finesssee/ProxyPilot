@@ -11,14 +11,17 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/buildinfo"
 )
 
 // InstallResult contains the result of an installation attempt.
 type InstallResult struct {
-	Success     bool   `json:"success"`
-	Message     string `json:"message"`
-	RestartCmd  string `json:"restart_cmd,omitempty"`
-	NeedsRestart bool  `json:"needs_restart"`
+	Success         bool   `json:"success"`
+	Message         string `json:"message"`
+	RestartCmd      string `json:"restart_cmd,omitempty"`
+	NeedsRestart    bool   `json:"needs_restart"`
+	PreviousVersion string `json:"previous_version,omitempty"`
 }
 
 // PrepareInstall extracts and prepares the update for installation.
@@ -82,6 +85,7 @@ func installWindows(newExe, currentExe string) (*InstallResult, error) {
 
 	backupPath := currentExe + ".old"
 	tempScript := filepath.Join(os.TempDir(), "proxypilot-update.bat")
+	previousVersion := buildinfo.Version
 
 	// Create update script
 	script := fmt.Sprintf(`@echo off
@@ -111,6 +115,13 @@ del "%%~f0"
 		return nil, fmt.Errorf("failed to create update script: %w", err)
 	}
 
+	// Save rollback info before starting the update
+	// Note: This saves with current version since backup will contain current version
+	if err := SaveRollbackInfo(previousVersion); err != nil {
+		// Log but don't fail - rollback is optional
+		fmt.Printf("Warning: failed to save rollback info: %v\n", err)
+	}
+
 	// Start the update script
 	cmd := exec.Command("cmd", "/c", "start", "/min", tempScript)
 	if err := cmd.Start(); err != nil {
@@ -118,10 +129,11 @@ del "%%~f0"
 	}
 
 	return &InstallResult{
-		Success:      true,
-		Message:      "Update scheduled. The application will restart shortly.",
-		RestartCmd:   tempScript,
-		NeedsRestart: true,
+		Success:         true,
+		Message:         "Update scheduled. The application will restart shortly.",
+		RestartCmd:      tempScript,
+		NeedsRestart:    true,
+		PreviousVersion: previousVersion,
 	}, nil
 }
 
@@ -130,6 +142,7 @@ func installUnix(newExe, currentExe string) (*InstallResult, error) {
 	// The new binary will be used on next execution.
 
 	backupPath := currentExe + ".old"
+	previousVersion := buildinfo.Version
 
 	// Remove old backup if exists
 	os.Remove(backupPath)
@@ -151,10 +164,17 @@ func installUnix(newExe, currentExe string) (*InstallResult, error) {
 		return nil, fmt.Errorf("failed to set permissions: %w", err)
 	}
 
+	// Save rollback info
+	if err := SaveRollbackInfo(previousVersion); err != nil {
+		// Log but don't fail - rollback is optional
+		fmt.Printf("Warning: failed to save rollback info: %v\n", err)
+	}
+
 	return &InstallResult{
-		Success:      true,
-		Message:      "Update installed successfully. Please restart the application.",
-		NeedsRestart: true,
+		Success:         true,
+		Message:         "Update installed successfully. Please restart the application.",
+		NeedsRestart:    true,
+		PreviousVersion: previousVersion,
 	}, nil
 }
 
