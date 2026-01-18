@@ -116,3 +116,6 @@ build/
 PLAN-*.md
 config-debug.yaml
 .wix/
+test_results.txt
+test_results_full.txt
+tmpclaude-*
