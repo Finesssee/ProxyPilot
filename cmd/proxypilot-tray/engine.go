@@ -40,6 +40,12 @@ type EmbeddedEngine struct {
 
 	// wg waits for the service goroutine to complete.
 	wg sync.WaitGroup
+
+	// panicCount tracks the number of panics for monitoring.
+	panicCount int
+
+	// restartCount tracks the number of automatic restarts.
+	restartCount int
 }
 
 // NewEmbeddedEngine creates a new EmbeddedEngine instance.
@@ -90,10 +96,22 @@ func (e *EmbeddedEngine) Start(cfg *config.Config, configPath, password string) 
 
 	log.Infof("starting embedded proxy engine on port %d", e.port)
 
-	// Run the service in a goroutine
+	// Run the service in a goroutine with panic recovery
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
+		defer func() {
+			// Recover from panics to prevent crashing the tray app
+			if r := recover(); r != nil {
+				e.mu.Lock()
+				e.panicCount++
+				e.running = false
+				e.cancel = nil
+				e.lastError = fmt.Errorf("proxy service panicked: %v", r)
+				e.mu.Unlock()
+				log.Errorf("embedded proxy engine panic recovered: %v", r)
+			}
+		}()
 		defer func() {
 			e.mu.Lock()
 			e.running = false
@@ -114,8 +132,8 @@ func (e *EmbeddedEngine) Start(cfg *config.Config, configPath, password string) 
 	return nil
 }
 
-// Stop cancels the running service and waits for it to shut down.
-// It returns an error if the service is not running.
+// Stop cancels the running service and waits for it to shut down gracefully.
+// It returns an error if the service is not running or if shutdown times out.
 func (e *EmbeddedEngine) Stop() error {
 	e.mu.Lock()
 
@@ -131,10 +149,27 @@ func (e *EmbeddedEngine) Stop() error {
 
 	e.mu.Unlock()
 
-	// Wait for the goroutine to complete
-	e.wg.Wait()
+	// Wait for the goroutine to complete with a timeout
+	done := make(chan struct{})
+	go func() {
+		e.wg.Wait()
+		close(done)
+	}()
 
-	return nil
+	select {
+	case <-done:
+		log.Info("embedded proxy engine stopped gracefully")
+		return nil
+	case <-time.After(10 * time.Second):
+		// Force mark as stopped to prevent deadlock
+		e.mu.Lock()
+		e.running = false
+		e.cancel = nil
+		e.lastError = errors.New("shutdown timed out after 10 seconds")
+		e.mu.Unlock()
+		log.Warn("embedded proxy engine shutdown timed out, forcing stop")
+		return errors.New("shutdown timed out")
+	}
 }
 
 // Restart stops the running service (if any) and starts it again with the new configuration.
@@ -145,6 +180,11 @@ func (e *EmbeddedEngine) Restart(cfg *config.Config, configPath, password string
 			log.Warnf("error stopping engine during restart: %v", err)
 		}
 	}
+
+	// Increment restart counter
+	e.mu.Lock()
+	e.restartCount++
+	e.mu.Unlock()
 
 	// Start with new configuration
 	return e.Start(cfg, configPath, password)
@@ -194,4 +234,28 @@ func (e *EmbeddedEngine) Port() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.port
+}
+
+// PanicCount returns the number of panics that have been recovered.
+func (e *EmbeddedEngine) PanicCount() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.panicCount
+}
+
+// RestartCount returns the number of times the engine has been restarted.
+func (e *EmbeddedEngine) RestartCount() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.restartCount
+}
+
+// Uptime returns the duration the engine has been running, or 0 if not running.
+func (e *EmbeddedEngine) Uptime() time.Duration {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.running || e.startedAt.IsZero() {
+		return 0
+	}
+	return time.Since(e.startedAt)
 }
