@@ -148,6 +148,9 @@ type Config struct {
 	// for providers that don't support native prompt caching.
 	PromptCache PromptCacheConfig `yaml:"prompt-cache" json:"prompt-cache"`
 
+	// Updates configures automatic update checking and installation.
+	Updates UpdatesConfig `yaml:"updates" json:"updates"`
+
 	// IncognitoBrowser enables opening OAuth URLs in incognito/private browsing mode.
 	// This is useful when you want to login with a different account without logging out
 	// from your current session. Default: false.
@@ -358,6 +361,60 @@ func (c *PromptCacheConfig) GetMaxBytes() int64 {
 		return 0
 	}
 	return c.MaxBytes
+}
+
+// UpdatesConfig configures automatic update checking and installation behavior.
+type UpdatesConfig struct {
+	// AutoCheck enables automatic update checking on startup and periodically.
+	// Default: true
+	AutoCheck *bool `yaml:"auto-check,omitempty" json:"auto_check,omitempty"`
+	// CheckIntervalHours is how often to check for updates (in hours).
+	// Default: 24
+	CheckIntervalHours int `yaml:"check-interval-hours,omitempty" json:"check_interval_hours,omitempty"`
+	// AutoDownload enables automatic downloading of updates when found.
+	// When false, only a notification is shown. Default: false
+	AutoDownload bool `yaml:"auto-download,omitempty" json:"auto_download,omitempty"`
+	// AutoInstall enables automatic installation after download completes.
+	// Requires AutoDownload to be true. Default: false
+	AutoInstall bool `yaml:"auto-install,omitempty" json:"auto_install,omitempty"`
+	// NotifyOnUpdate shows a toast notification when an update is available.
+	// Default: true
+	NotifyOnUpdate *bool `yaml:"notify-on-update,omitempty" json:"notify_on_update,omitempty"`
+	// Channel selects the update channel: "stable" or "prerelease".
+	// Default: "stable"
+	Channel string `yaml:"channel,omitempty" json:"channel,omitempty"`
+}
+
+// IsAutoCheckEnabled returns whether auto-check is enabled (default true).
+func (c *UpdatesConfig) IsAutoCheckEnabled() bool {
+	if c.AutoCheck == nil {
+		return true
+	}
+	return *c.AutoCheck
+}
+
+// IsNotifyOnUpdateEnabled returns whether notifications are enabled (default true).
+func (c *UpdatesConfig) IsNotifyOnUpdateEnabled() bool {
+	if c.NotifyOnUpdate == nil {
+		return true
+	}
+	return *c.NotifyOnUpdate
+}
+
+// GetCheckInterval returns the check interval as a time.Duration.
+func (c *UpdatesConfig) GetCheckInterval() time.Duration {
+	if c.CheckIntervalHours <= 0 {
+		return 24 * time.Hour
+	}
+	return time.Duration(c.CheckIntervalHours) * time.Hour
+}
+
+// GetChannel returns the update channel (default "stable").
+func (c *UpdatesConfig) GetChannel() string {
+	if c.Channel == "" {
+		return "stable"
+	}
+	return c.Channel
 }
 
 // GetUsageSampleRate returns the usage sample rate (0.0-1.0), defaulting to 1.0.
