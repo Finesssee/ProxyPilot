@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	vertexauth "github.com/router-for-me/CLIProxyAPI/v6/internal/auth/vertex"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
@@ -30,6 +31,143 @@ const (
 	// vertexAPIVersion aligns with current public Vertex Generative AI API.
 	vertexAPIVersion = "v1"
 )
+
+// isImagenModel checks if the model name is an Imagen image generation model.
+// Imagen models use the :predict action instead of :generateContent.
+func isImagenModel(model string) bool {
+	lowerModel := strings.ToLower(model)
+	return strings.Contains(lowerModel, "imagen")
+}
+
+// getVertexAction returns the appropriate action for the given model.
+// Imagen models use "predict", while Gemini models use "generateContent".
+func getVertexAction(model string, isStream bool) string {
+	if isImagenModel(model) {
+		return "predict"
+	}
+	if isStream {
+		return "streamGenerateContent"
+	}
+	return "generateContent"
+}
+
+// convertImagenToGeminiResponse converts Imagen API response to Gemini format
+// so it can be processed by the standard translation pipeline.
+// This ensures Imagen models return responses in the same format as gemini-3-pro-image-preview.
+func convertImagenToGeminiResponse(data []byte, model string) []byte {
+	predictions := gjson.GetBytes(data, "predictions")
+	if !predictions.Exists() || !predictions.IsArray() {
+		return data
+	}
+
+	// Build Gemini-compatible response with inlineData
+	parts := make([]map[string]any, 0)
+	for _, pred := range predictions.Array() {
+		imageData := pred.Get("bytesBase64Encoded").String()
+		mimeType := pred.Get("mimeType").String()
+		if mimeType == "" {
+			mimeType = "image/png"
+		}
+		if imageData != "" {
+			parts = append(parts, map[string]any{
+				"inlineData": map[string]any{
+					"mimeType": mimeType,
+					"data":     imageData,
+				},
+			})
+		}
+	}
+
+	// Generate unique response ID using timestamp
+	responseId := fmt.Sprintf("imagen-%d", time.Now().UnixNano())
+
+	response := map[string]any{
+		"candidates": []map[string]any{{
+			"content": map[string]any{
+				"parts": parts,
+				"role":  "model",
+			},
+			"finishReason": "STOP",
+		}},
+		"responseId":   responseId,
+		"modelVersion": model,
+		// Imagen API doesn't return token counts, set to 0 for tracking purposes
+		"usageMetadata": map[string]any{
+			"promptTokenCount":     0,
+			"candidatesTokenCount": 0,
+			"totalTokenCount":      0,
+		},
+	}
+
+	result, err := json.Marshal(response)
+	if err != nil {
+		return data
+	}
+	return result
+}
+
+// convertToImagenRequest converts a Gemini-style request to Imagen API format.
+// Imagen API uses a different structure: instances[].prompt instead of contents[].
+func convertToImagenRequest(payload []byte) ([]byte, error) {
+	// Extract prompt from Gemini-style contents
+	prompt := ""
+
+	// Try to get prompt from contents[0].parts[0].text
+	contentsText := gjson.GetBytes(payload, "contents.0.parts.0.text")
+	if contentsText.Exists() {
+		prompt = contentsText.String()
+	}
+
+	// If no contents, try messages format (OpenAI-compatible)
+	if prompt == "" {
+		messagesText := gjson.GetBytes(payload, "messages.#.content")
+		if messagesText.Exists() && messagesText.IsArray() {
+			for _, msg := range messagesText.Array() {
+				if msg.String() != "" {
+					prompt = msg.String()
+					break
+				}
+			}
+		}
+	}
+
+	// If still no prompt, try direct prompt field
+	if prompt == "" {
+		directPrompt := gjson.GetBytes(payload, "prompt")
+		if directPrompt.Exists() {
+			prompt = directPrompt.String()
+		}
+	}
+
+	if prompt == "" {
+		return nil, fmt.Errorf("imagen: no prompt found in request")
+	}
+
+	// Build Imagen API request
+	imagenReq := map[string]any{
+		"instances": []map[string]any{
+			{
+				"prompt": prompt,
+			},
+		},
+		"parameters": map[string]any{
+			"sampleCount": 1,
+		},
+	}
+
+	// Extract optional parameters
+	if aspectRatio := gjson.GetBytes(payload, "aspectRatio"); aspectRatio.Exists() {
+		imagenReq["parameters"].(map[string]any)["aspectRatio"] = aspectRatio.String()
+	}
+	if sampleCount := gjson.GetBytes(payload, "sampleCount"); sampleCount.Exists() {
+		imagenReq["parameters"].(map[string]any)["sampleCount"] = int(sampleCount.Int())
+	}
+	if negativePrompt := gjson.GetBytes(payload, "negativePrompt"); negativePrompt.Exists() {
+		imagenReq["instances"].([]map[string]any)[0]["negativePrompt"] = negativePrompt.String()
+	}
+
+	return json.Marshal(imagenReq)
+}
 
 // GeminiVertexExecutor sends requests to Vertex AI Gemini endpoints using service account credentials.
 type GeminiVertexExecutor struct {
@@ -168,12 +306,23 @@ func (e *GeminiVertexExecutor) executeWithServiceAccount(ctx context.Context, au
 	body = applyPayloadConfig(e.cfg, req.Model, body)
 	body, _ = sjson.SetBytes(body, "model", upstreamModel)
 
-	action := "generateContent"
+	// Determine action based on model type
+	action := getVertexAction(upstreamModel, false)
 	if req.Metadata != nil {
 		if a, _ := req.Metadata["action"].(string); a == "countTokens" {
 			action = "countTokens"
 		}
 	}
+
+	// Convert request format for Imagen models
+	if isImagenModel(upstreamModel) {
+		var err error
+		body, err = convertToImagenRequest(body)
+		if err != nil {
+			return resp, statusErr{code: 400, msg: err.Error()}
+		}
+	}
+
 	baseURL := vertexBaseURL(location)
 	url := fmt.Sprintf("%s/%s/projects/%s/locations/%s/publishers/google/models/%s:%s", baseURL, vertexAPIVersion, projectID, location, upstreamModel, action)
 	if opts.Alt != "" && action != "countTokens" {
@@ -236,6 +385,10 @@ func (e *GeminiVertexExecutor) executeWithServiceAccount(ctx context.Context, au
 		recordAPIResponseError(ctx, e.cfg, errRead)
 		return resp, errRead
 	}
+	// Convert Imagen response to Gemini format for uniform translation pipeline
+	if isImagenModel(upstreamModel) {
+		data = convertImagenToGeminiResponse(data, upstreamModel)
+	}
 	appendAPIResponseChunk(ctx, e.cfg, data)
 	reporter.publish(ctx, parseGeminiUsage(data))
 	var param any
@@ -268,10 +421,20 @@ func (e *GeminiVertexExecutor) executeWithAPIKey(ctx context.Context, auth *clip
 	body = applyPayloadConfig(e.cfg, req.Model, body)
 	body, _ = sjson.SetBytes(body, "model", upstreamModel)
 
-	action := "generateContent"
+	// Determine action based on model type
+	action := getVertexAction(upstreamModel, false)
 	if req.Metadata != nil {
 		if a, _ := req.Metadata["action"].(string); a == "countTokens" {
 			action = "countTokens"
+		}
+	}
+
+	// Convert request format for Imagen models
+	if isImagenModel(upstreamModel) {
+		var err error
+		body, err = convertToImagenRequest(body)
+		if err != nil {
+			return resp, statusErr{code: 400, msg: err.Error()}
 		}
 	}
 
@@ -347,6 +510,10 @@ func (e *GeminiVertexExecutor) executeWithAPIKey(ctx context.Context, auth *clip
 	if errRead != nil {
 		recordAPIResponseError(ctx, e.cfg, errRead)
 		return resp, errRead
+	}
+	// Convert Imagen response to Gemini format for uniform translation pipeline
+	if isImagenModel(upstreamModel) {
+		data = convertImagenToGeminiResponse(data, upstreamModel)
 	}
 	appendAPIResponseChunk(ctx, e.cfg, data)
 	reporter.publish(ctx, parseGeminiUsage(data))

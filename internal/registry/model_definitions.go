@@ -140,9 +140,75 @@ func GetGeminiModels() []*ModelInfo {
 	}
 }
 
-// GetGeminiVertexModels returns GetGeminiModels - consolidated
+// GetGeminiVertexModels returns Gemini and Imagen models for Vertex AI
 func GetGeminiVertexModels() []*ModelInfo {
-	return GetGeminiModels()
+	// Start with base Gemini models
+	models := GetGeminiModels()
+
+	// Add Imagen image generation models for Vertex AI
+	imagenModels := []*ModelInfo{
+		{
+			ID:                         "imagen-4.0-generate-001",
+			Object:                     "model",
+			Created:                    1750000000,
+			OwnedBy:                    "google",
+			Type:                       "gemini",
+			Name:                       "models/imagen-4.0-generate-001",
+			Version:                    "4.0",
+			DisplayName:                "Imagen 4.0 Generate",
+			Description:                "Imagen 4.0 image generation model",
+			SupportedGenerationMethods: []string{"predict"},
+		},
+		{
+			ID:                         "imagen-4.0-ultra-generate-001",
+			Object:                     "model",
+			Created:                    1750000000,
+			OwnedBy:                    "google",
+			Type:                       "gemini",
+			Name:                       "models/imagen-4.0-ultra-generate-001",
+			Version:                    "4.0",
+			DisplayName:                "Imagen 4.0 Ultra Generate",
+			Description:                "Imagen 4.0 Ultra high-quality image generation model",
+			SupportedGenerationMethods: []string{"predict"},
+		},
+		{
+			ID:                         "imagen-4.0-fast-generate-001",
+			Object:                     "model",
+			Created:                    1750000000,
+			OwnedBy:                    "google",
+			Type:                       "gemini",
+			Name:                       "models/imagen-4.0-fast-generate-001",
+			Version:                    "4.0",
+			DisplayName:                "Imagen 4.0 Fast Generate",
+			Description:                "Imagen 4.0 fast image generation model",
+			SupportedGenerationMethods: []string{"predict"},
+		},
+		{
+			ID:                         "imagen-3.0-generate-002",
+			Object:                     "model",
+			Created:                    1740000000,
+			OwnedBy:                    "google",
+			Type:                       "gemini",
+			Name:                       "models/imagen-3.0-generate-002",
+			Version:                    "3.0",
+			DisplayName:                "Imagen 3.0 Generate",
+			Description:                "Imagen 3.0 image generation model",
+			SupportedGenerationMethods: []string{"predict"},
+		},
+		{
+			ID:                         "imagen-3.0-fast-generate-001",
+			Object:                     "model",
+			Created:                    1740000000,
+			OwnedBy:                    "google",
+			Type:                       "gemini",
+			Name:                       "models/imagen-3.0-fast-generate-001",
+			Version:                    "3.0",
+			DisplayName:                "Imagen 3.0 Fast Generate",
+			Description:                "Imagen 3.0 fast image generation model",
+			SupportedGenerationMethods: []string{"predict"},
+		},
+	}
+	return append(models, imagenModels...)
 }
 
 // GetGeminiCLIModels returns GetGeminiModels - consolidated
