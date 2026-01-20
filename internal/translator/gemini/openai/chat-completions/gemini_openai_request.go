@@ -136,7 +136,6 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 
 	// messages -> systemInstruction + contents
 	messages := gjson.GetBytes(rawJSON, "messages")
-	systemPartIndex := 0 // Track system instruction parts across multiple system/developer messages
 	if messages.IsArray() {
 		arr := messages.Array()
 		// First pass: assistant tool_calls id->name map
@@ -173,6 +172,7 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 			}
 		}
 
+		systemPartIndex := 0
 		for i := 0; i < len(arr); i++ {
 			m := arr[i]
 			role := m.Get("role").String()
