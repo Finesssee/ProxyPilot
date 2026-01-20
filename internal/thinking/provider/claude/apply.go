@@ -79,7 +79,52 @@ func (a *Applier) Apply(body []byte, config thinking.ThinkingConfig, modelInfo *
 
 	result, _ := sjson.SetBytes(body, "thinking.type", "enabled")
 	result, _ = sjson.SetBytes(result, "thinking.budget_tokens", config.Budget)
+
+	// Ensure max_tokens > thinking.budget_tokens (Anthropic API constraint)
+	result = a.normalizeClaudeBudget(result, config.Budget, modelInfo)
 	return result, nil
+}
+
+// normalizeClaudeBudget applies Claude-specific constraints to ensure max_tokens > budget_tokens.
+// Anthropic API requires this constraint; violating it returns a 400 error.
+func (a *Applier) normalizeClaudeBudget(body []byte, budgetTokens int, modelInfo *registry.ModelInfo) []byte {
+	if budgetTokens <= 0 {
+		return body
+	}
+
+	effectiveMax, setDefaultMax := a.effectiveMaxTokens(body, modelInfo)
+	if effectiveMax > 0 && effectiveMax > budgetTokens {
+		if setDefaultMax {
+			body, _ = sjson.SetBytes(body, "max_tokens", effectiveMax)
+		}
+		return body
+	}
+
+	// Fall back to budget + buffer if no effective max or max <= budget
+	const fallbackBuffer = 4000
+	requiredMaxTokens := budgetTokens + fallbackBuffer
+	if effectiveMax > 0 && effectiveMax > requiredMaxTokens {
+		requiredMaxTokens = effectiveMax
+	}
+
+	currentMax := gjson.GetBytes(body, "max_tokens").Int()
+	if currentMax < int64(requiredMaxTokens) {
+		body, _ = sjson.SetBytes(body, "max_tokens", requiredMaxTokens)
+	}
+	return body
+}
+
+// effectiveMaxTokens returns the max tokens to cap thinking:
+// prefer request-provided max_tokens; otherwise fall back to model default.
+// The boolean indicates whether the value came from the model default (and thus should be written back).
+func (a *Applier) effectiveMaxTokens(body []byte, modelInfo *registry.ModelInfo) (max int, fromModel bool) {
+	if maxTok := gjson.GetBytes(body, "max_tokens"); maxTok.Exists() && maxTok.Int() > 0 {
+		return int(maxTok.Int()), false
+	}
+	if modelInfo != nil && modelInfo.MaxCompletionTokens > 0 {
+		return modelInfo.MaxCompletionTokens, true
+	}
+	return 0, false
 }
 
 func applyCompatibleClaude(body []byte, config thinking.ThinkingConfig) ([]byte, error) {

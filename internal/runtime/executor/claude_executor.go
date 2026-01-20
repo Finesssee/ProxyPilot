@@ -17,7 +17,6 @@ import (
 	claudeauth "github.com/router-for-me/CLIProxyAPI/v6/internal/auth/claude"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
@@ -116,9 +115,6 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 
 	// Disable thinking if tool_choice forces tool use (Anthropic API constraint)
 	body = disableThinkingIfToolChoiceForced(body)
-
-	// Ensure max_tokens > thinking.budget_tokens when thinking is enabled
-	body = ensureMaxTokensForThinking(req.Model, body)
 
 	// Claude Messages API requires that all tool_result blocks corresponding to an assistant
 	// tool_use turn appear in the immediately following message. Some clients provide multiple
@@ -235,9 +231,6 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 
 	// Disable thinking if tool_choice forces tool use (Anthropic API constraint)
 	body = disableThinkingIfToolChoiceForced(body)
-
-	// Ensure max_tokens > thinking.budget_tokens when thinking is enabled
-	body = ensureMaxTokensForThinking(req.Model, body)
 
 	// Claude Messages API tool_result adjacency normalization (see Execute).
 	body = util.NormalizeClaudeToolResults(body)
@@ -441,42 +434,6 @@ func disableThinkingIfToolChoiceForced(body []byte) []byte {
 	if toolChoiceType == "any" || toolChoiceType == "tool" {
 		// Remove thinking configuration entirely to avoid API error
 		body, _ = sjson.DeleteBytes(body, "thinking")
-	}
-	return body
-}
-
-// ensureMaxTokensForThinking ensures max_tokens > thinking.budget_tokens when thinking is enabled.
-// Anthropic API requires this constraint; violating it returns a 400 error.
-// This function should be called after all thinking configuration is finalized.
-// It looks up the model's MaxCompletionTokens from the registry to use as the cap.
-func ensureMaxTokensForThinking(modelName string, body []byte) []byte {
-	thinkingType := gjson.GetBytes(body, "thinking.type").String()
-	if thinkingType != "enabled" {
-		return body
-	}
-
-	budgetTokens := gjson.GetBytes(body, "thinking.budget_tokens").Int()
-	if budgetTokens <= 0 {
-		return body
-	}
-
-	maxTokens := gjson.GetBytes(body, "max_tokens").Int()
-
-	// Look up the model's max completion tokens from the registry
-	maxCompletionTokens := 0
-	if modelInfo := registry.GetGlobalRegistry().GetModelInfo(modelName); modelInfo != nil {
-		maxCompletionTokens = modelInfo.MaxCompletionTokens
-	}
-
-	// Fall back to budget + buffer if registry lookup fails or returns 0
-	const fallbackBuffer = 4000
-	requiredMaxTokens := budgetTokens + fallbackBuffer
-	if maxCompletionTokens > 0 {
-		requiredMaxTokens = int64(maxCompletionTokens)
-	}
-
-	if maxTokens < requiredMaxTokens {
-		body, _ = sjson.SetBytes(body, "max_tokens", requiredMaxTokens)
 	}
 	return body
 }
