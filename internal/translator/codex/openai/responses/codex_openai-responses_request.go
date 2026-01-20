@@ -11,6 +11,8 @@ import (
 
 func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte, _ bool) []byte {
 	rawJSON := bytes.Clone(inputRawJSON)
+	userAgent := misc.ExtractCodexUserAgent(rawJSON)
+	rawJSON = misc.StripCodexUserAgent(rawJSON)
 
 	rawJSON, _ = sjson.SetBytes(rawJSON, "stream", true)
 	rawJSON, _ = sjson.SetBytes(rawJSON, "store", false)
@@ -32,8 +34,8 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 	// The chatgpt.com Codex backend requires a specific instruction prefix (Codex CLI prompt).
 	// Always provide the official Codex instructions for the target model, and move any caller
 	// instructions into a system message in the conversation history.
-	_, official := misc.CodexInstructionsForModel(modelName, "")
-	rawJSON, _ = sjson.SetBytes(rawJSON, "instructions", official)
+	hasOfficialInstructions, instructions := misc.CodexInstructionsForModel(modelName, originalInstructionsResult.String(), userAgent)
+	rawJSON, _ = sjson.SetBytes(rawJSON, "instructions", instructions)
 
 	inputResult := gjson.GetBytes(rawJSON, "input")
 	var inputResults []gjson.Result
@@ -51,7 +53,8 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 
 	// Preserve caller instructions by converting them into an explicit leading user message inside "input".
 	// Note: Codex backend rejects role=system in input ("System messages are not allowed").
-	if strings.TrimSpace(originalInstructionsText) != "" {
+	// Only add the original instructions if we replaced them with official instructions.
+	if !hasOfficialInstructions && strings.TrimSpace(originalInstructionsText) != "" {
 		sys := `{"type":"message","role":"user","content":[{"type":"input_text","text":""}]}`
 		sys, _ = sjson.Set(sys, "content.0.text", originalInstructionsText)
 

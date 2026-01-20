@@ -6,12 +6,92 @@ package misc
 import (
 	"embed"
 	"strings"
+	"sync/atomic"
+
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
+
+// codexInstructionsEnabled controls whether CodexInstructionsForModel returns custom instructions.
+// When false (default), CodexInstructionsForModel returns (true, "") immediately.
+// Set via SetCodexInstructionsEnabled from config.
+var codexInstructionsEnabled atomic.Bool
+
+// SetCodexInstructionsEnabled sets whether codex instructions processing is enabled.
+func SetCodexInstructionsEnabled(enabled bool) {
+	codexInstructionsEnabled.Store(enabled)
+}
+
+// GetCodexInstructionsEnabled returns whether codex instructions processing is enabled.
+func GetCodexInstructionsEnabled() bool {
+	return codexInstructionsEnabled.Load()
+}
 
 //go:embed codex_instructions
 var codexInstructionsDir embed.FS
 
-func CodexInstructionsForModel(modelName, systemInstructions string) (bool, string) {
+//go:embed opencode_codex_instructions.txt
+var opencodeCodexInstructions string
+
+const (
+	codexUserAgentKey  = "__cpa_user_agent"
+	userAgentOpenAISDK = "ai-sdk/openai/"
+)
+
+// InjectCodexUserAgent injects the user agent into the request payload for later extraction.
+func InjectCodexUserAgent(raw []byte, userAgent string) []byte {
+	if len(raw) == 0 {
+		return raw
+	}
+	trimmed := strings.TrimSpace(userAgent)
+	if trimmed == "" {
+		return raw
+	}
+	updated, err := sjson.SetBytes(raw, codexUserAgentKey, trimmed)
+	if err != nil {
+		return raw
+	}
+	return updated
+}
+
+// ExtractCodexUserAgent extracts the user agent from the request payload.
+func ExtractCodexUserAgent(raw []byte) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(gjson.GetBytes(raw, codexUserAgentKey).String())
+}
+
+// StripCodexUserAgent removes the user agent from the request payload.
+func StripCodexUserAgent(raw []byte) []byte {
+	if len(raw) == 0 {
+		return raw
+	}
+	if !gjson.GetBytes(raw, codexUserAgentKey).Exists() {
+		return raw
+	}
+	updated, err := sjson.DeleteBytes(raw, codexUserAgentKey)
+	if err != nil {
+		return raw
+	}
+	return updated
+}
+
+func codexInstructionsForOpenCode(systemInstructions string) (bool, string) {
+	if opencodeCodexInstructions == "" {
+		return false, ""
+	}
+	if strings.HasPrefix(systemInstructions, opencodeCodexInstructions) {
+		return true, ""
+	}
+	return false, opencodeCodexInstructions
+}
+
+func useOpenCodeInstructions(userAgent string) bool {
+	return strings.Contains(strings.ToLower(userAgent), userAgentOpenAISDK)
+}
+
+func codexInstructionsForCodex(modelName, systemInstructions string) (bool, string) {
 	entries, _ := codexInstructionsDir.ReadDir("codex_instructions")
 
 	lastPrompt := ""
@@ -52,4 +132,17 @@ func CodexInstructionsForModel(modelName, systemInstructions string) (bool, stri
 	} else {
 		return false, lastPrompt
 	}
+}
+
+// CodexInstructionsForModel returns the appropriate instructions for the given model and user agent.
+// For OpenCode clients (identified by user agent), it returns OpenCode-specific instructions.
+// For Codex clients, it returns the standard Codex instructions based on model name.
+func CodexInstructionsForModel(modelName, systemInstructions, userAgent string) (bool, string) {
+	if !GetCodexInstructionsEnabled() {
+		return true, ""
+	}
+	if useOpenCodeInstructions(userAgent) {
+		return codexInstructionsForOpenCode(systemInstructions)
+	}
+	return codexInstructionsForCodex(modelName, systemInstructions)
 }

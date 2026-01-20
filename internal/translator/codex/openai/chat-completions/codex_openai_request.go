@@ -31,6 +31,7 @@ import (
 //   - []byte: The transformed request data in OpenAI Responses API format
 func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream bool) []byte {
 	rawJSON := bytes.Clone(inputRawJSON)
+	userAgent := misc.ExtractCodexUserAgent(rawJSON)
 	// Start with empty JSON object
 	out := `{}`
 
@@ -68,7 +69,7 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 
 	// The chatgpt.com Codex backend requires a specific instruction prefix (Codex CLI prompt).
 	// Always provide the official Codex instructions for the target model.
-	_, official := misc.CodexInstructionsForModel(modelName, "")
+	_, official := misc.CodexInstructionsForModel(modelName, "", userAgent)
 	out, _ = sjson.Set(out, "instructions", official)
 
 	// Model

@@ -94,7 +94,10 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 
 	from := opts.SourceFormat
 	to := sdktranslator.FromString("codex")
-	body := sdktranslator.TranslateRequest(from, to, req.Model, bytes.Clone(req.Payload), false)
+	userAgent := codexUserAgent(ctx)
+	body := misc.InjectCodexUserAgent(bytes.Clone(req.Payload), userAgent)
+	body = sdktranslator.TranslateRequest(from, to, req.Model, body, false)
+	body = misc.StripCodexUserAgent(body)
 	body = ApplyReasoningEffortMetadata(body, req.Metadata, req.Model, "reasoning.effort", false)
 	body = NormalizeThinkingConfig(body, upstreamModel, false)
 	if errValidate := ValidateThinkingConfig(body, upstreamModel); errValidate != nil {
@@ -204,7 +207,10 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 
 	from := opts.SourceFormat
 	to := sdktranslator.FromString("codex")
-	body := sdktranslator.TranslateRequest(from, to, req.Model, bytes.Clone(req.Payload), true)
+	userAgent := codexUserAgent(ctx)
+	body := misc.InjectCodexUserAgent(bytes.Clone(req.Payload), userAgent)
+	body = sdktranslator.TranslateRequest(from, to, req.Model, body, true)
+	body = misc.StripCodexUserAgent(body)
 
 	body = ApplyReasoningEffortMetadata(body, req.Metadata, req.Model, "reasoning.effort", false)
 	body = NormalizeThinkingConfig(body, upstreamModel, false)
@@ -317,7 +323,10 @@ func (e *CodexExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth
 
 	from := opts.SourceFormat
 	to := sdktranslator.FromString("codex")
-	body := sdktranslator.TranslateRequest(from, to, req.Model, bytes.Clone(req.Payload), false)
+	userAgent := codexUserAgent(ctx)
+	body := misc.InjectCodexUserAgent(bytes.Clone(req.Payload), userAgent)
+	body = sdktranslator.TranslateRequest(from, to, req.Model, body, false)
+	body = misc.StripCodexUserAgent(body)
 
 	modelForCounting := upstreamModel
 
@@ -582,6 +591,16 @@ func applyCodexHeaders(r *http.Request, auth *cliproxyauth.Auth, token string) {
 		attrs = auth.Attributes
 	}
 	util.ApplyCustomHeadersFromAttrs(r, attrs)
+}
+
+func codexUserAgent(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil && ginCtx.Request != nil {
+		return strings.TrimSpace(ginCtx.Request.UserAgent())
+	}
+	return ""
 }
 
 func codexCreds(a *cliproxyauth.Auth) (apiKey, baseURL string) {

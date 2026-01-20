@@ -6,6 +6,7 @@ package config
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 )
@@ -95,6 +97,11 @@ type Config struct {
 
 	// WebsocketAuth enables or disables authentication for the WebSocket API.
 	WebsocketAuth bool `yaml:"ws-auth" json:"ws-auth"`
+
+	// CodexInstructionsEnabled controls whether custom Codex instructions are injected.
+	// When false (default), CodexInstructionsForModel returns immediately without modification.
+	// When true, the original instruction injection logic is used.
+	CodexInstructionsEnabled bool `yaml:"codex-instructions-enabled" json:"codex-instructions-enabled"`
 
 	// AllowUnauthenticated allows requests without API keys when true.
 	// Default: false (deny unauthenticated).
@@ -230,8 +237,12 @@ func (m *GlobalModelMapping) IsEnabled() bool {
 type PayloadConfig struct {
 	// Default defines rules that only set parameters when they are missing in the payload.
 	Default []PayloadRule `yaml:"default" json:"default"`
+	// DefaultRaw defines rules that set raw JSON values only when they are missing.
+	DefaultRaw []PayloadRule `yaml:"default-raw" json:"default-raw"`
 	// Override defines rules that always set parameters, overwriting any existing values.
 	Override []PayloadRule `yaml:"override" json:"override"`
+	// OverrideRaw defines rules that always set raw JSON values, overwriting any existing values.
+	OverrideRaw []PayloadRule `yaml:"override-raw" json:"override-raw"`
 }
 
 // PayloadRule describes a single rule targeting a list of models with parameter updates.
@@ -239,6 +250,7 @@ type PayloadRule struct {
 	// Models lists model entries with name pattern and protocol constraint.
 	Models []PayloadModelRule `yaml:"models" json:"models"`
 	// Params maps JSON paths (gjson/sjson syntax) to values written into the payload.
+	// For *-raw rules, values are treated as raw JSON fragments (strings are used as-is).
 	Params map[string]any `yaml:"params" json:"params"`
 }
 
@@ -497,6 +509,25 @@ func (c *ThinkingBudgetConfig) IsEnabled() bool {
 	return *c.Enabled
 }
 
+// CloakConfig configures request cloaking for non-Claude-Code clients.
+// Cloaking disguises API requests to appear as originating from the official Claude Code CLI.
+type CloakConfig struct {
+	// Mode controls cloaking behavior: "auto" (default), "always", or "never".
+	// - "auto": cloak only when client is not Claude Code (based on User-Agent)
+	// - "always": always apply cloaking regardless of client
+	// - "never": never apply cloaking
+	Mode string `yaml:"mode,omitempty" json:"mode,omitempty"`
+
+	// StrictMode controls how system prompts are handled when cloaking.
+	// - false (default): prepend Claude Code prompt to user system messages
+	// - true: strip all user system messages, keep only Claude Code prompt
+	StrictMode bool `yaml:"strict-mode,omitempty" json:"strict-mode,omitempty"`
+
+	// SensitiveWords is a list of words to obfuscate with zero-width characters.
+	// This can help bypass certain content filters.
+	SensitiveWords []string `yaml:"sensitive-words,omitempty" json:"sensitive-words,omitempty"`
+}
+
 // ClaudeKey represents the configuration for a Claude API key,
 // including the API key itself and an optional base URL for the API endpoint.
 type ClaudeKey struct {
@@ -521,6 +552,9 @@ type ClaudeKey struct {
 
 	// ExcludedModels lists model IDs that should be excluded for this provider.
 	ExcludedModels []string `yaml:"excluded-models,omitempty" json:"excluded-models,omitempty"`
+
+	// Cloak configures request cloaking for this API key.
+	Cloak *CloakConfig `yaml:"cloak,omitempty" json:"cloak,omitempty"`
 }
 
 // ClaudeModel describes a mapping between an alias and the actual upstream model name.
@@ -762,6 +796,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 
 	// Normalize OAuth provider model exclusion map.
 	cfg.OAuthExcludedModels = NormalizeOAuthExcludedModels(cfg.OAuthExcludedModels)
+
+	// Validate raw payload rules and drop invalid entries.
+	cfg.SanitizePayloadRules()
 
 	if cfg.legacyMigrationPending {
 		fmt.Println("Detected legacy configuration keys, attempting to persist the normalized config...")
@@ -1024,6 +1061,61 @@ func NormalizeOAuthExcludedModels(entries map[string][]string) map[string][]stri
 		return nil
 	}
 	return out
+}
+
+// SanitizePayloadRules validates raw JSON payload rule params and drops invalid rules.
+func (cfg *Config) SanitizePayloadRules() {
+	if cfg == nil {
+		return
+	}
+	cfg.Payload.DefaultRaw = sanitizePayloadRawRules(cfg.Payload.DefaultRaw, "default-raw")
+	cfg.Payload.OverrideRaw = sanitizePayloadRawRules(cfg.Payload.OverrideRaw, "override-raw")
+}
+
+func sanitizePayloadRawRules(rules []PayloadRule, section string) []PayloadRule {
+	if len(rules) == 0 {
+		return rules
+	}
+	out := make([]PayloadRule, 0, len(rules))
+	for i := range rules {
+		rule := rules[i]
+		if len(rule.Params) == 0 {
+			continue
+		}
+		invalid := false
+		for path, value := range rule.Params {
+			raw, ok := payloadRawString(value)
+			if !ok {
+				continue
+			}
+			trimmed := bytes.TrimSpace(raw)
+			if len(trimmed) == 0 || !json.Valid(trimmed) {
+				log.WithFields(log.Fields{
+					"section":    section,
+					"rule_index": i + 1,
+					"param":      path,
+				}).Warn("payload rule dropped: invalid raw JSON")
+				invalid = true
+				break
+			}
+		}
+		if invalid {
+			continue
+		}
+		out = append(out, rule)
+	}
+	return out
+}
+
+func payloadRawString(value any) ([]byte, bool) {
+	switch typed := value.(type) {
+	case string:
+		return []byte(typed), true
+	case []byte:
+		return typed, true
+	default:
+		return nil, false
+	}
 }
 
 // LookupGlobalModelMapping returns the mapped model name if a global mapping exists for the given model.

@@ -99,6 +99,13 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 		out, _ = sjson.SetBytes(out, "generationConfig.topK", tkr.Num)
 	}
 
+	// Candidate count (OpenAI 'n' parameter)
+	if n := gjson.GetBytes(rawJSON, "n"); n.Exists() && n.Type == gjson.Number {
+		if val := n.Int(); val > 1 {
+			out, _ = sjson.SetBytes(out, "generationConfig.candidateCount", val)
+		}
+	}
+
 	// Map OpenAI modalities -> Gemini generationConfig.responseModalities
 	// e.g. "modalities": ["image", "text"] -> ["IMAGE", "TEXT"]
 	if mods := gjson.GetBytes(rawJSON, "modalities"); mods.Exists() && mods.IsArray() {
@@ -129,7 +136,6 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 
 	// messages -> systemInstruction + contents
 	messages := gjson.GetBytes(rawJSON, "messages")
-	systemPartIndex := 0 // Track system instruction parts across multiple system/developer messages
 	if messages.IsArray() {
 		arr := messages.Array()
 		// First pass: assistant tool_calls id->name map
@@ -166,6 +172,7 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 			}
 		}
 
+		systemPartIndex := 0
 		for i := 0; i < len(arr); i++ {
 			m := arr[i]
 			role := m.Get("role").String()
