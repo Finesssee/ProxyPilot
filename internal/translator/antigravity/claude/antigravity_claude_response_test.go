@@ -97,6 +97,7 @@ func TestConvertAntigravityResponseToClaude_SignatureCached(t *testing.T) {
 	cache.ClearSignatureCache("")
 
 	requestJSON := []byte(`{
+		"model": "claude-sonnet-4-5-thinking",
 		"messages": [{"role": "user", "content": [{"type": "text", "text": "Cache test"}]}]
 	}`)
 
@@ -143,7 +144,7 @@ func TestConvertAntigravityResponseToClaude_SignatureCached(t *testing.T) {
 	ConvertAntigravityResponseToClaude(ctx, "claude-sonnet-4-5-thinking", requestJSON, requestJSON, signatureChunk, &param)
 
 	// Verify signature was cached
-	cachedSig := cache.GetCachedSignature(sessionID, thinkingText)
+	cachedSig := cache.GetCachedSignature("claude-sonnet-4-5-thinking", sessionID, thinkingText)
 	if cachedSig != validSignature {
 		t.Errorf("Expected cached signature '%s', got '%s'", validSignature, cachedSig)
 	}
@@ -158,6 +159,7 @@ func TestConvertAntigravityResponseToClaude_MultipleThinkingBlocks(t *testing.T)
 	cache.ClearSignatureCache("")
 
 	requestJSON := []byte(`{
+		"model": "claude-sonnet-4-5-thinking",
 		"messages": [{"role": "user", "content": [{"type": "text", "text": "Multi block test"}]}]
 	}`)
 
@@ -227,7 +229,7 @@ func TestConvertAntigravityResponseToClaude_MultipleThinkingBlocks(t *testing.T)
 	ConvertAntigravityResponseToClaude(ctx, "claude-sonnet-4-5-thinking", requestJSON, requestJSON, block1Sig, &param)
 
 	// Verify first signature cached
-	if cache.GetCachedSignature(sessionID, firstThinkingText) != validSig1 {
+	if cache.GetCachedSignature("claude-sonnet-4-5-thinking", sessionID, firstThinkingText) != validSig1 {
 		t.Error("First thinking block signature should be cached")
 	}
 
@@ -241,7 +243,7 @@ func TestConvertAntigravityResponseToClaude_MultipleThinkingBlocks(t *testing.T)
 	ConvertAntigravityResponseToClaude(ctx, "claude-sonnet-4-5-thinking", requestJSON, requestJSON, block2Sig, &param)
 
 	// Verify second signature cached
-	if cache.GetCachedSignature(sessionID, secondThinkingText) != validSig2 {
+	if cache.GetCachedSignature("claude-sonnet-4-5-thinking", sessionID, secondThinkingText) != validSig2 {
 		t.Error("Second thinking block signature should be cached")
 	}
 }

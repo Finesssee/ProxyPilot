@@ -15,7 +15,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/thinking"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/translator/gemini/common"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
-	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -70,6 +69,7 @@ func deriveSessionID(rawJSON []byte) string {
 // Returns:
 //   - []byte: The transformed request data in Gemini CLI API format
 func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ bool) []byte {
+	enableThoughtTranslate := true
 	rawJSON := bytes.Clone(inputRawJSON)
 
 	// Derive session ID for signature caching
@@ -138,17 +138,29 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 						// Client may send stale or invalid signatures from different sessions
 						signature := ""
 						if sessionID != "" && thinkingText != "" {
-							if cachedSig := cache.GetCachedSignature(sessionID, thinkingText); cachedSig != "" {
+							if cachedSig := cache.GetCachedSignature(modelName, sessionID, thinkingText); cachedSig != "" {
 								signature = cachedSig
 								// log.Debugf("Using cached signature for thinking block")
 							}
 						}
 
-						// NOTE: We do NOT fallback to client signature anymore.
-						// Client signatures from Claude models are incompatible with Antigravity/Gemini API.
-						// When switching between models (e.g., Claude Opus -> Gemini Flash), the Claude
-						// signatures will cause "Corrupted thought signature" errors.
-						// If we have no cached signature, the thinking block will be skipped below.
+						// Fallback to client signature only if cache miss and client signature is valid
+						if signature == "" {
+							signatureResult := contentResult.Get("signature")
+							clientSignature := ""
+							if signatureResult.Exists() && signatureResult.String() != "" {
+								arrayClientSignatures := strings.SplitN(signatureResult.String(), "#", 2)
+								if len(arrayClientSignatures) == 2 {
+									if modelName == arrayClientSignatures[0] {
+										clientSignature = arrayClientSignatures[1]
+									}
+								}
+							}
+							if cache.HasValidSignature(clientSignature) {
+								signature = clientSignature
+							}
+							// log.Debugf("Using client-provided signature for thinking block")
+						}
 
 						// Store for subsequent tool_use in the same message
 						if cache.HasValidSignature(signature) {
@@ -162,8 +174,8 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 						// Claude requires assistant messages to start with thinking blocks when thinking is enabled
 						// Converting to text would break this requirement
 						if isUnsigned {
-							// TypeScript plugin approach: drop unsigned thinking blocks entirely
-							log.Debugf("Dropping unsigned thinking block (no valid signature)")
+							// log.Debugf("Dropping unsigned thinking block (no valid signature)")
+							enableThoughtTranslate = false
 							continue
 						}
 
@@ -391,8 +403,8 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 		out, _ = sjson.SetRaw(out, "request.tools", toolsJSON)
 	}
 
-	// Map Anthropic thinking -> Gemini thinkingBudget/includeThoughts when type==enabled
-	if t := gjson.GetBytes(rawJSON, "thinking"); t.Exists() && t.IsObject() && util.ModelSupportsThinking(modelName) {
+	// Map Anthropic thinking -> Gemini thinkingBudget/include_thoughts when type==enabled
+	if t := gjson.GetBytes(rawJSON, "thinking"); enableThoughtTranslate && t.Exists() && t.IsObject() {
 		if t.Get("type").String() == "enabled" {
 			if b := t.Get("budget_tokens"); b.Exists() && b.Type == gjson.Number {
 				budget := int(b.Int())

@@ -79,7 +79,7 @@ func TestMemoryLeak_SignatureCache(t *testing.T) {
 		for j := 0; j < 50; j++ {
 			text := fmt.Sprintf("%s-text-%d", sigText, j)
 			signature := fmt.Sprintf("%s-sig-%d", sig, j)
-			cache.CacheSignature(sessionID, text, signature)
+			cache.CacheSignature("test-model", sessionID, text, signature)
 		}
 	}
 

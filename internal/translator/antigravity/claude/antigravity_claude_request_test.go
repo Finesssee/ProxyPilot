@@ -92,7 +92,7 @@ func TestConvertClaudeRequestToAntigravity_ThinkingBlocks(t *testing.T) {
 
 	// Cache the signature - only cached signatures are used now (not client signatures)
 	sessionID := deriveSessionID(inputJSON)
-	cache.CacheSignature(sessionID, "Let me think...", validSignature)
+	cache.CacheSignature("claude-sonnet-4-5-thinking", sessionID, "Let me think...", validSignature)
 	defer cache.ClearSignatureCache(sessionID)
 
 	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
@@ -131,7 +131,7 @@ func TestConvertClaudeRequestToAntigravity_ThinkingSignatureUsesCached(t *testin
 	}`)
 
 	sessionID := deriveSessionID(inputJSON)
-	cache.CacheSignature(sessionID, "Let me think...", cachedSignature)
+	cache.CacheSignature("claude-sonnet-4-5-thinking", sessionID, "Let me think...", cachedSignature)
 	defer cache.ClearSignatureCache(sessionID)
 
 	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
@@ -288,7 +288,7 @@ func TestConvertClaudeRequestToAntigravity_ToolUse_WithSignature(t *testing.T) {
 
 	// Cache the signature - only cached signatures are used now
 	sessionID := deriveSessionID(inputJSON)
-	cache.CacheSignature(sessionID, "Let me think...", validSignature)
+	cache.CacheSignature("claude-sonnet-4-5-thinking", sessionID, "Let me think...", validSignature)
 	defer cache.ClearSignatureCache(sessionID)
 
 	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
@@ -324,7 +324,7 @@ func TestConvertClaudeRequestToAntigravity_ReorderThinking(t *testing.T) {
 
 	// Cache the signature - only cached signatures are used now
 	sessionID := deriveSessionID(inputJSON)
-	cache.CacheSignature(sessionID, "Planning...", validSignature)
+	cache.CacheSignature("claude-sonnet-4-5-thinking", sessionID, "Planning...", validSignature)
 	defer cache.ClearSignatureCache(sessionID)
 
 	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
@@ -534,7 +534,7 @@ func TestConvertClaudeRequestToAntigravity_TrailingSignedThinking_Kept(t *testin
 
 	// Cache the signature - only cached signatures are used now
 	sessionID := deriveSessionID(inputJSON)
-	cache.CacheSignature(sessionID, "Valid thinking...", validSignature)
+	cache.CacheSignature("claude-sonnet-4-5-thinking", sessionID, "Valid thinking...", validSignature)
 	defer cache.ClearSignatureCache(sessionID)
 
 	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
