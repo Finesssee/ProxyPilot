@@ -23,6 +23,14 @@ import (
 // deriveSessionID generates a stable session ID from the request.
 // Uses the hash of the first user message to identify the conversation.
 func deriveSessionID(rawJSON []byte) string {
+	userIDResult := gjson.GetBytes(rawJSON, "metadata.user_id")
+	if userIDResult.Exists() {
+		userID := userIDResult.String()
+		idx := strings.Index(userID, "session_")
+		if idx != -1 {
+			return userID[idx+8:]
+		}
+	}
 	messages := gjson.GetBytes(rawJSON, "messages")
 	if !messages.IsArray() {
 		return ""
