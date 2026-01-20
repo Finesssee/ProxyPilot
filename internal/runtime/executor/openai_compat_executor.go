@@ -86,7 +86,7 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *cliproxyauth.A
 	if modelOverride != "" {
 		translated = e.overrideModel(translated, modelOverride)
 	}
-	translated = applyPayloadConfigWithRoot(e.cfg, req.Model, to.String(), "", translated)
+	translated = applyPayloadConfigWithRoot(e.cfg, req.Model, to.String(), "", translated, nil)
 	allowCompat := e.allowCompatReasoningEffort(req.Model, auth)
 	translated = ApplyReasoningEffortMetadata(translated, req.Metadata, req.Model, "reasoning_effort", allowCompat)
 	upstreamModel := util.ResolveOriginalModel(req.Model, req.Metadata)
@@ -182,7 +182,7 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *cliproxy
 	if modelOverride != "" {
 		translated = e.overrideModel(translated, modelOverride)
 	}
-	translated = applyPayloadConfigWithRoot(e.cfg, req.Model, to.String(), "", translated)
+	translated = applyPayloadConfigWithRoot(e.cfg, req.Model, to.String(), "", translated, nil)
 	allowCompat := e.allowCompatReasoningEffort(req.Model, auth)
 	translated = ApplyReasoningEffortMetadata(translated, req.Metadata, req.Model, "reasoning_effort", allowCompat)
 	upstreamModel := util.ResolveOriginalModel(req.Model, req.Metadata)

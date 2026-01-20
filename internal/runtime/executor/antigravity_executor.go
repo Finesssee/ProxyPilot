@@ -176,7 +176,7 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, auth *cliproxyauth.Au
 		translated = util.ApplyGemini3ThinkingLevelFromMetadataCLI(attemptModel, req.Metadata, translated)
 		translated = util.ApplyDefaultThinkingIfNeededCLI(attemptModel, translated)
 		translated = normalizeAntigravityThinking(attemptModel, translated)
-		translated = applyPayloadConfigWithRoot(e.cfg, attemptModel, "antigravity", "request", translated)
+		translated = applyPayloadConfigWithRoot(e.cfg, attemptModel, "antigravity", "request", translated, nil)
 
 		for bidx, baseURL := range baseURLs {
 			for pidx, projectID := range projects {
@@ -290,7 +290,7 @@ func (e *AntigravityExecutor) executeClaudeNonStream(ctx context.Context, auth *
 	translated = util.ApplyGemini3ThinkingLevelFromMetadataCLI(req.Model, req.Metadata, translated)
 	translated = util.ApplyDefaultThinkingIfNeededCLI(req.Model, translated)
 	translated = normalizeAntigravityThinking(req.Model, translated)
-	translated = applyPayloadConfigWithRoot(e.cfg, req.Model, "antigravity", "request", translated)
+	translated = applyPayloadConfigWithRoot(e.cfg, req.Model, "antigravity", "request", translated, nil)
 
 	switchProject := e.cfg != nil && e.cfg.QuotaExceeded.SwitchProject
 	switchPreviewModel := e.cfg != nil && e.cfg.QuotaExceeded.SwitchPreviewModel
@@ -662,7 +662,7 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 	translated = util.ApplyGemini3ThinkingLevelFromMetadataCLI(req.Model, req.Metadata, translated)
 	translated = util.ApplyDefaultThinkingIfNeededCLI(req.Model, translated)
 	translated = normalizeAntigravityThinking(req.Model, translated)
-	translated = applyPayloadConfigWithRoot(e.cfg, req.Model, "antigravity", "request", translated)
+	translated = applyPayloadConfigWithRoot(e.cfg, req.Model, "antigravity", "request", translated, nil)
 
 	switchProject := e.cfg != nil && e.cfg.QuotaExceeded.SwitchProject
 	switchPreviewModel := e.cfg != nil && e.cfg.QuotaExceeded.SwitchPreviewModel
@@ -723,7 +723,7 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 		attemptTranslated = util.ApplyGemini3ThinkingLevelFromMetadataCLI(attemptModel, req.Metadata, attemptTranslated)
 		attemptTranslated = util.ApplyDefaultThinkingIfNeededCLI(attemptModel, attemptTranslated)
 		attemptTranslated = normalizeAntigravityThinking(attemptModel, attemptTranslated)
-		attemptTranslated = applyPayloadConfigWithRoot(e.cfg, attemptModel, "antigravity", "request", attemptTranslated)
+		attemptTranslated = applyPayloadConfigWithRoot(e.cfg, attemptModel, "antigravity", "request", attemptTranslated, nil)
 
 		for bidx, baseURL := range baseURLs {
 			for pidx, projectID := range projects {
