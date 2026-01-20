@@ -125,11 +125,6 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 					if contentTypeResult.Type == gjson.String && contentTypeResult.String() == "thinking" {
 						// Use GetThinkingText to handle wrapped thinking objects
 						thinkingText := thinking.GetThinkingText(contentResult)
-						// signatureResult := contentResult.Get("signature")
-						// clientSignature := ""
-						// if signatureResult.Exists() && signatureResult.String() != "" {
-						// 	clientSignature = signatureResult.String()
-						// }
 
 						// Always try cached signature first (more reliable than client-provided)
 						// Client may send stale or invalid signatures from different sessions
