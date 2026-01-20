@@ -108,9 +108,6 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 	// Inject thinking config based on model metadata for thinking variants
 	body = e.injectThinkingConfig(req.Model, req.Metadata, body)
 
-	if !strings.HasPrefix(upstreamModel, "claude-3-5-haiku") {
-		body = checkSystemInstructions(body)
-	}
 	body = applyPayloadConfig(e.cfg, req.Model, body)
 
 	// Disable thinking if tool_choice forces tool use (Anthropic API constraint)
@@ -226,7 +223,6 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 	body, _ = sjson.SetBytes(body, "model", upstreamModel)
 	// Inject thinking config based on model metadata for thinking variants
 	body = e.injectThinkingConfig(req.Model, req.Metadata, body)
-	body = checkSystemInstructions(body)
 	body = applyPayloadConfig(e.cfg, req.Model, body)
 
 	// Disable thinking if tool_choice forces tool use (Anthropic API constraint)
