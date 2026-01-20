@@ -50,7 +50,7 @@ func ConvertGeminiResponseToOpenAI(_ context.Context, _ string, originalRequestR
 			FunctionIndex: make(map[int]int),
 		}
 	}
-	
+
 	// Ensure the Map is initialized (handling cases where param might be reused from older context).
 	p := (*param).(*convertGeminiResponseToOpenAIChatParams)
 	if p.FunctionIndex == nil {
@@ -174,7 +174,7 @@ func ConvertGeminiResponseToOpenAI(_ context.Context, _ string, originalRequestR
 						// Handle function call content.
 						hasFunctionCall = true
 						toolCallsResult := gjson.Get(template, "choices.0.delta.tool_calls")
-						
+
 						// Retrieve the function index for this specific candidate.
 						functionCallIndex := p.FunctionIndex[candidateIndex]
 						p.FunctionIndex[candidateIndex]++
