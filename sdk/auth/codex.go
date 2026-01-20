@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strings"
@@ -186,7 +188,22 @@ waitForCallback:
 		return nil, fmt.Errorf("codex token storage missing account information")
 	}
 
-	fileName := fmt.Sprintf("codex-%s.json", tokenStorage.Email)
+	// Extract plan type and account ID for filename disambiguation
+	planType := ""
+	hashAccountID := ""
+	if tokenStorage.IDToken != "" {
+		if claims, errParse := codex.ParseJWTToken(tokenStorage.IDToken); errParse == nil && claims != nil {
+			planType = strings.TrimSpace(claims.CodexAuthInfo.ChatgptPlanType)
+			accountID := strings.TrimSpace(claims.CodexAuthInfo.ChatgptAccountID)
+			if accountID != "" {
+				digest := sha256.Sum256([]byte(accountID))
+				hashAccountID = hex.EncodeToString(digest[:])[:8]
+			}
+		}
+	}
+
+	// Generate filename with plan type and hashed account ID for team plans
+	fileName := codexCredentialFileName(tokenStorage.Email, planType, hashAccountID)
 	metadata := map[string]any{
 		"email": tokenStorage.Email,
 	}
@@ -203,4 +220,29 @@ waitForCallback:
 		Storage:  tokenStorage,
 		Metadata: metadata,
 	}, nil
+}
+
+// codexCredentialFileName generates the filename for Codex credential storage.
+// For team plans, it includes a hashed account ID to disambiguate multiple accounts.
+func codexCredentialFileName(email, planType, hashAccountID string) string {
+	email = strings.TrimSpace(email)
+	plan := normalizePlanTypeForFilename(planType)
+
+	if plan == "" {
+		return fmt.Sprintf("codex-%s.json", email)
+	} else if plan == "team" && hashAccountID != "" {
+		return fmt.Sprintf("codex-%s-%s-%s.json", hashAccountID, email, plan)
+	}
+	return fmt.Sprintf("codex-%s-%s.json", email, plan)
+}
+
+// normalizePlanTypeForFilename converts plan types to filename-safe values.
+func normalizePlanTypeForFilename(planType string) string {
+	planType = strings.ToLower(strings.TrimSpace(planType))
+	switch planType {
+	case "plus", "team", "enterprise":
+		return planType
+	default:
+		return ""
+	}
 }
