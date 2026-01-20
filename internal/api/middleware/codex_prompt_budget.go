@@ -492,7 +492,7 @@ func agenticLLMSummaryEnabled() bool {
 // getModelContextWindow returns the context window size for a model.
 func getModelContextWindow(model string) int {
 	// Try registry first
-	info := registry.GetGlobalRegistry().GetModelInfo(model)
+	info := registry.GetGlobalRegistry().GetModelInfo(model, "")
 	if info != nil && info.ContextLength > 0 {
 		return info.ContextLength
 	}
@@ -1898,7 +1898,7 @@ func agenticMaxBodyBytesForModel(body []byte) int {
 		return maxBytes
 	}
 
-	info := registry.GetGlobalRegistry().GetModelInfo(model)
+	info := registry.GetGlobalRegistry().GetModelInfo(model, "")
 	if info == nil || info.ContextLength <= 0 {
 		return maxBytes
 	}

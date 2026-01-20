@@ -1266,7 +1266,7 @@ func TestModelRegistry_GetModelInfo(t *testing.T) {
 			r := newTestRegistry()
 			tt.setupFunc(r)
 
-			info := r.GetModelInfo(tt.modelID)
+			info := r.GetModelInfo(tt.modelID, "")
 
 			if tt.wantNil {
 				if info != nil {
