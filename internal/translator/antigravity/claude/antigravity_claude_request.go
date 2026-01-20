@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/cache"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/thinking"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/translator/gemini/common"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	log "github.com/sirupsen/logrus"
@@ -122,30 +123,29 @@ func ConvertClaudeRequestToAntigravity(modelName string, inputRawJSON []byte, _ 
 					contentResult := contentResults[j]
 					contentTypeResult := contentResult.Get("type")
 					if contentTypeResult.Type == gjson.String && contentTypeResult.String() == "thinking" {
-						thinkingText := contentResult.Get("thinking").String()
-						if thinkingText == "" {
-							thinkingText = util.GetThinkingText(contentResult)
-						}
-						signatureResult := contentResult.Get("signature")
-						clientSignature := ""
-						if signatureResult.Exists() && signatureResult.String() != "" {
-							clientSignature = signatureResult.String()
-						}
+						// Use GetThinkingText to handle wrapped thinking objects
+						thinkingText := thinking.GetThinkingText(contentResult)
+						// signatureResult := contentResult.Get("signature")
+						// clientSignature := ""
+						// if signatureResult.Exists() && signatureResult.String() != "" {
+						// 	clientSignature = signatureResult.String()
+						// }
 
-						// Prefer client-provided signature to avoid invalidating signed blocks.
+						// Always try cached signature first (more reliable than client-provided)
+						// Client may send stale or invalid signatures from different sessions
 						signature := ""
-						if cache.HasValidSignature(clientSignature) {
-							signature = clientSignature
-							log.Debugf("Using client-provided signature for thinking block")
-						}
-
-						// Fallback to cached signature only when client signature is missing/invalid.
-						if signature == "" && sessionID != "" && thinkingText != "" {
+						if sessionID != "" && thinkingText != "" {
 							if cachedSig := cache.GetCachedSignature(sessionID, thinkingText); cachedSig != "" {
 								signature = cachedSig
-								log.Debugf("Using cached signature for thinking block")
+								// log.Debugf("Using cached signature for thinking block")
 							}
 						}
+
+						// NOTE: We do NOT fallback to client signature anymore.
+						// Client signatures from Claude models are incompatible with Antigravity/Gemini API.
+						// When switching between models (e.g., Claude Opus -> Gemini Flash), the Claude
+						// signatures will cause "Corrupted thought signature" errors.
+						// If we have no cached signature, the thinking block will be skipped below.
 
 						// Store for subsequent tool_use in the same message
 						if cache.HasValidSignature(signature) {
