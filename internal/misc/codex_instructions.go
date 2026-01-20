@@ -6,12 +6,31 @@ package misc
 import (
 	"embed"
 	"strings"
+	"sync/atomic"
 )
+
+// codexInstructionsEnabled controls whether CodexInstructionsForModel returns custom instructions.
+// When false (default), CodexInstructionsForModel returns (true, "") immediately.
+// Set via SetCodexInstructionsEnabled from config.
+var codexInstructionsEnabled atomic.Bool
+
+// SetCodexInstructionsEnabled sets whether codex instructions processing is enabled.
+func SetCodexInstructionsEnabled(enabled bool) {
+	codexInstructionsEnabled.Store(enabled)
+}
+
+// GetCodexInstructionsEnabled returns whether codex instructions processing is enabled.
+func GetCodexInstructionsEnabled() bool {
+	return codexInstructionsEnabled.Load()
+}
 
 //go:embed codex_instructions
 var codexInstructionsDir embed.FS
 
 func CodexInstructionsForModel(modelName, systemInstructions string) (bool, string) {
+	if !GetCodexInstructionsEnabled() {
+		return true, ""
+	}
 	entries, _ := codexInstructionsDir.ReadDir("codex_instructions")
 
 	lastPrompt := ""

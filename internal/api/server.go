@@ -26,6 +26,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/memory"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/access"
@@ -293,6 +294,7 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 		authManager.SetRetryConfig(cfg.RequestRetry, time.Duration(cfg.MaxRetryInterval)*time.Second)
 	}
 	auth.SetQuotaCooldownDisabled(cfg.DisableCooling)
+	misc.SetCodexInstructionsEnabled(cfg.CodexInstructionsEnabled)
 
 	// Initialize LLM summarizer with auth manager for Factory.ai-style context compression
 	if authManager != nil {
@@ -1099,6 +1101,16 @@ func (s *Server) UpdateClients(cfg *config.Config) {
 			log.Debugf("disable_cooling toggled to %t", cfg.DisableCooling)
 		}
 	}
+
+	if oldCfg == nil || oldCfg.CodexInstructionsEnabled != cfg.CodexInstructionsEnabled {
+		misc.SetCodexInstructionsEnabled(cfg.CodexInstructionsEnabled)
+		if oldCfg != nil {
+			log.Debugf("codex_instructions_enabled updated from %t to %t", oldCfg.CodexInstructionsEnabled, cfg.CodexInstructionsEnabled)
+		} else {
+			log.Debugf("codex_instructions_enabled toggled to %t", cfg.CodexInstructionsEnabled)
+		}
+	}
+
 	if s.handlers != nil && s.handlers.AuthManager != nil {
 		s.handlers.AuthManager.SetRetryConfig(cfg.RequestRetry, time.Duration(cfg.MaxRetryInterval)*time.Second)
 	}
