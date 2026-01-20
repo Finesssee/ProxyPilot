@@ -1110,11 +1110,13 @@ func FetchAntigravityModels(ctx context.Context, auth *cliproxyauth.Auth, cfg *c
 			if id == "" {
 				return
 			}
+			// Skip certain models that shouldn't be listed
+			switch id {
+			case "chat_20706", "chat_23310", "gemini-2.5-flash-thinking", "gemini-3-pro-low", "gemini-2.5-pro":
+				return
+			}
 			cfg := modelConfig[id]
 			modelName := id
-			if cfg != nil && cfg.Name != "" {
-				modelName = cfg.Name
-			}
 			modelInfo := &registry.ModelInfo{
 				ID:          id,
 				Name:        modelName,

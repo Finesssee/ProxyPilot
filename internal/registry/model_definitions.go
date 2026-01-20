@@ -324,21 +324,29 @@ func GetZhipuModels() []*ModelInfo {
 type AntigravityModelConfig struct {
 	Thinking            *ThinkingSupport
 	MaxCompletionTokens int
-	Name                string
 }
 
 // GetAntigravityModelConfig returns static configuration for antigravity models.
 // Keys use the ALIASED model names (after modelName2Alias conversion) for direct lookup.
 func GetAntigravityModelConfig() map[string]*AntigravityModelConfig {
 	return map[string]*AntigravityModelConfig{
-		"gemini-2.5-flash":                        {Thinking: &ThinkingSupport{Min: 0, Max: 24576, ZeroAllowed: true, DynamicAllowed: true}, Name: "models/gemini-2.5-flash"},
-		"gemini-2.5-flash-lite":                   {Thinking: &ThinkingSupport{Min: 0, Max: 24576, ZeroAllowed: true, DynamicAllowed: true}, Name: "models/gemini-2.5-flash-lite"},
-		"gemini-2.5-computer-use-preview-10-2025": {Name: "models/gemini-2.5-computer-use-preview-10-2025"},
-		"gemini-3-pro-preview":                    {Thinking: &ThinkingSupport{Min: 128, Max: 32768, ZeroAllowed: false, DynamicAllowed: true, Levels: []string{"low", "high"}}, Name: "models/gemini-3-pro-preview"},
-		"gemini-3-pro-image-preview":              {Thinking: &ThinkingSupport{Min: 128, Max: 32768, ZeroAllowed: false, DynamicAllowed: true, Levels: []string{"low", "high"}}, Name: "models/gemini-3-pro-image-preview"},
-		"gemini-3-flash-preview":                  {Thinking: &ThinkingSupport{Min: 128, Max: 32768, ZeroAllowed: false, DynamicAllowed: true, Levels: []string{"minimal", "low", "medium", "high"}}, Name: "models/gemini-3-flash-preview"},
-		"gemini-claude-sonnet-4-5-thinking":       {Thinking: &ThinkingSupport{Min: 1024, Max: 200000, ZeroAllowed: false, DynamicAllowed: true}, MaxCompletionTokens: 64000},
-		"gemini-claude-opus-4-5-thinking":         {Thinking: &ThinkingSupport{Min: 1024, Max: 200000, ZeroAllowed: false, DynamicAllowed: true}, MaxCompletionTokens: 64000},
+		"gemini-2.5-flash":                        {Thinking: &ThinkingSupport{Min: 0, Max: 24576, ZeroAllowed: true, DynamicAllowed: true}},
+		"gemini-2.5-flash-lite":                   {Thinking: &ThinkingSupport{Min: 0, Max: 24576, ZeroAllowed: true, DynamicAllowed: true}},
+		"gemini-2.5-computer-use-preview-10-2025": {},
+		"rev19-uic3-1p":                           {Thinking: &ThinkingSupport{Min: 128, Max: 32768, ZeroAllowed: false, DynamicAllowed: true}},
+		"gemini-3-pro-preview":                    {Thinking: &ThinkingSupport{Min: 128, Max: 32768, ZeroAllowed: false, DynamicAllowed: true, Levels: []string{"low", "high"}}},
+		"gemini-3-pro-high":                       {Thinking: &ThinkingSupport{Min: 128, Max: 32768, ZeroAllowed: false, DynamicAllowed: true, Levels: []string{"low", "high"}}},
+		"gemini-3-pro-image-preview":              {Thinking: &ThinkingSupport{Min: 128, Max: 32768, ZeroAllowed: false, DynamicAllowed: true, Levels: []string{"low", "high"}}},
+		"gemini-3-pro-image":                      {Thinking: &ThinkingSupport{Min: 128, Max: 32768, ZeroAllowed: false, DynamicAllowed: true, Levels: []string{"low", "high"}}},
+		"gemini-3-flash-preview":                  {Thinking: &ThinkingSupport{Min: 128, Max: 32768, ZeroAllowed: false, DynamicAllowed: true, Levels: []string{"minimal", "low", "medium", "high"}}},
+		"gemini-3-flash":                          {Thinking: &ThinkingSupport{Min: 128, Max: 32768, ZeroAllowed: false, DynamicAllowed: true, Levels: []string{"minimal", "low", "medium", "high"}}},
+		"claude-sonnet-4-5-thinking":              {Thinking: &ThinkingSupport{Min: 1024, Max: 128000, ZeroAllowed: true, DynamicAllowed: true}, MaxCompletionTokens: 64000},
+		"claude-opus-4-5-thinking":                {Thinking: &ThinkingSupport{Min: 1024, Max: 128000, ZeroAllowed: true, DynamicAllowed: true}, MaxCompletionTokens: 64000},
+		"gemini-claude-sonnet-4-5-thinking":       {Thinking: &ThinkingSupport{Min: 1024, Max: 128000, ZeroAllowed: true, DynamicAllowed: true}, MaxCompletionTokens: 64000},
+		"gemini-claude-opus-4-5-thinking":         {Thinking: &ThinkingSupport{Min: 1024, Max: 128000, ZeroAllowed: true, DynamicAllowed: true}, MaxCompletionTokens: 64000},
+		"claude-sonnet-4-5":                       {MaxCompletionTokens: 64000},
+		"gpt-oss-120b-medium":                     {},
+		"tab_flash_lite_preview":                  {},
 	}
 }
 
