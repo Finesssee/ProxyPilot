@@ -33,7 +33,7 @@ const (
 	SessionCleanupInterval = 10 * time.Minute
 )
 
-// signatureCache stores signatures by sessionId -> textHash -> SignatureEntry
+// signatureCache stores signatures by textHash -> SignatureEntry
 var signatureCache sync.Map
 
 // sessionCleanupOnce ensures the background cleanup goroutine starts only once
@@ -98,18 +98,19 @@ func purgeExpiredSessions() {
 	})
 }
 
-// CacheSignature stores a thinking signature for a given session and text.
+// CacheSignature stores a thinking signature for a given model and text.
 // Used for Claude models that require signed thinking blocks in multi-turn conversations.
-func CacheSignature(modelName, sessionID, text, signature string) {
-	if sessionID == "" || text == "" || signature == "" {
+func CacheSignature(modelName, text, signature string) {
+	if text == "" || signature == "" {
 		return
 	}
 	if len(signature) < MinValidSignatureLen {
 		return
 	}
 
-	sc := getOrCreateSession(fmt.Sprintf("%s#%s", GetModelGroup(modelName), sessionID))
+	text = fmt.Sprintf("%s#%s", GetModelGroup(modelName), text)
 	textHash := hashText(text)
+	sc := getOrCreateSession(textHash)
 
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
@@ -157,36 +158,54 @@ func CacheSignature(modelName, sessionID, text, signature string) {
 	}
 }
 
-// GetCachedSignature retrieves a cached signature for a given session and text.
+// GetCachedSignature retrieves a cached signature for a given model and text.
 // Returns empty string if not found or expired.
-func GetCachedSignature(modelName, sessionID, text string) string {
-	if sessionID == "" || text == "" {
+// For gemini models, returns "skip_thought_signature_validator" as fallback.
+func GetCachedSignature(modelName, text string) string {
+	family := GetModelGroup(modelName)
+
+	if text == "" {
+		if family == "gemini" {
+			return "skip_thought_signature_validator"
+		}
 		return ""
 	}
 
-	val, ok := signatureCache.Load(fmt.Sprintf("%s#%s", GetModelGroup(modelName), sessionID))
+	text = fmt.Sprintf("%s#%s", GetModelGroup(modelName), text)
+	val, ok := signatureCache.Load(hashText(text))
 	if !ok {
+		if family == "gemini" {
+			return "skip_thought_signature_validator"
+		}
 		return ""
 	}
 	sc := val.(*sessionCache)
 
 	textHash := hashText(text)
+	now := time.Now()
 
-	sc.mu.RLock()
+	sc.mu.Lock()
 	entry, exists := sc.entries[textHash]
-	sc.mu.RUnlock()
-
 	if !exists {
+		sc.mu.Unlock()
+		if family == "gemini" {
+			return "skip_thought_signature_validator"
+		}
 		return ""
 	}
-
-	// Check if expired
-	if time.Since(entry.Timestamp) > SignatureCacheTTL {
-		sc.mu.Lock()
+	if now.Sub(entry.Timestamp) > SignatureCacheTTL {
 		delete(sc.entries, textHash)
 		sc.mu.Unlock()
+		if family == "gemini" {
+			return "skip_thought_signature_validator"
+		}
 		return ""
 	}
+
+	// Refresh TTL on access (sliding expiration)
+	entry.Timestamp = now
+	sc.entries[textHash] = entry
+	sc.mu.Unlock()
 
 	return entry.Signature
 }
@@ -194,7 +213,13 @@ func GetCachedSignature(modelName, sessionID, text string) string {
 // ClearSignatureCache clears signature cache for a specific session or all sessions.
 func ClearSignatureCache(sessionID string) {
 	if sessionID != "" {
-		signatureCache.Delete(sessionID)
+		signatureCache.Range(func(key, _ any) bool {
+			kStr, ok := key.(string)
+			if ok && strings.HasSuffix(kStr, "#"+sessionID) {
+				signatureCache.Delete(key)
+			}
+			return true
+		})
 	} else {
 		signatureCache.Range(func(key, _ any) bool {
 			signatureCache.Delete(key)
@@ -204,8 +229,8 @@ func ClearSignatureCache(sessionID string) {
 }
 
 // HasValidSignature checks if a signature is valid (non-empty and long enough)
-func HasValidSignature(signature string) bool {
-	return signature != "" && len(signature) >= MinValidSignatureLen
+func HasValidSignature(modelName, signature string) bool {
+	return (signature != "" && len(signature) >= MinValidSignatureLen) || (signature == "skip_thought_signature_validator" && GetModelGroup(modelName) == "gemini")
 }
 
 func GetModelGroup(modelName string) string {

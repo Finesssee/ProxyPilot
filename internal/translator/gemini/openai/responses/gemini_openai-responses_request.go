@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/translator/gemini/common"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -193,10 +192,7 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 						var partJSON string
 						switch contentType {
 						case "input_text", "output_text":
-							if text := contentItem.Get("text"); text.Exists() {
-								if text.String() == "" {
-									break
-								}
+							if text := contentItem.Get("text"); text.Exists() && text.String() != "" {
 								partJSON = `{"text":""}`
 								partJSON, _ = sjson.Set(partJSON, "text", text.String())
 							}
@@ -266,10 +262,8 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 			case "function_call_output":
 				// Handle function call outputs - convert to function message with functionResponse
 				callID := item.Get("call_id").String()
-				// Treat output as JSON only if it is valid JSON in full; many CLIs append
-				// non-JSON markers like "[Process exited...]" which must remain a string.
-				outputText := item.Get("output").String()
-				outputTrimmed := strings.TrimSpace(outputText)
+				// Use .Raw to preserve the JSON encoding (includes quotes for strings)
+				outputRaw := item.Get("output").Str
 
 				functionContent := `{"role":"function","parts":[]}`
 				functionResponse := `{"functionResponse":{"name":"","response":{}}}`
@@ -293,16 +287,32 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 				functionResponse, _ = sjson.Set(functionResponse, "functionResponse.name", functionName)
 				functionResponse, _ = sjson.Set(functionResponse, "functionResponse.id", callID)
 
-				// Set output as raw JSON only when valid; otherwise keep as a JSON string.
-				if outputTrimmed != "" && outputTrimmed != "null" {
-					if gjson.Valid(outputTrimmed) {
-						functionResponse, _ = sjson.SetRaw(functionResponse, "functionResponse.response.result", outputTrimmed)
+				// Set the raw JSON output directly (preserves string encoding)
+				if outputRaw != "" && outputRaw != "null" {
+					// Only treat as raw JSON if the ENTIRE string is valid JSON
+					// gjson.Parse may parse partial JSON (e.g., "[1,2,3]" from "[1,2,3]\n\nextra text")
+					if gjson.Valid(outputRaw) {
+						output := gjson.Parse(outputRaw)
+						if output.Type == gjson.JSON {
+							functionResponse, _ = sjson.SetRaw(functionResponse, "functionResponse.response.result", output.Raw)
+						} else {
+							functionResponse, _ = sjson.Set(functionResponse, "functionResponse.response.result", outputRaw)
+						}
 					} else {
-						functionResponse, _ = sjson.Set(functionResponse, "functionResponse.response.result", outputText)
+						functionResponse, _ = sjson.Set(functionResponse, "functionResponse.response.result", outputRaw)
 					}
 				}
 				functionContent, _ = sjson.SetRaw(functionContent, "parts.-1", functionResponse)
 				out, _ = sjson.SetRaw(out, "contents.-1", functionContent)
+
+			case "reasoning":
+				thoughtContent := `{"role":"model","parts":[]}`
+				thought := `{"text":"","thoughtSignature":"","thought":true}`
+				thought, _ = sjson.Set(thought, "text", item.Get("summary.0.text").String())
+				thought, _ = sjson.Set(thought, "thoughtSignature", item.Get("encrypted_content").String())
+
+				thoughtContent, _ = sjson.SetRaw(thoughtContent, "parts.-1", thought)
+				out, _ = sjson.SetRaw(out, "contents.-1", thoughtContent)
 			}
 		}
 	} else if input.Exists() && input.Type == gjson.String {
@@ -392,31 +402,19 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 		out, _ = sjson.Set(out, "generationConfig.stopSequences", sequences)
 	}
 
-	// OpenAI official reasoning fields take precedence
-	// Only convert for models that use numeric budgets (not discrete levels).
-	hasOfficialThinking := root.Get("reasoning.effort").Exists()
-	if hasOfficialThinking && util.ModelSupportsThinking(modelName) && !util.ModelUsesThinkingLevels(modelName) {
-		reasoningEffort := root.Get("reasoning.effort")
-		out = string(util.ApplyReasoningEffortToGemini([]byte(out), reasoningEffort.String()))
-	}
-
-	// Cherry Studio extension (applies only when official fields are missing)
-	// Only apply for models that use numeric budgets, not discrete levels.
-	if !hasOfficialThinking && util.ModelSupportsThinking(modelName) && !util.ModelUsesThinkingLevels(modelName) {
-		if tc := root.Get("extra_body.google.thinking_config"); tc.Exists() && tc.IsObject() {
-			var setBudget bool
-			var budget int
-			if v := tc.Get("thinking_budget"); v.Exists() {
-				budget = int(v.Int())
-				out, _ = sjson.Set(out, "generationConfig.thinkingConfig.thinkingBudget", budget)
-				setBudget = true
-			}
-			if v := tc.Get("includeThoughts"); v.Exists() {
-				out, _ = sjson.Set(out, "generationConfig.thinkingConfig.includeThoughts", v.Bool())
-			} else if setBudget {
-				if budget != 0 {
-					out, _ = sjson.Set(out, "generationConfig.thinkingConfig.includeThoughts", true)
-				}
+	// Apply thinking configuration: convert OpenAI Responses API reasoning.effort to Gemini thinkingConfig.
+	// Inline translation-only mapping; capability checks happen later in ApplyThinking.
+	re := root.Get("reasoning.effort")
+	if re.Exists() {
+		effort := strings.ToLower(strings.TrimSpace(re.String()))
+		if effort != "" {
+			thinkingPath := "generationConfig.thinkingConfig"
+			if effort == "auto" {
+				out, _ = sjson.Set(out, thinkingPath+".thinkingBudget", -1)
+				out, _ = sjson.Set(out, thinkingPath+".includeThoughts", true)
+			} else {
+				out, _ = sjson.Set(out, thinkingPath+".thinkingLevel", effort)
+				out, _ = sjson.Set(out, thinkingPath+".includeThoughts", effort != "none")
 			}
 		}
 	}

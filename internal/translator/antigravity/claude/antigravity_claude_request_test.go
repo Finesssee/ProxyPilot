@@ -76,34 +76,39 @@ func TestConvertClaudeRequestToAntigravity_RoleMapping(t *testing.T) {
 func TestConvertClaudeRequestToAntigravity_ThinkingBlocks(t *testing.T) {
 	// Valid signature must be at least 50 characters
 	validSignature := "abc123validSignature1234567890123456789012345678901234567890"
+	thinkingText := "Let me think..."
+
+	// Pre-cache the signature (simulating a response from the same session)
+	// The session ID is derived from the first user message hash
+	// Since there's no user message in this test, we need to add one
 	inputJSON := []byte(`{
 		"model": "claude-sonnet-4-5-thinking",
 		"messages": [
-			{"role": "user", "content": [{"type": "text", "text": "session-seed"}]},
+			{
+				"role": "user",
+				"content": [{"type": "text", "text": "Test user message"}]
+			},
 			{
 				"role": "assistant",
 				"content": [
-					{"type": "thinking", "thinking": "Let me think...", "signature": "` + validSignature + `"},
+					{"type": "thinking", "thinking": "` + thinkingText + `", "signature": "` + validSignature + `"},
 					{"type": "text", "text": "Answer"}
 				]
 			}
 		]
 	}`)
 
-	// Cache the signature - only cached signatures are used now (not client signatures)
-	sessionID := deriveSessionID(inputJSON)
-	cache.CacheSignature("claude-sonnet-4-5-thinking", sessionID, "Let me think...", validSignature)
-	defer cache.ClearSignatureCache(sessionID)
+	cache.CacheSignature("claude-sonnet-4-5-thinking", thinkingText, validSignature)
 
 	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
 	outputStr := string(output)
 
-	// Check thinking block conversion - should be in second content (after user message)
+	// Check thinking block conversion (now in contents.1 due to user message)
 	firstPart := gjson.Get(outputStr, "request.contents.1.parts.0")
 	if !firstPart.Get("thought").Bool() {
 		t.Error("thinking block should have thought: true")
 	}
-	if firstPart.Get("text").String() != "Let me think..." {
+	if firstPart.Get("text").String() != thinkingText {
 		t.Error("thinking text mismatch")
 	}
 	if firstPart.Get("thoughtSignature").String() != validSignature {
@@ -111,40 +116,8 @@ func TestConvertClaudeRequestToAntigravity_ThinkingBlocks(t *testing.T) {
 	}
 }
 
-func TestConvertClaudeRequestToAntigravity_ThinkingSignatureUsesCached(t *testing.T) {
-	// New behavior: only cached signatures are used, client signatures are ignored
-	// This prevents "Corrupted thought signature" errors when switching models
-	clientSignature := "clientSignature1234567890123456789012345678901234567890123456"
-	cachedSignature := "cachedSignature1234567890123456789012345678901234567890123456"
-	inputJSON := []byte(`{
-		"model": "claude-sonnet-4-5-thinking",
-		"messages": [
-			{"role": "user", "content": [{"type": "text", "text": "session-seed"}]},
-			{
-				"role": "assistant",
-				"content": [
-					{"type": "thinking", "thinking": "Let me think...", "signature": "` + clientSignature + `"},
-					{"type": "text", "text": "Answer"}
-				]
-			}
-		]
-	}`)
-
-	sessionID := deriveSessionID(inputJSON)
-	cache.CacheSignature("claude-sonnet-4-5-thinking", sessionID, "Let me think...", cachedSignature)
-	defer cache.ClearSignatureCache(sessionID)
-
-	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
-	outputStr := string(output)
-
-	// Cached signature should be used (client signature is ignored to prevent cross-model corruption)
-	firstPart := gjson.Get(outputStr, "request.contents.1.parts.0")
-	if firstPart.Get("thoughtSignature").String() != cachedSignature {
-		t.Errorf("Expected cached thoughtSignature '%s', got '%s'", cachedSignature, firstPart.Get("thoughtSignature").String())
-	}
-}
-
 func TestConvertClaudeRequestToAntigravity_ThinkingBlockWithoutSignature(t *testing.T) {
+	cache.ClearSignatureCache("") // Clear any cached signatures from previous tests
 	// Unsigned thinking blocks should be removed entirely (not converted to text)
 	inputJSON := []byte(`{
 		"model": "claude-sonnet-4-5-thinking",
@@ -267,14 +240,19 @@ func TestConvertClaudeRequestToAntigravity_ToolUse(t *testing.T) {
 
 func TestConvertClaudeRequestToAntigravity_ToolUse_WithSignature(t *testing.T) {
 	validSignature := "abc123validSignature1234567890123456789012345678901234567890"
+	thinkingText := "Let me think..."
+
 	inputJSON := []byte(`{
 		"model": "claude-sonnet-4-5-thinking",
 		"messages": [
-			{"role": "user", "content": [{"type": "text", "text": "session-seed"}]},
+			{
+				"role": "user",
+				"content": [{"type": "text", "text": "Test user message"}]
+			},
 			{
 				"role": "assistant",
 				"content": [
-					{"type": "thinking", "thinking": "Let me think...", "signature": "` + validSignature + `"},
+					{"type": "thinking", "thinking": "` + thinkingText + `", "signature": "` + validSignature + `"},
 					{
 						"type": "tool_use",
 						"id": "call_123",
@@ -286,16 +264,12 @@ func TestConvertClaudeRequestToAntigravity_ToolUse_WithSignature(t *testing.T) {
 		]
 	}`)
 
-	// Cache the signature - only cached signatures are used now
-	sessionID := deriveSessionID(inputJSON)
-	cache.CacheSignature("claude-sonnet-4-5-thinking", sessionID, "Let me think...", validSignature)
-	defer cache.ClearSignatureCache(sessionID)
+	cache.CacheSignature("claude-sonnet-4-5-thinking", thinkingText, validSignature)
 
 	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
 	outputStr := string(output)
 
-	// Check function call has the signature from the preceding thinking block
-	// Second content (index 1) is the assistant message with thinking + tool_use
+	// Check function call has the signature from the preceding thinking block (now in contents.1)
 	part := gjson.Get(outputStr, "request.contents.1.parts.1")
 	if part.Get("functionCall.name").String() != "get_weather" {
 		t.Errorf("Expected functionCall, got %s", part.Raw)
@@ -308,30 +282,31 @@ func TestConvertClaudeRequestToAntigravity_ToolUse_WithSignature(t *testing.T) {
 func TestConvertClaudeRequestToAntigravity_ReorderThinking(t *testing.T) {
 	// Case: text block followed by thinking block -> should be reordered to thinking first
 	validSignature := "abc123validSignature1234567890123456789012345678901234567890"
+	thinkingText := "Planning..."
+
 	inputJSON := []byte(`{
 		"model": "claude-sonnet-4-5-thinking",
 		"messages": [
-			{"role": "user", "content": [{"type": "text", "text": "session-seed"}]},
+			{
+				"role": "user",
+				"content": [{"type": "text", "text": "Test user message"}]
+			},
 			{
 				"role": "assistant",
 				"content": [
 					{"type": "text", "text": "Here is the plan."},
-					{"type": "thinking", "thinking": "Planning...", "signature": "` + validSignature + `"}
+					{"type": "thinking", "thinking": "` + thinkingText + `", "signature": "` + validSignature + `"}
 				]
 			}
 		]
 	}`)
 
-	// Cache the signature - only cached signatures are used now
-	sessionID := deriveSessionID(inputJSON)
-	cache.CacheSignature("claude-sonnet-4-5-thinking", sessionID, "Planning...", validSignature)
-	defer cache.ClearSignatureCache(sessionID)
+	cache.CacheSignature("claude-sonnet-4-5-thinking", thinkingText, validSignature)
 
 	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
 	outputStr := string(output)
 
-	// Verify order: Thinking block MUST be first
-	// Second content (index 1) is the assistant message
+	// Verify order: Thinking block MUST be first (now in contents.1 due to user message)
 	parts := gjson.Get(outputStr, "request.contents.1.parts").Array()
 	if len(parts) != 2 {
 		t.Fatalf("Expected 2 parts, got %d", len(parts))
@@ -515,6 +490,8 @@ func TestConvertClaudeRequestToAntigravity_TrailingUnsignedThinking_Removed(t *t
 func TestConvertClaudeRequestToAntigravity_TrailingSignedThinking_Kept(t *testing.T) {
 	// Last assistant message ends with signed thinking block - should be kept
 	validSignature := "abc123validSignature1234567890123456789012345678901234567890"
+	thinkingText := "Valid thinking..."
+
 	inputJSON := []byte(`{
 		"model": "claude-sonnet-4-5-thinking",
 		"messages": [
@@ -526,16 +503,13 @@ func TestConvertClaudeRequestToAntigravity_TrailingSignedThinking_Kept(t *testin
 				"role": "assistant",
 				"content": [
 					{"type": "text", "text": "Here is my answer"},
-					{"type": "thinking", "thinking": "Valid thinking...", "signature": "` + validSignature + `"}
+					{"type": "thinking", "thinking": "` + thinkingText + `", "signature": "` + validSignature + `"}
 				]
 			}
 		]
 	}`)
 
-	// Cache the signature - only cached signatures are used now
-	sessionID := deriveSessionID(inputJSON)
-	cache.CacheSignature("claude-sonnet-4-5-thinking", sessionID, "Valid thinking...", validSignature)
-	defer cache.ClearSignatureCache(sessionID)
+	cache.CacheSignature("claude-sonnet-4-5-thinking", thinkingText, validSignature)
 
 	output := ConvertClaudeRequestToAntigravity("claude-sonnet-4-5-thinking", inputJSON, false)
 	outputStr := string(output)

@@ -74,12 +74,11 @@ func TestMemoryLeak_SignatureCache(t *testing.T) {
 	sig := string(make([]byte, 200))     // 200 byte signature (> MinValidSignatureLen)
 
 	for i := 0; i < numSessions; i++ {
-		sessionID := fmt.Sprintf("session-%d", i)
 		// Each session caches 50 signatures
 		for j := 0; j < 50; j++ {
-			text := fmt.Sprintf("%s-text-%d", sigText, j)
+			text := fmt.Sprintf("%s-text-%d-%d", sigText, i, j)
 			signature := fmt.Sprintf("%s-sig-%d", sig, j)
-			cache.CacheSignature("test-model", sessionID, text, signature)
+			cache.CacheSignature("test-model", text, signature)
 		}
 	}
 
