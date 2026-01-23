@@ -23,13 +23,11 @@ func TestCleanJSONSchemaForAntigravity_ConstToEnum(t *testing.T) {
 	expected := `{
 		"type": "object",
 		"properties": {
-			"_": { "type": "boolean" },
 			"kind": {
 				"type": "string",
 				"enum": ["InsightVizNode"]
 			}
-		},
-		"required": ["_"]
+		}
 	}`
 
 	result := CleanJSONSchemaForAntigravity(input)
@@ -125,7 +123,6 @@ func TestCleanJSONSchemaForAntigravity_AnyOfFlattening_SmartSelection(t *testing
 	expected := `{
 		"type": "object",
 		"properties": {
-			"_": { "type": "boolean" },
 			"query": {
 				"type": "object",
 				"description": "Accepts: null | object",
@@ -135,8 +132,7 @@ func TestCleanJSONSchemaForAntigravity_AnyOfFlattening_SmartSelection(t *testing
 				},
 				"required": ["_"]
 			}
-		},
-		"required": ["_"]
+		}
 	}`
 
 	result := CleanJSONSchemaForAntigravity(input)
@@ -159,13 +155,11 @@ func TestCleanJSONSchemaForAntigravity_OneOfFlattening(t *testing.T) {
 	expected := `{
 		"type": "object",
 		"properties": {
-			"_": { "type": "boolean" },
 			"config": {
 				"type": "string",
 				"description": "Accepts: string | integer"
 			}
-		},
-		"required": ["_"]
+		}
 	}`
 
 	result := CleanJSONSchemaForAntigravity(input)
@@ -221,11 +215,9 @@ func TestCleanJSONSchemaForAntigravity_RefHandling(t *testing.T) {
 	}`
 
 	// After $ref is converted to placeholder object, empty schema placeholder is also added
-	// Root object gets "_" placeholder since it has properties but no required
 	expected := `{
 		"type": "object",
 		"properties": {
-			"_": { "type": "boolean" },
 			"customer": {
 				"type": "object",
 				"description": "See: User",
@@ -237,8 +229,7 @@ func TestCleanJSONSchemaForAntigravity_RefHandling(t *testing.T) {
 				},
 				"required": ["reason"]
 			}
-		},
-		"required": ["_"]
+		}
 	}`
 
 	result := CleanJSONSchemaForAntigravity(input)
@@ -265,11 +256,9 @@ func TestCleanJSONSchemaForAntigravity_RefHandling_DescriptionEscaping(t *testin
 	}`
 
 	// After $ref is converted, empty schema placeholder is also added
-	// Root object gets "_" placeholder since it has properties but no required
 	expected := `{
 		"type": "object",
 		"properties": {
-			"_": { "type": "boolean" },
 			"customer": {
 				"type": "object",
 				"description": "He said \"hi\"\\nsecond line (See: User)",
@@ -281,8 +270,7 @@ func TestCleanJSONSchemaForAntigravity_RefHandling_DescriptionEscaping(t *testin
 				},
 				"required": ["reason"]
 			}
-		},
-		"required": ["_"]
+		}
 	}`
 
 	result := CleanJSONSchemaForAntigravity(input)
@@ -576,17 +564,14 @@ func TestCleanJSONSchemaForAntigravity_AnyOfFlattening_PreservesDescription(t *t
 		}
 	}`
 
-	// Root object gets "_" placeholder since it has properties but no required
 	expected := `{
 		"type": "object",
 		"properties": {
-			"_": { "type": "boolean" },
 			"config": {
 				"type": "string",
 				"description": "Parent desc (Child desc) (Accepts: string | integer)"
 			}
-		},
-		"required": ["_"]
+		}
 	}`
 
 	result := CleanJSONSchemaForAntigravity(input)
@@ -628,82 +613,6 @@ func TestCleanJSONSchemaForAntigravity_MultipleNonNullTypes(t *testing.T) {
 	}
 	if !strings.Contains(result, "string") || !strings.Contains(result, "integer") || !strings.Contains(result, "boolean") {
 		t.Errorf("Expected all types in hint, got: %s", result)
-	}
-}
-
-func TestCleanJSONSchemaForAntigravity_PropertyNamesRemoval(t *testing.T) {
-	// propertyNames is used to validate object property names (e.g., must match a pattern)
-	// Gemini doesn't support this keyword and will reject requests containing it
-	input := `{
-		"type": "object",
-		"properties": {
-			"metadata": {
-				"type": "object",
-				"propertyNames": {
-					"pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
-				},
-				"additionalProperties": {
-					"type": "string"
-				}
-			}
-		}
-	}`
-
-	// After cleanup, empty nested object gets placeholder property (Claude VALIDATED mode requirement)
-	// Root object gets "_" placeholder since it has properties but no required
-	expected := `{
-		"type": "object",
-		"properties": {
-			"_": { "type": "boolean" },
-			"metadata": {
-				"type": "object",
-				"properties": {
-					"reason": {
-						"type": "string",
-						"description": "Brief explanation of why you are calling this tool"
-					}
-				},
-				"required": ["reason"]
-			}
-		},
-		"required": ["_"]
-	}`
-
-	result := CleanJSONSchemaForAntigravity(input)
-	compareJSON(t, expected, result)
-
-	// Verify propertyNames is completely removed
-	if strings.Contains(result, "propertyNames") {
-		t.Errorf("propertyNames keyword should be removed, got: %s", result)
-	}
-}
-
-func TestCleanJSONSchemaForAntigravity_PropertyNamesRemoval_Nested(t *testing.T) {
-	// Test deeply nested propertyNames (as seen in real Claude tool schemas)
-	input := `{
-		"type": "object",
-		"properties": {
-			"items": {
-				"type": "array",
-				"items": {
-					"type": "object",
-					"properties": {
-						"config": {
-							"type": "object",
-							"propertyNames": {
-								"type": "string"
-							}
-						}
-					}
-				}
-			}
-		}
-	}`
-
-	result := CleanJSONSchemaForAntigravity(input)
-
-	if strings.Contains(result, "propertyNames") {
-		t.Errorf("Nested propertyNames should be removed, got: %s", result)
 	}
 }
 

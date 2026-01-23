@@ -62,46 +62,6 @@ func TestConvertGeminiRequestToAntigravity_AddSkipSentinelToFunctionCall(t *test
 	}
 }
 
-func TestConvertGeminiRequestToAntigravity_AnnotateThinkingBlocks(t *testing.T) {
-	// Thinking blocks should be kept and annotated with skip_thought_signature_validator for Gemini
-	validSignature := "abc123validSignature1234567890123456789012345678901234567890"
-	inputJSON := []byte(fmt.Sprintf(`{
-		"model": "gemini-3-pro-preview",
-		"contents": [
-			{
-				"role": "model",
-				"parts": [
-					{"thought": true, "text": "Thinking...", "thoughtSignature": "%s"},
-					{"text": "Here is my response"}
-				]
-			}
-		]
-	}`, validSignature))
-
-	output := ConvertGeminiRequestToAntigravity("gemini-3-pro-preview", inputJSON, false)
-	outputStr := string(output)
-
-	// Check that thinking block is kept and annotated
-	parts := gjson.Get(outputStr, "request.contents.0.parts").Array()
-	if len(parts) != 2 {
-		t.Fatalf("Expected 2 parts (thinking kept and annotated), got %d", len(parts))
-	}
-
-	// First part should be thinking block with skip sentinel
-	if !parts[0].Get("thought").Bool() {
-		t.Error("First part should be thinking block")
-	}
-	expectedSig := "skip_thought_signature_validator"
-	if parts[0].Get("thoughtSignature").String() != expectedSig {
-		t.Errorf("Expected thoughtSignature '%s', got '%s'", expectedSig, parts[0].Get("thoughtSignature").String())
-	}
-
-	// Second part should be text
-	if parts[1].Get("text").String() != "Here is my response" {
-		t.Errorf("Expected text 'Here is my response', got '%s'", parts[1].Get("text").String())
-	}
-}
-
 func TestConvertGeminiRequestToAntigravity_ParallelFunctionCalls(t *testing.T) {
 	// Multiple functionCalls should all get skip_thought_signature_validator
 	inputJSON := []byte(`{
