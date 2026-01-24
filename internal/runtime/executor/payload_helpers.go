@@ -8,6 +8,7 @@ import (
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -88,14 +89,15 @@ func ApplyReasoningEffortMetadata(payload []byte, metadata map[string]any, model
 // to the given JSON payload for the specified model.
 // Defaults only fill missing fields, while overrides always overwrite existing values.
 func applyPayloadConfig(cfg *config.Config, model string, payload []byte) []byte {
-	return applyPayloadConfigWithRoot(cfg, model, "", "", payload, nil)
+	return applyPayloadConfigWithRoot(cfg, model, "", "", payload, nil, "")
 }
 
 // applyPayloadConfigWithRoot behaves like applyPayloadConfig but treats all parameter
 // paths as relative to the provided root path (for example, "request" for Gemini CLI)
 // and restricts matches to the given protocol when supplied. Defaults are checked
-// against the original payload when provided.
-func applyPayloadConfigWithRoot(cfg *config.Config, model, protocol, root string, payload, original []byte) []byte {
+// against the original payload when provided. The requestedModel parameter is used
+// for matching payload rules when different from the resolved model.
+func applyPayloadConfigWithRoot(cfg *config.Config, model, protocol, root string, payload, original []byte, requestedModel string) []byte {
 	if cfg == nil || len(payload) == 0 {
 		return payload
 	}
@@ -265,6 +267,37 @@ func payloadRawValue(value any) ([]byte, bool) {
 			return nil, false
 		}
 		return raw, true
+	}
+}
+
+// payloadRequestedModel extracts the originally requested model from executor options metadata.
+// Returns the fallback value if not found or empty.
+func payloadRequestedModel(opts cliproxyexecutor.Options, fallback string) string {
+	fallback = strings.TrimSpace(fallback)
+	if len(opts.Metadata) == 0 {
+		return fallback
+	}
+	raw, ok := opts.Metadata[cliproxyexecutor.RequestedModelMetadataKey]
+	if !ok || raw == nil {
+		return fallback
+	}
+	switch v := raw.(type) {
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return fallback
+		}
+		return strings.TrimSpace(v)
+	case []byte:
+		if len(v) == 0 {
+			return fallback
+		}
+		trimmed := strings.TrimSpace(string(v))
+		if trimmed == "" {
+			return fallback
+		}
+		return trimmed
+	default:
+		return fallback
 	}
 }
 

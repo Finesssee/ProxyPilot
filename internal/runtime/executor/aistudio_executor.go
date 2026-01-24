@@ -14,11 +14,12 @@ import (
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/thinking"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/wsrelay"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
@@ -110,14 +111,16 @@ func (e *AIStudioExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.A
 
 // Execute performs a non-streaming request to the AI Studio API.
 func (e *AIStudioExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (resp cliproxyexecutor.Response, err error) {
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	baseModel := thinking.ParseSuffix(req.Model).ModelName
+	reporter := newUsageReporter(ctx, e.Identifier(), baseModel, auth)
 	defer reporter.trackFailure(ctx, &err)
 
 	translatedReq, body, err := e.translateRequest(req, opts, false)
 	if err != nil {
 		return resp, err
 	}
-	endpoint := e.buildEndpoint(req.Model, body.action, opts.Alt)
+
+	endpoint := e.buildEndpoint(baseModel, body.action, opts.Alt)
 	wsReq := &wsrelay.HTTPRequest{
 		Method:  http.MethodPost,
 		URL:     endpoint,
@@ -164,14 +167,16 @@ func (e *AIStudioExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth,
 
 // ExecuteStream performs a streaming request to the AI Studio API.
 func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (stream <-chan cliproxyexecutor.StreamChunk, err error) {
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	baseModel := thinking.ParseSuffix(req.Model).ModelName
+	reporter := newUsageReporter(ctx, e.Identifier(), baseModel, auth)
 	defer reporter.trackFailure(ctx, &err)
 
 	translatedReq, body, err := e.translateRequest(req, opts, true)
 	if err != nil {
 		return nil, err
 	}
-	endpoint := e.buildEndpoint(req.Model, body.action, opts.Alt)
+
+	endpoint := e.buildEndpoint(baseModel, body.action, opts.Alt)
 	wsReq := &wsrelay.HTTPRequest{
 		Method:  http.MethodPost,
 		URL:     endpoint,
@@ -310,14 +315,60 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 	return stream, nil
 }
 
-// CountTokens counts tokens for the given request using the AIStudio/WebSocket relay.
+// CountTokens counts tokens for the given request using the AI Studio API.
 func (e *AIStudioExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	return cliproxyexecutor.Response{}, statusErr{code: http.StatusNotImplemented, msg: "count tokens not supported"}
-}
+	baseModel := thinking.ParseSuffix(req.Model).ModelName
+	_, body, err := e.translateRequest(req, opts, false)
+	if err != nil {
+		return cliproxyexecutor.Response{}, err
+	}
 
-// Embed performs an embedding request (not supported for AIStudio).
-func (e *AIStudioExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	return cliproxyexecutor.Response{}, statusErr{code: http.StatusNotImplemented, msg: "embeddings not supported"}
+	body.payload, _ = sjson.DeleteBytes(body.payload, "generationConfig")
+	body.payload, _ = sjson.DeleteBytes(body.payload, "tools")
+	body.payload, _ = sjson.DeleteBytes(body.payload, "safetySettings")
+
+	endpoint := e.buildEndpoint(baseModel, "countTokens", "")
+	wsReq := &wsrelay.HTTPRequest{
+		Method:  http.MethodPost,
+		URL:     endpoint,
+		Headers: http.Header{"Content-Type": []string{"application/json"}},
+		Body:    body.payload,
+	}
+	var authID, authLabel, authType, authValue string
+	if auth != nil {
+		authID = auth.ID
+		authLabel = auth.Label
+		authType, authValue = auth.AccountInfo()
+	}
+	recordAPIRequest(ctx, e.cfg, upstreamRequestLog{
+		URL:       endpoint,
+		Method:    http.MethodPost,
+		Headers:   wsReq.Headers.Clone(),
+		Body:      bytes.Clone(body.payload),
+		Provider:  e.Identifier(),
+		AuthID:    authID,
+		AuthLabel: authLabel,
+		AuthType:  authType,
+		AuthValue: authValue,
+	})
+	resp, err := e.relay.NonStream(ctx, authID, wsReq)
+	if err != nil {
+		recordAPIResponseError(ctx, e.cfg, err)
+		return cliproxyexecutor.Response{}, err
+	}
+	recordAPIResponseMetadata(ctx, e.cfg, resp.Status, resp.Headers.Clone())
+	if len(resp.Body) > 0 {
+		appendAPIResponseChunk(ctx, e.cfg, bytes.Clone(resp.Body))
+	}
+	if resp.Status < 200 || resp.Status >= 300 {
+		return cliproxyexecutor.Response{}, statusErr{code: resp.Status, msg: string(resp.Body)}
+	}
+	totalTokens := gjson.GetBytes(resp.Body, "totalTokens").Int()
+	if totalTokens <= 0 {
+		return cliproxyexecutor.Response{}, fmt.Errorf("wsrelay: totalTokens missing in response")
+	}
+	translated := sdktranslator.TranslateTokenCount(ctx, body.toFormat, opts.SourceFormat, totalTokens, bytes.Clone(resp.Body))
+	return cliproxyexecutor.Response{Payload: []byte(translated)}, nil
 }
 
 // Refresh refreshes the authentication credentials (no-op for AI Studio).
@@ -332,17 +383,23 @@ type translatedPayload struct {
 }
 
 func (e *AIStudioExecutor) translateRequest(req cliproxyexecutor.Request, opts cliproxyexecutor.Options, stream bool) ([]byte, translatedPayload, error) {
+	baseModel := thinking.ParseSuffix(req.Model).ModelName
+
 	from := opts.SourceFormat
 	to := sdktranslator.FromString("gemini")
-	payload := sdktranslator.TranslateRequest(from, to, req.Model, bytes.Clone(req.Payload), stream)
-	payload = ApplyThinkingMetadata(payload, req.Metadata, req.Model)
-	payload = util.ApplyGemini3ThinkingLevelFromMetadata(req.Model, req.Metadata, payload)
-	payload = util.ApplyDefaultThinkingIfNeeded(req.Model, payload)
-	payload = util.ConvertThinkingLevelToBudget(payload, req.Model, true)
-	payload = util.NormalizeGeminiThinkingBudget(req.Model, payload, true)
-	payload = util.StripThinkingConfigIfUnsupported(req.Model, payload)
-	payload = fixGeminiImageAspectRatio(req.Model, payload)
-	payload = applyPayloadConfig(e.cfg, req.Model, payload)
+	originalPayload := bytes.Clone(req.Payload)
+	if len(opts.OriginalRequest) > 0 {
+		originalPayload = bytes.Clone(opts.OriginalRequest)
+	}
+	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, stream)
+	payload := sdktranslator.TranslateRequest(from, to, baseModel, bytes.Clone(req.Payload), stream)
+	payload, err := thinking.ApplyThinking(payload, req.Model, from.String(), to.String(), e.Identifier())
+	if err != nil {
+		return nil, translatedPayload{}, err
+	}
+	payload = fixGeminiImageAspectRatio(baseModel, payload)
+	requestedModel := payloadRequestedModel(opts, req.Model)
+	payload = applyPayloadConfigWithRoot(e.cfg, baseModel, to.String(), "", payload, originalTranslated, requestedModel)
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.maxOutputTokens")
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.responseMimeType")
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.responseJsonSchema")
@@ -427,4 +484,9 @@ func ensureColonSpacedJSON(payload []byte) []byte {
 	}
 
 	return compacted
+}
+
+// Embed is not supported by the AIStudio executor.
+func (e *AIStudioExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	return cliproxyexecutor.Response{}, fmt.Errorf("aistudio executor does not support embeddings")
 }

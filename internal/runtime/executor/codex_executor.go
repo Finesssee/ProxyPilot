@@ -13,6 +13,7 @@ import (
 	codexauth "github.com/router-for-me/CLIProxyAPI/v6/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/thinking"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
@@ -72,41 +73,41 @@ func (e *CodexExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.Auth
 }
 
 func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (resp cliproxyexecutor.Response, err error) {
-	apiKey, baseURL := codexCreds(auth)
+	baseModel := thinking.ParseSuffix(req.Model).ModelName
 
+	apiKey, baseURL := codexCreds(auth)
 	if baseURL == "" {
 		baseURL = "https://chatgpt.com/backend-api/codex"
 	}
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
 
-	upstreamModel := util.ResolveOriginalModel(req.Model, req.Metadata)
-	if upstreamModel == "" {
-		upstreamModel = req.Model
-	}
-	if modelOverride := e.resolveUpstreamModel(upstreamModel, auth); modelOverride != "" {
-		upstreamModel = modelOverride
-	} else if !strings.EqualFold(upstreamModel, req.Model) {
-		if modelOverride := e.resolveUpstreamModel(req.Model, auth); modelOverride != "" {
-			upstreamModel = modelOverride
-		}
-	}
+	reporter := newUsageReporter(ctx, e.Identifier(), baseModel, auth)
+	defer reporter.trackFailure(ctx, &err)
 
 	from := opts.SourceFormat
 	to := sdktranslator.FromString("codex")
 	userAgent := codexUserAgent(ctx)
-	body := misc.InjectCodexUserAgent(bytes.Clone(req.Payload), userAgent)
-	body = sdktranslator.TranslateRequest(from, to, req.Model, body, false)
-	body = misc.StripCodexUserAgent(body)
-	body = ApplyReasoningEffortMetadata(body, req.Metadata, req.Model, "reasoning.effort", false)
-	body = NormalizeThinkingConfig(body, upstreamModel, false)
-	if errValidate := ValidateThinkingConfig(body, upstreamModel); errValidate != nil {
-		return resp, errValidate
+	originalPayload := bytes.Clone(req.Payload)
+	if len(opts.OriginalRequest) > 0 {
+		originalPayload = bytes.Clone(opts.OriginalRequest)
 	}
-	body = applyPayloadConfig(e.cfg, req.Model, body)
-	body, _ = sjson.SetBytes(body, "model", upstreamModel)
+	originalPayload = misc.InjectCodexUserAgent(originalPayload, userAgent)
+	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, false)
+	body := misc.InjectCodexUserAgent(bytes.Clone(req.Payload), userAgent)
+	body = sdktranslator.TranslateRequest(from, to, baseModel, body, false)
+	body = misc.StripCodexUserAgent(body)
+
+	body, err = thinking.ApplyThinking(body, req.Model, from.String(), to.String(), e.Identifier())
+	if err != nil {
+		return resp, err
+	}
+
+	requestedModel := payloadRequestedModel(opts, req.Model)
+	body = applyPayloadConfigWithRoot(e.cfg, baseModel, to.String(), "", body, originalTranslated, requestedModel)
+	body, _ = sjson.SetBytes(body, "model", baseModel)
 	body, _ = sjson.SetBytes(body, "stream", true)
 	body, _ = sjson.DeleteBytes(body, "previous_response_id")
+	body, _ = sjson.DeleteBytes(body, "prompt_cache_retention")
+	body, _ = sjson.DeleteBytes(body, "safety_identifier")
 	if !gjson.GetBytes(body, "instructions").Exists() {
 		body, _ = sjson.SetBytes(body, "instructions", "")
 	}
@@ -176,7 +177,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		}
 
 		var param any
-		out := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, bytes.Clone(opts.OriginalRequest), body, line, &param)
+		out := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, bytes.Clone(originalPayload), body, line, &param)
 		resp = cliproxyexecutor.Response{Payload: []byte(out)}
 		return resp, nil
 	}
@@ -185,41 +186,40 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 }
 
 func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (stream <-chan cliproxyexecutor.StreamChunk, err error) {
-	apiKey, baseURL := codexCreds(auth)
+	baseModel := thinking.ParseSuffix(req.Model).ModelName
 
+	apiKey, baseURL := codexCreds(auth)
 	if baseURL == "" {
 		baseURL = "https://chatgpt.com/backend-api/codex"
 	}
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
 
-	upstreamModel := util.ResolveOriginalModel(req.Model, req.Metadata)
-	if upstreamModel == "" {
-		upstreamModel = req.Model
-	}
-	if modelOverride := e.resolveUpstreamModel(upstreamModel, auth); modelOverride != "" {
-		upstreamModel = modelOverride
-	} else if !strings.EqualFold(upstreamModel, req.Model) {
-		if modelOverride := e.resolveUpstreamModel(req.Model, auth); modelOverride != "" {
-			upstreamModel = modelOverride
-		}
-	}
+	reporter := newUsageReporter(ctx, e.Identifier(), baseModel, auth)
+	defer reporter.trackFailure(ctx, &err)
 
 	from := opts.SourceFormat
 	to := sdktranslator.FromString("codex")
 	userAgent := codexUserAgent(ctx)
+	originalPayload := bytes.Clone(req.Payload)
+	if len(opts.OriginalRequest) > 0 {
+		originalPayload = bytes.Clone(opts.OriginalRequest)
+	}
+	originalPayload = misc.InjectCodexUserAgent(originalPayload, userAgent)
+	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, true)
 	body := misc.InjectCodexUserAgent(bytes.Clone(req.Payload), userAgent)
-	body = sdktranslator.TranslateRequest(from, to, req.Model, body, true)
+	body = sdktranslator.TranslateRequest(from, to, baseModel, body, true)
 	body = misc.StripCodexUserAgent(body)
 
-	body = ApplyReasoningEffortMetadata(body, req.Metadata, req.Model, "reasoning.effort", false)
-	body = NormalizeThinkingConfig(body, upstreamModel, false)
-	if errValidate := ValidateThinkingConfig(body, upstreamModel); errValidate != nil {
-		return nil, errValidate
+	body, err = thinking.ApplyThinking(body, req.Model, from.String(), to.String(), e.Identifier())
+	if err != nil {
+		return nil, err
 	}
-	body = applyPayloadConfig(e.cfg, req.Model, body)
+
+	requestedModel := payloadRequestedModel(opts, req.Model)
+	body = applyPayloadConfigWithRoot(e.cfg, baseModel, to.String(), "", body, originalTranslated, requestedModel)
 	body, _ = sjson.DeleteBytes(body, "previous_response_id")
-	body, _ = sjson.SetBytes(body, "model", upstreamModel)
+	body, _ = sjson.DeleteBytes(body, "prompt_cache_retention")
+	body, _ = sjson.DeleteBytes(body, "safety_identifier")
+	body, _ = sjson.SetBytes(body, "model", baseModel)
 	if !gjson.GetBytes(body, "instructions").Exists() {
 		body, _ = sjson.SetBytes(body, "instructions", "")
 	}
@@ -294,7 +294,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 				}
 			}
 
-			chunks := sdktranslator.TranslateStream(ctx, to, from, req.Model, bytes.Clone(opts.OriginalRequest), body, bytes.Clone(line), &param)
+			chunks := sdktranslator.TranslateStream(ctx, to, from, req.Model, bytes.Clone(originalPayload), body, bytes.Clone(line), &param)
 			for i := range chunks {
 				out <- cliproxyexecutor.StreamChunk{Payload: []byte(chunks[i])}
 			}
@@ -309,36 +309,30 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 }
 
 func (e *CodexExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	upstreamModel := util.ResolveOriginalModel(req.Model, req.Metadata)
-	if upstreamModel == "" {
-		upstreamModel = req.Model
-	}
-	if modelOverride := e.resolveUpstreamModel(upstreamModel, auth); modelOverride != "" {
-		upstreamModel = modelOverride
-	} else if !strings.EqualFold(upstreamModel, req.Model) {
-		if modelOverride := e.resolveUpstreamModel(req.Model, auth); modelOverride != "" {
-			upstreamModel = modelOverride
-		}
-	}
+	baseModel := thinking.ParseSuffix(req.Model).ModelName
 
 	from := opts.SourceFormat
 	to := sdktranslator.FromString("codex")
 	userAgent := codexUserAgent(ctx)
 	body := misc.InjectCodexUserAgent(bytes.Clone(req.Payload), userAgent)
-	body = sdktranslator.TranslateRequest(from, to, req.Model, body, false)
+	body = sdktranslator.TranslateRequest(from, to, baseModel, body, false)
 	body = misc.StripCodexUserAgent(body)
 
-	modelForCounting := upstreamModel
+	body, err := thinking.ApplyThinking(body, req.Model, from.String(), to.String(), e.Identifier())
+	if err != nil {
+		return cliproxyexecutor.Response{}, err
+	}
 
-	body = ApplyReasoningEffortMetadata(body, req.Metadata, req.Model, "reasoning.effort", false)
-	body, _ = sjson.SetBytes(body, "model", upstreamModel)
+	body, _ = sjson.SetBytes(body, "model", baseModel)
 	body, _ = sjson.DeleteBytes(body, "previous_response_id")
+	body, _ = sjson.DeleteBytes(body, "prompt_cache_retention")
+	body, _ = sjson.DeleteBytes(body, "safety_identifier")
 	body, _ = sjson.SetBytes(body, "stream", false)
 	if !gjson.GetBytes(body, "instructions").Exists() {
 		body, _ = sjson.SetBytes(body, "instructions", "")
 	}
 
-	enc, err := tokenizerForCodexModel(modelForCounting)
+	enc, err := tokenizerForCodexModel(baseModel)
 	if err != nil {
 		return cliproxyexecutor.Response{}, fmt.Errorf("codex executor: tokenizer init failed: %w", err)
 	}
@@ -353,17 +347,12 @@ func (e *CodexExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth
 	return cliproxyexecutor.Response{Payload: []byte(translated)}, nil
 }
 
-// Embed performs an embedding request (not supported for Codex).
-func (e *CodexExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	return cliproxyexecutor.Response{}, statusErr{code: http.StatusNotImplemented, msg: "embeddings not supported"}
-}
-
 func tokenizerForCodexModel(model string) (tokenizer.Codec, error) {
 	sanitized := strings.ToLower(strings.TrimSpace(model))
 	switch {
 	case sanitized == "":
 		return tokenizer.Get(tokenizer.Cl100kBase)
-	case strings.HasPrefix(sanitized, "gpt-5.2"):
+	case strings.HasPrefix(sanitized, "gpt-5"):
 		return tokenizer.ForModel(tokenizer.GPT5)
 	case strings.HasPrefix(sanitized, "gpt-4.1"):
 		return tokenizer.ForModel(tokenizer.GPT41)
@@ -516,10 +505,6 @@ func (e *CodexExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*
 	auth.Metadata["type"] = "codex"
 	now := time.Now().Format(time.RFC3339)
 	auth.Metadata["last_refresh"] = now
-	// Update TokenExpiresAt for proactive refresh scheduling.
-	if expiry, ok := auth.ExpirationTime(); ok {
-		auth.TokenExpiresAt = expiry
-	}
 	return auth, nil
 }
 
@@ -619,51 +604,6 @@ func codexCreds(a *cliproxyauth.Auth) (apiKey, baseURL string) {
 	return
 }
 
-func (e *CodexExecutor) resolveUpstreamModel(alias string, auth *cliproxyauth.Auth) string {
-	trimmed := strings.TrimSpace(alias)
-	if trimmed == "" {
-		return ""
-	}
-
-	entry := e.resolveCodexConfig(auth)
-	if entry == nil {
-		return ""
-	}
-
-	normalizedModel, metadata := util.NormalizeThinkingModel(trimmed)
-
-	// Candidate names to match against configured aliases/names.
-	candidates := []string{strings.TrimSpace(normalizedModel)}
-	if !strings.EqualFold(normalizedModel, trimmed) {
-		candidates = append(candidates, trimmed)
-	}
-	if original := util.ResolveOriginalModel(normalizedModel, metadata); original != "" && !strings.EqualFold(original, normalizedModel) {
-		candidates = append(candidates, original)
-	}
-
-	for i := range entry.Models {
-		model := entry.Models[i]
-		name := strings.TrimSpace(model.Name)
-		modelAlias := strings.TrimSpace(model.Alias)
-
-		for _, candidate := range candidates {
-			if candidate == "" {
-				continue
-			}
-			if modelAlias != "" && strings.EqualFold(modelAlias, candidate) {
-				if name != "" {
-					return name
-				}
-				return candidate
-			}
-			if name != "" && strings.EqualFold(name, candidate) {
-				return name
-			}
-		}
-	}
-	return ""
-}
-
 func (e *CodexExecutor) resolveCodexConfig(auth *cliproxyauth.Auth) *config.CodexKey {
 	if auth == nil || e.cfg == nil {
 		return nil
@@ -701,4 +641,9 @@ func (e *CodexExecutor) resolveCodexConfig(auth *cliproxyauth.Auth) *config.Code
 		}
 	}
 	return nil
+}
+
+// Embed is not supported by the Codex executor.
+func (e *CodexExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	return cliproxyexecutor.Response{}, fmt.Errorf("codex executor does not support embeddings")
 }

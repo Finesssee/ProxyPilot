@@ -35,55 +35,19 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 	// Model
 	out, _ = sjson.SetBytes(out, "model", modelName)
 
-	// Reasoning effort -> thinkingBudget/includeThoughts
-	// Note: OpenAI official fields take precedence over extra_body.google.thinking_config
-	// Only apply numeric budgets for models that use budgets (not discrete levels) to avoid
-	// incorrectly applying thinkingBudget for level-based models like gpt-5. Gemini 3 models
-	// use thinkingLevel/includeThoughts instead.
+	// Apply thinking configuration: convert OpenAI reasoning_effort to Gemini thinkingConfig.
+	// Inline translation-only mapping; capability checks happen later in ApplyThinking.
 	re := gjson.GetBytes(rawJSON, "reasoning_effort")
-	hasOfficialThinking := re.Exists()
-	if hasOfficialThinking && util.ModelSupportsThinking(modelName) {
+	if re.Exists() {
 		effort := strings.ToLower(strings.TrimSpace(re.String()))
-		if util.IsGemini3Model(modelName) {
-			switch effort {
-			case "none":
-				out, _ = sjson.DeleteBytes(out, "generationConfig.thinkingConfig")
-			case "auto":
-				includeThoughts := true
-				out = util.ApplyGeminiThinkingLevel(out, "", &includeThoughts)
-			default:
-				if level, ok := util.ValidateGemini3ThinkingLevel(modelName, effort); ok {
-					out = util.ApplyGeminiThinkingLevel(out, level, nil)
-				}
-			}
-		} else if !util.ModelUsesThinkingLevels(modelName) {
-			out = util.ApplyReasoningEffortToGemini(out, effort)
-		}
-	}
-
-	// Cherry Studio extension extra_body.google.thinking_config (effective only when official fields are absent)
-	// Only apply for models that use numeric budgets, not discrete levels.
-	if !hasOfficialThinking && util.ModelSupportsThinking(modelName) && !util.ModelUsesThinkingLevels(modelName) {
-		if tc := gjson.GetBytes(rawJSON, "extra_body.google.thinking_config"); tc.Exists() && tc.IsObject() {
-			var setBudget bool
-			var budget int
-
-			if v := tc.Get("thinkingBudget"); v.Exists() {
-				budget = int(v.Int())
-				out, _ = sjson.SetBytes(out, "generationConfig.thinkingConfig.thinkingBudget", budget)
-				setBudget = true
-			} else if v := tc.Get("thinking_budget"); v.Exists() {
-				budget = int(v.Int())
-				out, _ = sjson.SetBytes(out, "generationConfig.thinkingConfig.thinkingBudget", budget)
-				setBudget = true
-			}
-
-			if v := tc.Get("includeThoughts"); v.Exists() {
-				out, _ = sjson.SetBytes(out, "generationConfig.thinkingConfig.includeThoughts", v.Bool())
-			} else if v := tc.Get("includeThoughts"); v.Exists() {
-				out, _ = sjson.SetBytes(out, "generationConfig.thinkingConfig.includeThoughts", v.Bool())
-			} else if setBudget && budget != 0 {
-				out, _ = sjson.SetBytes(out, "generationConfig.thinkingConfig.includeThoughts", true)
+		if effort != "" {
+			thinkingPath := "generationConfig.thinkingConfig"
+			if effort == "auto" {
+				out, _ = sjson.SetBytes(out, thinkingPath+".thinkingBudget", -1)
+				out, _ = sjson.SetBytes(out, thinkingPath+".includeThoughts", true)
+			} else {
+				out, _ = sjson.SetBytes(out, thinkingPath+".thinkingLevel", effort)
+				out, _ = sjson.SetBytes(out, thinkingPath+".includeThoughts", effort != "none")
 			}
 		}
 	}
@@ -325,12 +289,12 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 		}
 	}
 
-	// tools -> tools[0].functionDeclarations + tools[0].googleSearch passthrough
+	// tools -> tools[].functionDeclarations + tools[].googleSearch passthrough
 	tools := gjson.GetBytes(rawJSON, "tools")
 	if tools.IsArray() && len(tools.Array()) > 0 {
-		toolNode := []byte(`{}`)
-		hasTool := false
+		functionToolNode := []byte(`{}`)
 		hasFunction := false
+		googleSearchNodes := make([][]byte, 0)
 		for _, t := range tools.Array() {
 			if t.Get("type").String() == "function" {
 				fn := t.Get("function")
@@ -369,31 +333,37 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 					}
 					fnRaw, _ = sjson.Delete(fnRaw, "strict")
 					if !hasFunction {
-						toolNode, _ = sjson.SetRawBytes(toolNode, "functionDeclarations", []byte("[]"))
+						functionToolNode, _ = sjson.SetRawBytes(functionToolNode, "functionDeclarations", []byte("[]"))
 					}
-					tmp, errSet := sjson.SetRawBytes(toolNode, "functionDeclarations.-1", []byte(fnRaw))
+					tmp, errSet := sjson.SetRawBytes(functionToolNode, "functionDeclarations.-1", []byte(fnRaw))
 					if errSet != nil {
 						log.Warnf("Failed to append tool declaration for '%s': %v", fn.Get("name").String(), errSet)
 						continue
 					}
-					toolNode = tmp
+					functionToolNode = tmp
 					hasFunction = true
-					hasTool = true
 				}
 			}
 			if gs := t.Get("google_search"); gs.Exists() {
+				googleToolNode := []byte(`{}`)
 				var errSet error
-				toolNode, errSet = sjson.SetRawBytes(toolNode, "googleSearch", []byte(gs.Raw))
+				googleToolNode, errSet = sjson.SetRawBytes(googleToolNode, "googleSearch", []byte(gs.Raw))
 				if errSet != nil {
 					log.Warnf("Failed to set googleSearch tool: %v", errSet)
 					continue
 				}
-				hasTool = true
+				googleSearchNodes = append(googleSearchNodes, googleToolNode)
 			}
 		}
-		if hasTool {
-			out, _ = sjson.SetRawBytes(out, "tools", []byte("[]"))
-			out, _ = sjson.SetRawBytes(out, "tools.0", toolNode)
+		if hasFunction || len(googleSearchNodes) > 0 {
+			toolsNode := []byte("[]")
+			if hasFunction {
+				toolsNode, _ = sjson.SetRawBytes(toolsNode, "-1", functionToolNode)
+			}
+			for _, googleNode := range googleSearchNodes {
+				toolsNode, _ = sjson.SetRawBytes(toolsNode, "-1", googleNode)
+			}
+			out, _ = sjson.SetRawBytes(out, "tools", toolsNode)
 		}
 	}
 

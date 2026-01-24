@@ -11,6 +11,9 @@ import (
 // ErrNotImplemented is returned when an executor does not support a particular operation.
 var ErrNotImplemented = errors.New("operation not implemented")
 
+// RequestedModelMetadataKey stores the client-requested model name in Options.Metadata.
+const RequestedModelMetadataKey = "requested_model"
+
 // Request encapsulates the translated payload that will be sent to a provider executor.
 type Request struct {
 	// Model is the upstream model identifier after translation.

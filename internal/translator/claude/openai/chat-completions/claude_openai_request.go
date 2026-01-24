@@ -15,7 +15,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/thinking"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -65,10 +65,11 @@ func ConvertOpenAIRequestToClaude(modelName string, inputRawJSON []byte, stream 
 
 	root := gjson.ParseBytes(rawJSON)
 
-	if v := root.Get("reasoning_effort"); v.Exists() && util.ModelSupportsThinking(modelName) && !util.ModelUsesThinkingLevels(modelName) {
+	// Convert OpenAI reasoning_effort to Claude thinking config.
+	if v := root.Get("reasoning_effort"); v.Exists() {
 		effort := strings.ToLower(strings.TrimSpace(v.String()))
 		if effort != "" {
-			budget, ok := util.ThinkingEffortToBudget(modelName, effort)
+			budget, ok := thinking.ConvertLevelToBudget(effort)
 			if ok {
 				switch budget {
 				case 0:
@@ -109,10 +110,8 @@ func ConvertOpenAIRequestToClaude(modelName string, inputRawJSON []byte, stream 
 	// Temperature setting for controlling response randomness
 	if temp := root.Get("temperature"); temp.Exists() {
 		out, _ = sjson.Set(out, "temperature", temp.Float())
-	}
-
-	// Top P setting for nucleus sampling
-	if topP := root.Get("top_p"); topP.Exists() {
+	} else if topP := root.Get("top_p"); topP.Exists() {
+		// Top P setting for nucleus sampling (filtered out if temperature is set)
 		out, _ = sjson.Set(out, "top_p", topP.Float())
 	}
 
@@ -187,37 +186,19 @@ func ConvertOpenAIRequestToClaude(modelName string, inputRawJSON []byte, stream 
 						case "image_url":
 							// Convert OpenAI image format to Claude Code format
 							imageURL := part.Get("image_url.url").String()
-							if imageURL == "" {
-								return true
-							}
-
-							var imagePart string
 							if strings.HasPrefix(imageURL, "data:") {
 								// Extract base64 data and media type from data URL
-								// Format: data:<media_type>;base64,<data>
-								trimmed := strings.TrimPrefix(imageURL, "data:")
-								mediaAndData := strings.SplitN(trimmed, ";base64,", 2)
-								mediaType := "application/octet-stream"
-								data := ""
-								if len(mediaAndData) == 2 {
-									if mediaAndData[0] != "" {
-										mediaType = mediaAndData[0]
-									}
-									data = mediaAndData[1]
-								}
-								if data != "" {
-									imagePart = `{"type":"image","source":{"type":"base64","media_type":"","data":""}}`
+								parts := strings.Split(imageURL, ",")
+								if len(parts) == 2 {
+									mediaTypePart := strings.Split(parts[0], ";")[0]
+									mediaType := strings.TrimPrefix(mediaTypePart, "data:")
+									data := parts[1]
+
+									imagePart := `{"type":"image","source":{"type":"base64","media_type":"","data":""}}`
 									imagePart, _ = sjson.Set(imagePart, "source.media_type", mediaType)
 									imagePart, _ = sjson.Set(imagePart, "source.data", data)
+									msg, _ = sjson.SetRaw(msg, "content.-1", imagePart)
 								}
-							} else {
-								// Handle URL-based images (https://)
-								imagePart = `{"type":"image","source":{"type":"url","url":""}}`
-								imagePart, _ = sjson.Set(imagePart, "source.url", imageURL)
-							}
-
-							if imagePart != "" {
-								msg, _ = sjson.SetRaw(msg, "content.-1", imagePart)
 							}
 						}
 						return true
