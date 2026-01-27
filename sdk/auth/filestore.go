@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -74,28 +73,26 @@ func (s *FileTokenStore) Save(ctx context.Context, auth *cliproxyauth.Auth) (str
 			return "", fmt.Errorf("auth filestore: marshal metadata failed: %w", errMarshal)
 		}
 		if existing, errRead := os.ReadFile(path); errRead == nil {
-			// Use metadataEqualIgnoringTimestamps to skip writes when only timestamp fields change.
-			// This prevents the token refresh loop caused by timestamp/expired/expires_in changes.
-			if metadataEqualIgnoringTimestamps(existing, raw) {
+			if jsonEqual(existing, raw) {
 				return path, nil
 			}
 			file, errOpen := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0o600)
 			if errOpen != nil {
-				return "", fmt.Errorf("auth filestore: open file failed: %w", errOpen)
+				return "", fmt.Errorf("auth filestore: open existing failed: %w", errOpen)
 			}
 			if _, errWrite := file.Write(raw); errWrite != nil {
 				_ = file.Close()
-				return "", fmt.Errorf("auth filestore: write failed: %w", errWrite)
+				return "", fmt.Errorf("auth filestore: write existing failed: %w", errWrite)
 			}
 			if errClose := file.Close(); errClose != nil {
-				return "", fmt.Errorf("auth filestore: close failed: %w", errClose)
+				return "", fmt.Errorf("auth filestore: close existing failed: %w", errClose)
 			}
-		} else if errRead != nil && !os.IsNotExist(errRead) {
+			return path, nil
+		} else if !os.IsNotExist(errRead) {
 			return "", fmt.Errorf("auth filestore: read existing failed: %w", errRead)
-		} else {
-			if errWrite := os.WriteFile(path, raw, 0o600); errWrite != nil {
-				return "", fmt.Errorf("auth filestore: write failed: %w", errWrite)
-			}
+		}
+		if errWrite := os.WriteFile(path, raw, 0o600); errWrite != nil {
+			return "", fmt.Errorf("auth filestore: write file failed: %w", errWrite)
 		}
 	default:
 		return "", fmt.Errorf("auth filestore: nothing to persist for %s", auth.ID)
@@ -188,13 +185,17 @@ func (s *FileTokenStore) readAuthFile(path, baseDir string) (*cliproxyauth.Auth,
 	if provider == "" {
 		provider = "unknown"
 	}
-
-	// For antigravity provider, auto-fetch project_id if missing
 	if provider == "antigravity" {
-		projectID, _ := metadata["project_id"].(string)
-		if strings.TrimSpace(projectID) == "" {
-			accessToken, _ := metadata["access_token"].(string)
-			if strings.TrimSpace(accessToken) != "" {
+		projectID := ""
+		if pid, ok := metadata["project_id"].(string); ok {
+			projectID = strings.TrimSpace(pid)
+		}
+		if projectID == "" {
+			accessToken := ""
+			if token, ok := metadata["access_token"].(string); ok {
+				accessToken = strings.TrimSpace(token)
+			}
+			if accessToken != "" {
 				fetchedProjectID, errFetch := FetchAntigravityProjectID(context.Background(), accessToken, http.DefaultClient)
 				if errFetch == nil && strings.TrimSpace(fetchedProjectID) != "" {
 					metadata["project_id"] = strings.TrimSpace(fetchedProjectID)
@@ -208,7 +209,6 @@ func (s *FileTokenStore) readAuthFile(path, baseDir string) (*cliproxyauth.Auth,
 			}
 		}
 	}
-
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("stat file: %w", err)
@@ -229,10 +229,6 @@ func (s *FileTokenStore) readAuthFile(path, baseDir string) (*cliproxyauth.Auth,
 	}
 	if email, ok := metadata["email"].(string); ok && email != "" {
 		auth.Attributes["email"] = email
-	}
-	// Extract token expiry for proactive refresh scheduling.
-	if expiry, ok := auth.ExpirationTime(); ok {
-		auth.TokenExpiresAt = expiry
 	}
 	return auth, nil
 }
@@ -301,31 +297,65 @@ func (s *FileTokenStore) baseDirSnapshot() string {
 	return s.baseDir
 }
 
-// metadataEqualIgnoringTimestamps compares two metadata JSON blobs,
-// ignoring volatile fields that change on every refresh.
-// This prevents unnecessary file writes that would trigger watcher reload loops.
-func metadataEqualIgnoringTimestamps(a, b []byte) bool {
-	var objA map[string]any
-	var objB map[string]any
-	if errUnmarshalA := json.Unmarshal(a, &objA); errUnmarshalA != nil {
+// jsonEqual compares two JSON blobs by parsing them into Go objects and deep comparing.
+func jsonEqual(a, b []byte) bool {
+	var objA any
+	var objB any
+	if err := json.Unmarshal(a, &objA); err != nil {
 		return false
 	}
-	if errUnmarshalB := json.Unmarshal(b, &objB); errUnmarshalB != nil {
+	if err := json.Unmarshal(b, &objB); err != nil {
 		return false
 	}
-	stripVolatileMetadataFields(objA)
-	stripVolatileMetadataFields(objB)
-	return reflect.DeepEqual(objA, objB)
+	return deepEqualJSON(objA, objB)
 }
 
-// stripVolatileMetadataFields removes fields that change on every token refresh
-// but don't affect authentication logic.
-func stripVolatileMetadataFields(metadata map[string]any) {
-	if metadata == nil {
-		return
-	}
-	// These fields change on refresh and would otherwise trigger watcher reload loops.
-	for _, field := range []string{"timestamp", "expired", "expires_in", "last_refresh", "access_token"} {
-		delete(metadata, field)
+func deepEqualJSON(a, b any) bool {
+	switch valA := a.(type) {
+	case map[string]any:
+		valB, ok := b.(map[string]any)
+		if !ok || len(valA) != len(valB) {
+			return false
+		}
+		for key, subA := range valA {
+			subB, ok1 := valB[key]
+			if !ok1 || !deepEqualJSON(subA, subB) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		sliceB, ok := b.([]any)
+		if !ok || len(valA) != len(sliceB) {
+			return false
+		}
+		for i := range valA {
+			if !deepEqualJSON(valA[i], sliceB[i]) {
+				return false
+			}
+		}
+		return true
+	case float64:
+		valB, ok := b.(float64)
+		if !ok {
+			return false
+		}
+		return valA == valB
+	case string:
+		valB, ok := b.(string)
+		if !ok {
+			return false
+		}
+		return valA == valB
+	case bool:
+		valB, ok := b.(bool)
+		if !ok {
+			return false
+		}
+		return valA == valB
+	case nil:
+		return b == nil
+	default:
+		return false
 	}
 }
