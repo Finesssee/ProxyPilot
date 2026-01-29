@@ -6,10 +6,6 @@ package config
 
 import "time"
 
-// GlobalModelMapperFunc is a function type for looking up global model mappings.
-// It takes a model name and provider hint, and returns the mapped model name (or empty string if no mapping).
-type GlobalModelMapperFunc func(model string, provider string) string
-
 // SDKConfig represents the application's configuration, loaded from a YAML file.
 type SDKConfig struct {
 	// ProxyURL is the URL of an optional proxy server to use for outbound requests.
@@ -32,20 +28,22 @@ type SDKConfig struct {
 	// Streaming configures server-side streaming behavior (keep-alives and safe bootstrap retries).
 	Streaming StreamingConfig `yaml:"streaming" json:"streaming"`
 
-	// Compression configures context compression behavior for long conversations.
-	Compression CompressionConfig `yaml:"compression,omitempty" json:"compression,omitempty"`
+	// NonStreamKeepAliveInterval controls how often blank lines are emitted for non-streaming responses.
+	// <= 0 disables keep-alives. Value is in seconds.
+	NonStreamKeepAliveInterval int `yaml:"nonstream-keepalive-interval,omitempty" json:"nonstream-keepalive-interval,omitempty"`
 
-	// AutoRefreshBuffer is the duration before token expiry at which automatic refresh is triggered.
-	// Default is 5 minutes. Example: "5m", "10m", "1h".
+	// AutoRefreshBuffer specifies the duration before token expiry to trigger a refresh.
+	// Defaults to 5m.
 	AutoRefreshBuffer string `yaml:"auto-refresh-buffer,omitempty" json:"auto-refresh-buffer,omitempty"`
 
-	// DailyResetHour is the hour (0-23, UTC) at which daily usage statistics are reset.
-	// Default is 0 (midnight UTC).
+	// DailyResetHour specifies the hour (0-23) at which daily usage counters reset.
 	DailyResetHour *int `yaml:"daily-reset-hour,omitempty" json:"daily-reset-hour,omitempty"`
 
-	// GlobalModelMapper is an optional hook for looking up global model mappings.
-	// This is set by the parent Config to enable cross-provider model aliasing.
-	GlobalModelMapper GlobalModelMapperFunc `yaml:"-" json:"-"`
+	// GlobalModelMapper is a function that maps model names globally across providers.
+	GlobalModelMapper func(model, provider string) string `yaml:"-" json:"-"`
+
+	// Compression configures context compression behavior.
+	Compression *CompressionConfig `yaml:"compression,omitempty" json:"compression,omitempty"`
 }
 
 // StreamingConfig holds server streaming behavior configuration.
@@ -58,34 +56,6 @@ type StreamingConfig struct {
 	// to allow auth rotation / transient recovery.
 	// <= 0 disables bootstrap retries. Default is 0.
 	BootstrapRetries int `yaml:"bootstrap-retries,omitempty" json:"bootstrap-retries,omitempty"`
-
-	// MaxChunkSize limits the maximum size (in bytes) of individual response chunks forwarded to clients.
-	// This can reduce latency for large responses by preventing buffer accumulation.
-	// nil means default (65536 = 64KB). 0 disables chunk size limiting.
-	MaxChunkSize *int `yaml:"max-chunk-size,omitempty" json:"max-chunk-size,omitempty"`
-}
-
-// CompressionConfig holds context compression behavior configuration.
-type CompressionConfig struct {
-	// Enabled toggles LLM-based structured summarization.
-	// nil means default (true).
-	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
-
-	// ThresholdPercent triggers compression when context usage exceeds this fraction.
-	// nil means default (0.75 = 75%).
-	ThresholdPercent *float64 `yaml:"threshold-percent,omitempty" json:"threshold-percent,omitempty"`
-
-	// MaxSummaryTokens limits the output size of generated summaries.
-	// nil means default (2000).
-	MaxSummaryTokens *int `yaml:"max-summary-tokens,omitempty" json:"max-summary-tokens,omitempty"`
-
-	// SummarizationTimeoutSeconds is the timeout for LLM summarization calls.
-	// nil means default (30).
-	SummarizationTimeoutSeconds *int `yaml:"summarization-timeout-seconds,omitempty" json:"summarization-timeout-seconds,omitempty"`
-
-	// FallbackToRegex uses regex-based summarization when LLM fails.
-	// nil means default (true).
-	FallbackToRegex *bool `yaml:"fallback-to-regex,omitempty" json:"fallback-to-regex,omitempty"`
 }
 
 // AccessConfig groups request authentication providers.
@@ -118,12 +88,6 @@ const (
 
 	// DefaultAccessProviderName is applied when no provider name is supplied.
 	DefaultAccessProviderName = "config-inline"
-
-	// DefaultAutoRefreshBuffer is the default duration before token expiry for auto-refresh.
-	DefaultAutoRefreshBuffer = 5 * time.Minute
-
-	// DefaultDailyResetHour is the default hour (UTC) for daily usage reset.
-	DefaultDailyResetHour = 0
 )
 
 // ConfigAPIKeyProvider returns the first inline API key provider if present.
@@ -156,7 +120,30 @@ func MakeInlineAPIKeyProvider(keys []string) *AccessProvider {
 	return provider
 }
 
-// IsEnabled returns whether LLM compression is enabled, defaulting to true.
+// CompressionConfig configures context compression behavior.
+type CompressionConfig struct {
+	// Enabled controls whether context compression is active.
+	// Defaults to true if nil.
+	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+
+	// ThresholdPercent specifies the token usage threshold (0.0-1.0) that triggers compression.
+	// Defaults to 0.75 if nil.
+	ThresholdPercent *float64 `yaml:"threshold-percent,omitempty" json:"threshold-percent,omitempty"`
+
+	// MaxSummaryTokens limits the size of generated summaries.
+	// Defaults to 2000 if nil.
+	MaxSummaryTokens *int `yaml:"max-summary-tokens,omitempty" json:"max-summary-tokens,omitempty"`
+
+	// SummarizationTimeoutSeconds limits how long to wait for summarization.
+	// Defaults to 30 if nil.
+	SummarizationTimeoutSeconds *int `yaml:"summarization-timeout-seconds,omitempty" json:"summarization-timeout-seconds,omitempty"`
+
+	// FallbackToRegex enables regex-based compression when LLM summarization fails.
+	// Defaults to true if nil.
+	FallbackToRegex *bool `yaml:"fallback-to-regex,omitempty" json:"fallback-to-regex,omitempty"`
+}
+
+// IsEnabled returns whether compression is enabled. Defaults to true.
 func (c *CompressionConfig) IsEnabled() bool {
 	if c == nil || c.Enabled == nil {
 		return true
@@ -164,7 +151,7 @@ func (c *CompressionConfig) IsEnabled() bool {
 	return *c.Enabled
 }
 
-// GetThresholdPercent returns the compression threshold, defaulting to 0.75.
+// GetThresholdPercent returns the compression threshold. Defaults to 0.75.
 func (c *CompressionConfig) GetThresholdPercent() float64 {
 	if c == nil || c.ThresholdPercent == nil {
 		return 0.75
@@ -172,7 +159,7 @@ func (c *CompressionConfig) GetThresholdPercent() float64 {
 	return *c.ThresholdPercent
 }
 
-// GetMaxSummaryTokens returns the max summary tokens, defaulting to 2000.
+// GetMaxSummaryTokens returns the max summary token limit. Defaults to 2000.
 func (c *CompressionConfig) GetMaxSummaryTokens() int {
 	if c == nil || c.MaxSummaryTokens == nil {
 		return 2000
@@ -180,7 +167,7 @@ func (c *CompressionConfig) GetMaxSummaryTokens() int {
 	return *c.MaxSummaryTokens
 }
 
-// GetSummarizationTimeout returns the summarization timeout, defaulting to 30 seconds.
+// GetSummarizationTimeout returns the summarization timeout in seconds. Defaults to 30.
 func (c *CompressionConfig) GetSummarizationTimeout() int {
 	if c == nil || c.SummarizationTimeoutSeconds == nil {
 		return 30
@@ -188,7 +175,7 @@ func (c *CompressionConfig) GetSummarizationTimeout() int {
 	return *c.SummarizationTimeoutSeconds
 }
 
-// ShouldFallbackToRegex returns whether to fall back to regex, defaulting to true.
+// ShouldFallbackToRegex returns whether to fallback to regex compression. Defaults to true.
 func (c *CompressionConfig) ShouldFallbackToRegex() bool {
 	if c == nil || c.FallbackToRegex == nil {
 		return true
@@ -196,39 +183,34 @@ func (c *CompressionConfig) ShouldFallbackToRegex() bool {
 	return *c.FallbackToRegex
 }
 
-// LookupGlobalModelMapping returns the mapped model name if a global mapping exists.
-// It delegates to the GlobalModelMapper hook if set.
-// Returns empty string if no mapping found or hook not set.
-func (cfg *SDKConfig) LookupGlobalModelMapping(model string, provider string) string {
-	if cfg == nil || cfg.GlobalModelMapper == nil {
-		return ""
+// GetAutoRefreshBuffer returns the auto-refresh buffer duration. Defaults to 5m.
+func (c *SDKConfig) GetAutoRefreshBuffer() time.Duration {
+	if c == nil || c.AutoRefreshBuffer == "" {
+		return 5 * time.Minute
 	}
-	return cfg.GlobalModelMapper(model, provider)
-}
-
-// GetAutoRefreshBuffer parses and returns the auto-refresh buffer duration.
-// Returns DefaultAutoRefreshBuffer if not set or invalid.
-func (cfg *SDKConfig) GetAutoRefreshBuffer() time.Duration {
-	if cfg == nil || cfg.AutoRefreshBuffer == "" {
-		return DefaultAutoRefreshBuffer
-	}
-	d, err := time.ParseDuration(cfg.AutoRefreshBuffer)
+	d, err := time.ParseDuration(c.AutoRefreshBuffer)
 	if err != nil || d <= 0 {
-		return DefaultAutoRefreshBuffer
+		return 5 * time.Minute
 	}
 	return d
 }
 
-// GetDailyResetHour returns the daily reset hour (0-23, UTC).
-// Returns DefaultDailyResetHour if not set or out of range.
-func (cfg *SDKConfig) GetDailyResetHour() int {
-	if cfg == nil || cfg.DailyResetHour == nil {
-		return DefaultDailyResetHour
+// GetDailyResetHour returns the daily reset hour. Defaults to 0. Returns 0 for invalid values.
+func (c *SDKConfig) GetDailyResetHour() int {
+	if c == nil || c.DailyResetHour == nil {
+		return 0
 	}
-	h := *cfg.DailyResetHour
+	h := *c.DailyResetHour
 	if h < 0 || h > 23 {
-		return DefaultDailyResetHour
+		return 0
 	}
 	return h
 }
 
+// LookupGlobalModelMapping returns a mapped model name if configured, or empty string.
+func (c *SDKConfig) LookupGlobalModelMapping(model, provider string) string {
+	if c == nil || c.GlobalModelMapper == nil {
+		return ""
+	}
+	return c.GlobalModelMapper(model, provider)
+}
