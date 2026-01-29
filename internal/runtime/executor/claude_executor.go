@@ -990,8 +990,3 @@ func applyCloaking(ctx context.Context, cfg *config.Config, auth *cliproxyauth.A
 
 	return payload
 }
-
-// Embed is not supported by the claude executor.
-func (e *ClaudeExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	return cliproxyexecutor.Response{}, fmt.Errorf("claude executor does not support embeddings")
-}

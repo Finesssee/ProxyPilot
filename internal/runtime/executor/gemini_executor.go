@@ -540,8 +540,3 @@ func fixGeminiImageAspectRatio(modelName string, rawJSON []byte) []byte {
 	}
 	return rawJSON
 }
-
-// Embed is not supported by the gemini executor.
-func (e *GeminiExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	return cliproxyexecutor.Response{}, fmt.Errorf("gemini executor does not support embeddings")
-}

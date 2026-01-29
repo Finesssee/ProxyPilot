@@ -13,98 +13,18 @@ import (
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/api"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/api/middleware"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/cache"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/memory"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/runtime/executor"
-	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/translator" // Auto-register all translators
 	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/watcher"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/wsrelay"
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
-	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 	log "github.com/sirupsen/logrus"
 )
-
-// coreManagerWrapper adapts coreauth.Manager to memory.CoreManagerExecutor interface.
-// This allows the summarization executor to route requests through the auth manager
-// without importing the cliproxyexecutor package directly in the memory package.
-type coreManagerWrapper struct {
-	manager *coreauth.Manager
-}
-
-// Execute implements memory.CoreManagerExecutor by converting interface{} parameters
-// to/from cliproxyexecutor types.
-func (w *coreManagerWrapper) Execute(ctx context.Context, providers []string, req interface{}, opts interface{}) (interface{}, error) {
-	if w.manager == nil {
-		return nil, errors.New("coreManagerWrapper: manager not configured")
-	}
-
-	// Convert request from memory.ExecutorRequest to cliproxyexecutor.Request
-	memReq, ok := req.(memory.ExecutorRequest)
-	if !ok {
-		return nil, fmt.Errorf("coreManagerWrapper: expected memory.ExecutorRequest, got %T", req)
-	}
-
-	coreReq := cliproxyexecutor.Request{
-		Model:    memReq.Model,
-		Payload:  memReq.Payload,
-		Metadata: memReq.Metadata,
-	}
-
-	// Convert options from memory.ExecutorOptions to cliproxyexecutor.Options
-	var coreOpts cliproxyexecutor.Options
-	if memOpts, ok := opts.(memory.ExecutorOptions); ok {
-		coreOpts = cliproxyexecutor.Options{
-			Stream:  memOpts.Stream,
-			Headers: memOpts.Headers,
-		}
-	}
-
-	// Execute through the real manager
-	resp, err := w.manager.Execute(ctx, providers, coreReq, coreOpts)
-	if err != nil {
-		return nil, err
-	}
-
-	// Return response as interface{} - the adapter will extract Payload
-	return resp, nil
-}
-
-// authUsagePlugin bridges usage records to per-auth usage tracking.
-// It implements usage.Plugin to update Auth.Usage stats.
-type authUsagePlugin struct {
-	manager *coreauth.Manager
-}
-
-// HandleUsage implements usage.Plugin.
-func (p *authUsagePlugin) HandleUsage(ctx context.Context, record usage.Record) {
-	if p == nil || p.manager == nil {
-		return
-	}
-	authID := strings.TrimSpace(record.AuthID)
-	if authID == "" {
-		return
-	}
-	result := coreauth.Result{
-		AuthID:  authID,
-		Model:   record.Model,
-		Success: !record.Failed,
-	}
-	if record.Detail.InputTokens > 0 || record.Detail.OutputTokens > 0 {
-		result.Usage = &coreauth.ResultUsage{
-			InputTokens:  record.Detail.InputTokens,
-			OutputTokens: record.Detail.OutputTokens,
-		}
-	}
-	p.manager.MarkResult(ctx, result)
-}
 
 // Service wraps the proxy server lifecycle so external programs can embed the CLI proxy.
 // It manages the complete lifecycle including authentication, file watching, HTTP server,
@@ -204,6 +124,7 @@ func (s *Service) ensureAuthUpdateQueue(ctx context.Context) {
 }
 
 func (s *Service) consumeAuthUpdates(ctx context.Context) {
+	ctx = coreauth.WithSkipPersist(ctx)
 	for {
 		select {
 		case <-ctx.Done():
@@ -457,12 +378,8 @@ func (s *Service) ensureExecutorsForAuth(a *coreauth.Auth) {
 		s.coreManager.RegisterExecutor(executor.NewCodexExecutor(s.cfg))
 	case "qwen":
 		s.coreManager.RegisterExecutor(executor.NewQwenExecutor(s.cfg))
-	case "kiro":
-		s.coreManager.RegisterExecutor(executor.NewKiroExecutor(s.cfg))
-	case "minimax":
-		s.coreManager.RegisterExecutor(executor.NewMiniMaxExecutor(s.cfg))
-	case "zhipu":
-		s.coreManager.RegisterExecutor(executor.NewZhipuExecutor(s.cfg))
+	case "iflow":
+		s.coreManager.RegisterExecutor(executor.NewIFlowExecutor(s.cfg))
 	default:
 		providerKey := strings.ToLower(strings.TrimSpace(a.Provider))
 		if providerKey == "" {
@@ -501,75 +418,6 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 
 	usage.StartDefault(ctx)
-
-	// Register auth usage plugin to update per-auth usage stats
-	if s.coreManager != nil {
-		usage.RegisterPlugin(&authUsagePlugin{manager: s.coreManager})
-	}
-
-	// Initialize response cache from config
-	if s.cfg != nil && s.cfg.ResponseCache.Enabled {
-		cacheCfg := cache.ResponseCacheConfig{
-			Enabled:       s.cfg.ResponseCache.Enabled,
-			MaxSize:       s.cfg.ResponseCache.GetMaxSize(),
-			TTL:           s.cfg.ResponseCache.GetTTL(),
-			ExcludeModels: s.cfg.ResponseCache.ExcludeModels,
-			PersistFile:   s.cfg.ResponseCache.PersistFile,
-		}
-		cache.InitDefaultResponseCache(cacheCfg)
-		respCache := cache.GetDefaultResponseCache()
-
-		// Load persisted cache from file
-		if s.cfg.ResponseCache.PersistFile != "" {
-			if err := respCache.LoadFromFile(s.cfg.ResponseCache.PersistFile); err != nil {
-				log.Warnf("failed to load response cache from %s: %v", s.cfg.ResponseCache.PersistFile, err)
-			}
-		}
-
-		respCache.StartPeriodicEviction(ctx, cache.DefaultEvictionInterval)
-
-		// Start periodic persistence (every 5 minutes)
-		if s.cfg.ResponseCache.PersistFile != "" {
-			respCache.StartPeriodicPersistence(ctx, s.cfg.ResponseCache.PersistFile, 5*time.Minute)
-		}
-
-		log.Infof("response cache enabled: max=%d ttl=%s persist=%s", cacheCfg.MaxSize, cacheCfg.TTL, cacheCfg.PersistFile)
-	}
-
-	// Initialize prompt cache from config
-	if s.cfg != nil && s.cfg.PromptCache.Enabled {
-		promptCacheCfg := cache.PromptCacheConfig{
-			Enabled:     s.cfg.PromptCache.Enabled,
-			MaxSize:     s.cfg.PromptCache.GetMaxSize(),
-			TTL:         s.cfg.PromptCache.GetTTL(),
-			PersistFile: s.cfg.PromptCache.PersistFile,
-		}
-		cache.InitDefaultPromptCache(promptCacheCfg)
-		promptCache := cache.GetDefaultPromptCache()
-
-		// Load persisted cache from file
-		if s.cfg.PromptCache.PersistFile != "" {
-			if err := promptCache.LoadFromFile(s.cfg.PromptCache.PersistFile); err != nil {
-				log.Warnf("failed to load prompt cache from %s: %v", s.cfg.PromptCache.PersistFile, err)
-			}
-		}
-
-		// Start periodic persistence (every 5 minutes)
-		if s.cfg.PromptCache.PersistFile != "" {
-			promptCache.StartPeriodicPersistence(ctx, s.cfg.PromptCache.PersistFile, 5*time.Minute)
-		}
-
-		// Warm cache from file if configured
-		if s.cfg.PromptCache.WarmFromFile != "" {
-			if result, err := promptCache.LoadWarmFile(s.cfg.PromptCache.WarmFromFile); err != nil {
-				log.Warnf("failed to warm prompt cache from %s: %v", s.cfg.PromptCache.WarmFromFile, err)
-			} else if result.Added > 0 {
-				log.Infof("prompt cache warmed from %s: added=%d skipped=%d", s.cfg.PromptCache.WarmFromFile, result.Added, result.Skipped)
-			}
-		}
-
-		log.Infof("prompt cache enabled: max=%d ttl=%s persist=%s", promptCacheCfg.MaxSize, promptCacheCfg.TTL, promptCacheCfg.PersistFile)
-	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
@@ -611,13 +459,6 @@ func (s *Service) Run(ctx context.Context) error {
 
 	// handlers no longer depend on legacy clients; pass nil slice initially
 	s.server = api.NewServer(s.cfg, s.coreManager, s.accessManager, s.configPath, s.serverOptions...)
-
-	// Wire up LLM summarization for Factory.ai-style context compression
-	if s.coreManager != nil {
-		providers := []string{"claude", "codex", "gemini"}
-		wrapper := &coreManagerWrapper{manager: s.coreManager}
-		middleware.InitSummarizerWithAuthManager(wrapper, providers)
-	}
 
 	if s.authManager == nil {
 		s.authManager = newDefaultAuthManager()
@@ -687,8 +528,6 @@ func (s *Service) Run(ctx context.Context) error {
 			switch strategy {
 			case "fill-first", "fillfirst", "ff":
 				return "fill-first"
-			case "usage-aware", "usageaware", "usage", "least-used":
-				return "usage-aware"
 			default:
 				return "round-robin"
 			}
@@ -700,8 +539,6 @@ func (s *Service) Run(ctx context.Context) error {
 			switch nextStrategy {
 			case "fill-first":
 				selector = &coreauth.FillFirstSelector{}
-			case "usage-aware":
-				selector = &coreauth.UsageAwareSelector{}
 			default:
 				selector = &coreauth.RoundRobinSelector{}
 			}
@@ -716,6 +553,10 @@ func (s *Service) Run(ctx context.Context) error {
 		s.cfgMu.Lock()
 		s.cfg = newCfg
 		s.cfgMu.Unlock()
+		if s.coreManager != nil {
+			s.coreManager.SetConfig(newCfg)
+			s.coreManager.SetOAuthModelAlias(newCfg.OAuthModelAlias)
+		}
 		s.rebindExecutors()
 	}
 
@@ -772,28 +613,6 @@ func (s *Service) Shutdown(ctx context.Context) error {
 			ctx = context.Background()
 		}
 
-		// Save caches before shutdown
-		if s.cfg != nil {
-			if s.cfg.ResponseCache.Enabled && s.cfg.ResponseCache.PersistFile != "" {
-				if respCache := cache.GetDefaultResponseCache(); respCache != nil {
-					if err := respCache.SaveToFile(s.cfg.ResponseCache.PersistFile); err != nil {
-						log.Warnf("failed to save response cache on shutdown: %v", err)
-					} else {
-						log.Info("response cache saved on shutdown")
-					}
-				}
-			}
-			if s.cfg.PromptCache.Enabled && s.cfg.PromptCache.PersistFile != "" {
-				if promptCache := cache.GetDefaultPromptCache(); promptCache != nil {
-					if err := promptCache.SaveToFile(s.cfg.PromptCache.PersistFile); err != nil {
-						log.Warnf("failed to save prompt cache on shutdown: %v", err)
-					} else {
-						log.Info("prompt cache saved on shutdown")
-					}
-				}
-			}
-		}
-
 		// legacy refresh loop removed; only stopping core auth manager below
 
 		if s.watcherCancel != nil {
@@ -840,17 +659,6 @@ func (s *Service) Shutdown(ctx context.Context) error {
 }
 
 func (s *Service) ensureAuthDir() error {
-	// Resolve auth-dir to apply default if empty and expand ~ prefix
-	resolvedAuthDir, errResolve := util.ResolveAuthDir(s.cfg.AuthDir)
-	if errResolve != nil {
-		log.Warnf("failed to resolve auth dir %q: %v, using default", s.cfg.AuthDir, errResolve)
-		resolvedAuthDir = util.DefaultAuthDir()
-	}
-	if resolvedAuthDir == "" {
-		return fmt.Errorf("cliproxy: failed to determine auth directory: LOCALAPPDATA and HOME not available")
-	}
-	s.cfg.AuthDir = resolvedAuthDir
-
 	info, err := os.Stat(s.cfg.AuthDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -873,7 +681,16 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 	if a == nil || a.ID == "" {
 		return
 	}
+	if a.Disabled {
+		GlobalModelRegistry().UnregisterClient(a.ID)
+		return
+	}
 	authKind := strings.ToLower(strings.TrimSpace(a.Attributes["auth_kind"]))
+	if authKind == "" {
+		if kind, _ := a.AccountInfo(); strings.EqualFold(kind, "api_key") {
+			authKind = "apikey"
+		}
+	}
 	if a.Attributes != nil {
 		if v := strings.TrimSpace(a.Attributes["gemini_virtual_primary"]); strings.EqualFold(v, "true") {
 			GlobalModelRegistry().UnregisterClient(a.ID)
@@ -899,6 +716,9 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 	case "gemini":
 		models = registry.GetGeminiModels()
 		if entry := s.resolveConfigGeminiKey(a); entry != nil {
+			if len(entry.Models) > 0 {
+				models = buildGeminiConfigModels(entry)
+			}
 			if authKind == "apikey" {
 				excluded = entry.ExcludedModels
 			}
@@ -949,17 +769,8 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 	case "qwen":
 		models = registry.GetQwenModels()
 		models = applyExcludedModels(models, excluded)
-	case "github-copilot":
-		models = registry.GetGitHubCopilotModels()
-		models = applyExcludedModels(models, excluded)
-	case "kiro":
-		models = registry.GetKiroModels()
-		models = applyExcludedModels(models, excluded)
-	case "minimax":
-		models = registry.GetMiniMaxModels()
-		models = applyExcludedModels(models, excluded)
-	case "zhipu":
-		models = registry.GetZhipuModels()
+	case "iflow":
+		models = registry.GetIFlowModels()
 		models = applyExcludedModels(models, excluded)
 	default:
 		// Handle OpenAI-compatibility providers by name using config
@@ -1020,6 +831,7 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 							OwnedBy:     compat.Name,
 							Type:        "openai-compatibility",
 							DisplayName: modelID,
+							UserDefined: true,
 						})
 					}
 					// Register and return
@@ -1042,6 +854,7 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 			}
 		}
 	}
+	models = applyOAuthModelAlias(s.cfg, provider, authKind, models)
 	if len(models) > 0 {
 		key := provider
 		if key == "" {
@@ -1313,17 +1126,22 @@ func matchWildcard(pattern, value string) bool {
 	return true
 }
 
-func buildVertexCompatConfigModels(entry *config.VertexCompatKey) []*ModelInfo {
-	if entry == nil || len(entry.Models) == 0 {
+type modelEntry interface {
+	GetName() string
+	GetAlias() string
+}
+
+func buildConfigModels[T modelEntry](models []T, ownedBy, modelType string) []*ModelInfo {
+	if len(models) == 0 {
 		return nil
 	}
 	now := time.Now().Unix()
-	out := make([]*ModelInfo, 0, len(entry.Models))
-	seen := make(map[string]struct{}, len(entry.Models))
-	for i := range entry.Models {
-		model := entry.Models[i]
-		name := strings.TrimSpace(model.Name)
-		alias := strings.TrimSpace(model.Alias)
+	out := make([]*ModelInfo, 0, len(models))
+	seen := make(map[string]struct{}, len(models))
+	for i := range models {
+		model := models[i]
+		name := strings.TrimSpace(model.GetName())
+		alias := strings.TrimSpace(model.GetAlias())
 		if alias == "" {
 			alias = name
 		}
@@ -1339,90 +1157,179 @@ func buildVertexCompatConfigModels(entry *config.VertexCompatKey) []*ModelInfo {
 		if display == "" {
 			display = alias
 		}
-		out = append(out, &ModelInfo{
+		info := &ModelInfo{
 			ID:          alias,
 			Object:      "model",
 			Created:     now,
-			OwnedBy:     "vertex",
-			Type:        "vertex",
+			OwnedBy:     ownedBy,
+			Type:        modelType,
 			DisplayName: display,
-		})
+			UserDefined: true,
+		}
+		if name != "" {
+			if upstream := registry.LookupStaticModelInfo(name); upstream != nil && upstream.Thinking != nil {
+				info.Thinking = upstream.Thinking
+			}
+		}
+		out = append(out, info)
 	}
 	return out
+}
+
+func buildVertexCompatConfigModels(entry *config.VertexCompatKey) []*ModelInfo {
+	if entry == nil {
+		return nil
+	}
+	return buildConfigModels(entry.Models, "google", "vertex")
+}
+
+func buildGeminiConfigModels(entry *config.GeminiKey) []*ModelInfo {
+	if entry == nil {
+		return nil
+	}
+	return buildConfigModels(entry.Models, "google", "gemini")
 }
 
 func buildClaudeConfigModels(entry *config.ClaudeKey) []*ModelInfo {
-	if entry == nil || len(entry.Models) == 0 {
+	if entry == nil {
 		return nil
 	}
-	now := time.Now().Unix()
-	out := make([]*ModelInfo, 0, len(entry.Models))
-	seen := make(map[string]struct{}, len(entry.Models))
-	for i := range entry.Models {
-		model := entry.Models[i]
-		name := strings.TrimSpace(model.Name)
-		alias := strings.TrimSpace(model.Alias)
-		if alias == "" {
-			alias = name
-		}
-		if alias == "" {
-			continue
-		}
-		key := strings.ToLower(alias)
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		seen[key] = struct{}{}
-		display := name
-		if display == "" {
-			display = alias
-		}
-		out = append(out, &ModelInfo{
-			ID:          alias,
-			Object:      "model",
-			Created:     now,
-			OwnedBy:     "claude",
-			Type:        "claude",
-			DisplayName: display,
-		})
-	}
-	return out
+	return buildConfigModels(entry.Models, "anthropic", "claude")
 }
 
 func buildCodexConfigModels(entry *config.CodexKey) []*ModelInfo {
-	if entry == nil || len(entry.Models) == 0 {
+	if entry == nil {
 		return nil
 	}
-	now := time.Now().Unix()
-	out := make([]*ModelInfo, 0, len(entry.Models))
-	seen := make(map[string]struct{}, len(entry.Models))
-	for i := range entry.Models {
-		model := entry.Models[i]
-		name := strings.TrimSpace(model.Name)
-		alias := strings.TrimSpace(model.Alias)
-		if alias == "" {
-			alias = name
-		}
-		if alias == "" {
+	return buildConfigModels(entry.Models, "openai", "openai")
+}
+
+func rewriteModelInfoName(name, oldID, newID string) string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return name
+	}
+	oldID = strings.TrimSpace(oldID)
+	newID = strings.TrimSpace(newID)
+	if oldID == "" || newID == "" {
+		return name
+	}
+	if strings.EqualFold(oldID, newID) {
+		return name
+	}
+	if strings.EqualFold(trimmed, oldID) {
+		return newID
+	}
+	if strings.HasSuffix(trimmed, "/"+oldID) {
+		prefix := strings.TrimSuffix(trimmed, oldID)
+		return prefix + newID
+	}
+	if trimmed == "models/"+oldID {
+		return "models/" + newID
+	}
+	return name
+}
+
+func applyOAuthModelAlias(cfg *config.Config, provider, authKind string, models []*ModelInfo) []*ModelInfo {
+	if cfg == nil || len(models) == 0 {
+		return models
+	}
+	channel := coreauth.OAuthModelAliasChannel(provider, authKind)
+	if channel == "" || len(cfg.OAuthModelAlias) == 0 {
+		return models
+	}
+	aliases := cfg.OAuthModelAlias[channel]
+	if len(aliases) == 0 {
+		return models
+	}
+
+	type aliasEntry struct {
+		alias string
+		fork  bool
+	}
+
+	forward := make(map[string][]aliasEntry, len(aliases))
+	for i := range aliases {
+		name := strings.TrimSpace(aliases[i].Name)
+		alias := strings.TrimSpace(aliases[i].Alias)
+		if name == "" || alias == "" {
 			continue
 		}
-		key := strings.ToLower(alias)
-		if _, exists := seen[key]; exists {
+		if strings.EqualFold(name, alias) {
 			continue
 		}
-		seen[key] = struct{}{}
-		display := name
-		if display == "" {
-			display = alias
+		key := strings.ToLower(name)
+		forward[key] = append(forward[key], aliasEntry{alias: alias, fork: aliases[i].Fork})
+	}
+	if len(forward) == 0 {
+		return models
+	}
+
+	out := make([]*ModelInfo, 0, len(models))
+	seen := make(map[string]struct{}, len(models))
+	for _, model := range models {
+		if model == nil {
+			continue
 		}
-		out = append(out, &ModelInfo{
-			ID:          alias,
-			Object:      "model",
-			Created:     now,
-			OwnedBy:     "openai",
-			Type:        "openai",
-			DisplayName: display,
-		})
+		id := strings.TrimSpace(model.ID)
+		if id == "" {
+			continue
+		}
+		key := strings.ToLower(id)
+		entries := forward[key]
+		if len(entries) == 0 {
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, model)
+			continue
+		}
+
+		keepOriginal := false
+		for _, entry := range entries {
+			if entry.fork {
+				keepOriginal = true
+				break
+			}
+		}
+		if keepOriginal {
+			if _, exists := seen[key]; !exists {
+				seen[key] = struct{}{}
+				out = append(out, model)
+			}
+		}
+
+		addedAlias := false
+		for _, entry := range entries {
+			mappedID := strings.TrimSpace(entry.alias)
+			if mappedID == "" {
+				continue
+			}
+			if strings.EqualFold(mappedID, id) {
+				continue
+			}
+			aliasKey := strings.ToLower(mappedID)
+			if _, exists := seen[aliasKey]; exists {
+				continue
+			}
+			seen[aliasKey] = struct{}{}
+			clone := *model
+			clone.ID = mappedID
+			if clone.Name != "" {
+				clone.Name = rewriteModelInfoName(clone.Name, id, mappedID)
+			}
+			out = append(out, &clone)
+			addedAlias = true
+		}
+
+		if !keepOriginal && !addedAlias {
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, model)
+		}
 	}
 	return out
 }

@@ -44,7 +44,6 @@ func ConvertGeminiRequestToGemini(_ string, inputRawJSON []byte, _ bool) []byte 
 						strJson, _ := util.RenameKey(string(rawJSON), fmt.Sprintf("tools.%d.function_declarations.%d.parameters", i, j), fmt.Sprintf("tools.%d.function_declarations.%d.parametersJsonSchema", i, j))
 						rawJSON = []byte(strJson)
 					}
-					rawJSON, _ = sjson.DeleteBytes(rawJSON, fmt.Sprintf("tools.%d.function_declarations.%d.defer_loading", i, j))
 				}
 			}
 		}

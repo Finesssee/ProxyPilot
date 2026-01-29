@@ -5,6 +5,7 @@ package misc
 
 import (
 	"embed"
+	_ "embed"
 	"strings"
 	"sync/atomic"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// codexInstructionsEnabled controls whether CodexInstructionsForModel returns custom instructions.
+// codexInstructionsEnabled controls whether CodexInstructionsForModel returns official instructions.
 // When false (default), CodexInstructionsForModel returns (true, "") immediately.
 // Set via SetCodexInstructionsEnabled from config.
 var codexInstructionsEnabled atomic.Bool
@@ -38,7 +39,6 @@ const (
 	userAgentOpenAISDK = "ai-sdk/openai/"
 )
 
-// InjectCodexUserAgent injects the user agent into the request payload for later extraction.
 func InjectCodexUserAgent(raw []byte, userAgent string) []byte {
 	if len(raw) == 0 {
 		return raw
@@ -54,7 +54,6 @@ func InjectCodexUserAgent(raw []byte, userAgent string) []byte {
 	return updated
 }
 
-// ExtractCodexUserAgent extracts the user agent from the request payload.
 func ExtractCodexUserAgent(raw []byte) string {
 	if len(raw) == 0 {
 		return ""
@@ -62,7 +61,6 @@ func ExtractCodexUserAgent(raw []byte) string {
 	return strings.TrimSpace(gjson.GetBytes(raw, codexUserAgentKey).String())
 }
 
-// StripCodexUserAgent removes the user agent from the request payload.
 func StripCodexUserAgent(raw []byte) []byte {
 	if len(raw) == 0 {
 		return raw
@@ -91,6 +89,10 @@ func useOpenCodeInstructions(userAgent string) bool {
 	return strings.Contains(strings.ToLower(userAgent), userAgentOpenAISDK)
 }
 
+func IsOpenCodeUserAgent(userAgent string) bool {
+	return useOpenCodeInstructions(userAgent)
+}
+
 func codexInstructionsForCodex(modelName, systemInstructions string) (bool, string) {
 	entries, _ := codexInstructionsDir.ReadDir("codex_instructions")
 
@@ -100,6 +102,7 @@ func codexInstructionsForCodex(modelName, systemInstructions string) (bool, stri
 	last51Prompt := ""
 	last52Prompt := ""
 	last52CodexPrompt := ""
+	// lastReviewPrompt := ""
 	for _, entry := range entries {
 		content, _ := codexInstructionsDir.ReadFile("codex_instructions/" + entry.Name())
 		if strings.HasPrefix(systemInstructions, string(content)) {
@@ -117,6 +120,8 @@ func codexInstructionsForCodex(modelName, systemInstructions string) (bool, stri
 			last52Prompt = string(content)
 		} else if strings.HasPrefix(entry.Name(), "gpt-5.2-codex_prompt.md") {
 			last52CodexPrompt = string(content)
+		} else if strings.HasPrefix(entry.Name(), "review_prompt.md") {
+			// lastReviewPrompt = string(content)
 		}
 	}
 	if strings.Contains(modelName, "codex-max") {
@@ -134,14 +139,11 @@ func codexInstructionsForCodex(modelName, systemInstructions string) (bool, stri
 	}
 }
 
-// CodexInstructionsForModel returns the appropriate instructions for the given model and user agent.
-// For OpenCode clients (identified by user agent), it returns OpenCode-specific instructions.
-// For Codex clients, it returns the standard Codex instructions based on model name.
 func CodexInstructionsForModel(modelName, systemInstructions, userAgent string) (bool, string) {
 	if !GetCodexInstructionsEnabled() {
 		return true, ""
 	}
-	if useOpenCodeInstructions(userAgent) {
+	if IsOpenCodeUserAgent(userAgent) {
 		return codexInstructionsForOpenCode(systemInstructions)
 	}
 	return codexInstructionsForCodex(modelName, systemInstructions)

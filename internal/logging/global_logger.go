@@ -179,6 +179,27 @@ func ConfigureLogOutput(cfg *config.Config) error {
 	return nil
 }
 
+// SetLogLevel sets the global log level based on a level name.
+// Supported levels: "quiet"/"silent" (fatal only), "verbose" (debug), or any logrus level string.
+// All level names are case-insensitive. Unknown strings default to info level.
+func SetLogLevel(level string) {
+	levelLower := strings.ToLower(level)
+	switch levelLower {
+	case "quiet", "silent":
+		log.SetLevel(log.FatalLevel)
+	case "verbose":
+		log.SetLevel(log.DebugLevel)
+	default:
+		parsed, err := log.ParseLevel(levelLower)
+		if err == nil {
+			log.SetLevel(parsed)
+		} else {
+			// Default to info level for unknown strings
+			log.SetLevel(log.InfoLevel)
+		}
+	}
+}
+
 func closeLogOutputs() {
 	writerMu.Lock()
 	defer writerMu.Unlock()
@@ -197,26 +218,4 @@ func closeLogOutputs() {
 		_ = ginErrorWriter.Close()
 		ginErrorWriter = nil
 	}
-}
-
-// SetLogLevel sets the logrus log level based on a string level name.
-// Supported levels: debug, verbose, info, warn, warning, error, quiet, silent.
-// Unknown levels default to InfoLevel.
-func SetLogLevel(level string) {
-	var newLevel log.Level
-	switch strings.ToLower(strings.TrimSpace(level)) {
-	case "debug", "verbose":
-		newLevel = log.DebugLevel
-	case "info":
-		newLevel = log.InfoLevel
-	case "warn", "warning":
-		newLevel = log.WarnLevel
-	case "error":
-		newLevel = log.ErrorLevel
-	case "quiet", "silent":
-		newLevel = log.FatalLevel
-	default:
-		newLevel = log.InfoLevel
-	}
-	log.SetLevel(newLevel)
 }

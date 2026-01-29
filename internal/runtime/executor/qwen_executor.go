@@ -367,8 +367,3 @@ func qwenCreds(a *cliproxyauth.Auth) (token, baseURL string) {
 	}
 	return
 }
-
-// Embed is not supported by the qwen executor.
-func (e *QwenExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	return cliproxyexecutor.Response{}, fmt.Errorf("qwen executor does not support embeddings")
-}

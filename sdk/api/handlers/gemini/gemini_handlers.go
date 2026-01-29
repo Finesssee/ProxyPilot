@@ -56,8 +56,16 @@ func (h *GeminiAPIHandler) GeminiModels(c *gin.Context) {
 		for k, v := range model {
 			normalizedModel[k] = v
 		}
-		if name, ok := normalizedModel["name"].(string); ok && name != "" && !strings.HasPrefix(name, "models/") {
-			normalizedModel["name"] = "models/" + name
+		if name, ok := normalizedModel["name"].(string); ok && name != "" {
+			if !strings.HasPrefix(name, "models/") {
+				normalizedModel["name"] = "models/" + name
+			}
+			if displayName, _ := normalizedModel["displayName"].(string); displayName == "" {
+				normalizedModel["displayName"] = name
+			}
+			if description, _ := normalizedModel["description"].(string); description == "" {
+				normalizedModel["description"] = name
+			}
 		}
 		if _, ok := normalizedModel["supportedGenerationMethods"]; !ok {
 			normalizedModel["supportedGenerationMethods"] = defaultMethods
@@ -85,116 +93,35 @@ func (h *GeminiAPIHandler) GeminiGetHandler(c *gin.Context) {
 		return
 	}
 	action := strings.TrimPrefix(request.Action, "/")
-	switch action {
-	case "gemini-3-pro-preview":
-		c.JSON(http.StatusOK, gin.H{
-			"name":             "models/gemini-3-pro-preview",
-			"version":          "3",
-			"displayName":      "Gemini 3 Pro Preview",
-			"description":      "Gemini 3 Pro Preview",
-			"inputTokenLimit":  1048576,
-			"outputTokenLimit": 65536,
-			"supportedGenerationMethods": []string{
-				"generateContent",
-				"countTokens",
-				"createCachedContent",
-				"batchGenerateContent",
-			},
-			"temperature":    1,
-			"topP":           0.95,
-			"topK":           64,
-			"maxTemperature": 2,
-			"thinking":       true,
-		},
-		)
-	case "gemini-3-pro-low-preview":
-		c.JSON(http.StatusOK, gin.H{
-			"name":             "models/gemini-3-pro-low",
-			"version":          "3",
-			"displayName":      "Gemini 3 Pro Low Preview",
-			"description":      "Gemini 3 Pro Low (Antigravity)",
-			"inputTokenLimit":  1048576,
-			"outputTokenLimit": 65536,
-			"supportedGenerationMethods": []string{
-				"generateContent",
-				"countTokens",
-				"createCachedContent",
-				"batchGenerateContent",
-			},
-			"temperature":    1,
-			"topP":           0.95,
-			"topK":           64,
-			"maxTemperature": 2,
-			"thinking":       true,
-		},
-		)
-	case "gemini-3-flash-preview":
-		c.JSON(http.StatusOK, gin.H{
-			"name":             "models/gemini-3-flash-preview",
-			"version":          "3",
-			"displayName":      "Gemini 3 Flash Preview",
-			"description":      "Gemini 3 Flash Preview",
-			"inputTokenLimit":  1048576,
-			"outputTokenLimit": 65536,
-			"supportedGenerationMethods": []string{
-				"generateContent",
-				"countTokens",
-				"createCachedContent",
-				"batchGenerateContent",
-			},
-			"temperature":    1,
-			"topP":           0.95,
-			"topK":           64,
-			"maxTemperature": 2,
-			"thinking":       false,
-		},
-		)
-	case "gemini-3-flash":
-		c.JSON(http.StatusOK, gin.H{
-			"name":             "models/gemini-3-flash",
-			"version":          "3",
-			"displayName":      "Gemini 3 Flash",
-			"description":      "Gemini 3 Flash",
-			"inputTokenLimit":  1048576,
-			"outputTokenLimit": 65536,
-			"supportedGenerationMethods": []string{
-				"generateContent",
-				"countTokens",
-				"createCachedContent",
-				"batchGenerateContent",
-			},
-			"temperature":    1,
-			"topP":           0.95,
-			"topK":           64,
-			"maxTemperature": 2,
-			"thinking":       false,
-		},
-		)
-	case "gpt-5.2":
-		c.JSON(http.StatusOK, gin.H{
-			"name":             "gpt-5.2",
-			"version":          "5.2",
-			"displayName":      "GPT 5.2",
-			"description":      "Stable version of GPT 5.2",
-			"inputTokenLimit":  400000,
-			"outputTokenLimit": 128000,
-			"supportedGenerationMethods": []string{
-				"generateContent",
-			},
-			"temperature":    1,
-			"topP":           0.95,
-			"topK":           64,
-			"maxTemperature": 2,
-			"thinking":       true,
-		})
-	default:
-		c.JSON(http.StatusNotFound, handlers.ErrorResponse{
-			Error: handlers.ErrorDetail{
-				Message: "Not Found",
-				Type:    "not_found",
-			},
-		})
+
+	// Get dynamic models from the global registry and find the matching one
+	availableModels := h.Models()
+	var targetModel map[string]any
+
+	for _, model := range availableModels {
+		name, _ := model["name"].(string)
+		// Match name with or without 'models/' prefix
+		if name == action || name == "models/"+action {
+			targetModel = model
+			break
+		}
 	}
+
+	if targetModel != nil {
+		// Ensure the name has 'models/' prefix in the output if it's a Gemini model
+		if name, ok := targetModel["name"].(string); ok && name != "" && !strings.HasPrefix(name, "models/") {
+			targetModel["name"] = "models/" + name
+		}
+		c.JSON(http.StatusOK, targetModel)
+		return
+	}
+
+	c.JSON(http.StatusNotFound, handlers.ErrorResponse{
+		Error: handlers.ErrorDetail{
+			Message: "Not Found",
+			Type:    "not_found",
+		},
+	})
 }
 
 // GeminiHandler handles POST requests for Gemini API operations.
@@ -225,10 +152,6 @@ func (h *GeminiAPIHandler) GeminiHandler(c *gin.Context) {
 
 	method := action[1]
 	rawJSON, _ := c.GetRawData()
-
-	// Track system prompt in cache and set header
-	cacheStatus, _ := handlers.ExtractAndTrackSystemPrompt(h.HandlerType(), rawJSON, "gemini")
-	handlers.SetPromptCacheHeader(c, cacheStatus)
 
 	switch method {
 	case "generateContent":
@@ -362,14 +285,15 @@ func (h *GeminiAPIHandler) handleGenerateContent(c *gin.Context, modelName strin
 	c.Header("Content-Type", "application/json")
 	alt := h.GetAlt(c)
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
+	stopKeepAlive := h.StartNonStreamingKeepAlive(c, cliCtx)
 	resp, errMsg := h.ExecuteWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, alt)
+	stopKeepAlive()
 	if errMsg != nil {
 		h.WriteErrorResponse(c, errMsg)
 		cliCancel(errMsg.Error)
 		return
 	}
-	handlers.SetCacheHeader(c, resp.CacheHit)
-	_, _ = c.Writer.Write(resp.Payload)
+	_, _ = c.Writer.Write(resp)
 	cliCancel()
 }
 
@@ -384,7 +308,9 @@ func (h *GeminiAPIHandler) forwardGeminiStream(c *gin.Context, flusher http.Flus
 		KeepAliveInterval: keepAliveInterval,
 		WriteChunk: func(chunk []byte) {
 			if alt == "" {
-				handlers.WriteSSEData(c.Writer, chunk)
+				_, _ = c.Writer.Write([]byte("data: "))
+				_, _ = c.Writer.Write(chunk)
+				_, _ = c.Writer.Write([]byte("\n\n"))
 			} else {
 				_, _ = c.Writer.Write(chunk)
 			}
@@ -403,7 +329,7 @@ func (h *GeminiAPIHandler) forwardGeminiStream(c *gin.Context, flusher http.Flus
 			}
 			body := handlers.BuildErrorResponseBody(status, errText)
 			if alt == "" {
-				handlers.WriteSSEError(c.Writer, body, false)
+				_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", string(body))
 			} else {
 				_, _ = c.Writer.Write(body)
 			}

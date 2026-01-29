@@ -12,17 +12,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/routingdebug"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	sdkconfig "github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 	log "github.com/sirupsen/logrus"
-	"github.com/tidwall/gjson"
 	"gopkg.in/yaml.v3"
 )
 
 const (
-	latestReleaseURL       = "https://api.github.com/repos/router-for-me/CLIProxyAPIPlus/releases/latest"
-	latestReleaseUserAgent = "CLIProxyAPIPlus"
+	latestReleaseURL       = "https://api.github.com/repos/router-for-me/CLIProxyAPI/releases/latest"
+	latestReleaseUserAgent = "CLIProxyAPI"
 )
 
 func (h *Handler) GetConfig(c *gin.Context) {
@@ -32,88 +30,6 @@ func (h *Handler) GetConfig(c *gin.Context) {
 	}
 	cfgCopy := *h.cfg
 	c.JSON(200, &cfgCopy)
-}
-
-// GetRoutingPreview returns a JSON description of how a given model would be normalised and routed.
-//
-// Query parameters:
-//   - model: required model identifier (may be alias, auto, or provider://model)
-func (h *Handler) GetRoutingPreview(c *gin.Context) {
-	if h == nil || h.cfg == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "unavailable", "message": "configuration not loaded"})
-		return
-	}
-	model := strings.TrimSpace(c.Query("model"))
-	if model == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing_model", "message": "provide model via ?model="})
-		return
-	}
-	preview, err := h.computeRoutingPreview(model)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "routing_error", "message": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, preview)
-}
-
-// GetRoutingRecent returns a small ring buffer of recently routed requests using the runtime selection trace.
-func (h *Handler) GetRoutingRecent(c *gin.Context) {
-	// Even if h or cfg are nil, routingdebug.Snapshot() is safe; this endpoint is purely diagnostic.
-	entries := routingdebug.Snapshot()
-	if len(entries) == 0 {
-		c.JSON(http.StatusOK, gin.H{"entries": []routingdebug.Entry{}})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"entries": entries})
-}
-
-// PostRoutingPreview accepts a full request JSON (OpenAI/OpenAIResponses-compatible) and
-// extracts the model name for routing preview.
-func (h *Handler) PostRoutingPreview(c *gin.Context) {
-	if h == nil || h.cfg == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "unavailable", "message": "configuration not loaded"})
-		return
-	}
-
-	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20)) // 1 MiB safety cap
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_body", "message": "cannot read request body"})
-		return
-	}
-	if !gjson.ValidBytes(body) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_json", "message": "body is not valid JSON"})
-		return
-	}
-
-	// Try a few common shapes to extract the model name.
-	paths := []string{
-		"model",          // standard OpenAI
-		"request.model",  // some wrapper shapes
-		"response.model", // responses-style wrappers
-	}
-	var model string
-	for _, path := range paths {
-		v := gjson.GetBytes(body, path)
-		if v.Exists() && strings.TrimSpace(v.String()) != "" {
-			model = strings.TrimSpace(v.String())
-			break
-		}
-	}
-	if model == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing_model", "message": "could not find model field in JSON body"})
-		return
-	}
-
-	preview, err := h.computeRoutingPreview(model)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "routing_error", "message": err.Error(), "model": model})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"model":   model,
-		"preview": preview,
-	})
 }
 
 type releaseInfo struct {
@@ -226,23 +142,10 @@ func (h *Handler) PutConfigYAML(c *gin.Context) {
 	defer func() {
 		_ = os.Remove(tempFile)
 	}()
-	validatedCfg, err := config.LoadConfigOptional(tempFile, false)
+	_, err = config.LoadConfigOptional(tempFile, false)
 	if err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid_config", "message": err.Error()})
 		return
-	}
-	if validatedCfg == nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid_config", "message": "configuration is empty"})
-		return
-	}
-	if warnings, errValidate := config.ValidateConfig(validatedCfg); errValidate != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid_config", "message": errValidate.Error()})
-		return
-	} else if len(warnings) > 0 {
-		// Surface warnings in logs; the response body will include them after successful persist.
-		for _, w := range warnings {
-			log.Warnf("config warning (management update): %s", w)
-		}
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -257,11 +160,7 @@ func (h *Handler) PutConfigYAML(c *gin.Context) {
 		return
 	}
 	h.cfg = newCfg
-	resp := gin.H{"ok": true, "changed": []string{"config"}}
-	if warnings, errValidate := config.ValidateConfig(newCfg); errValidate == nil && len(warnings) > 0 {
-		resp["warnings"] = warnings
-	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "changed": []string{"config"}})
 }
 
 // GetConfigYAML returns the raw config.yaml file bytes without re-encoding.
@@ -303,6 +202,26 @@ func (h *Handler) PutLoggingToFile(c *gin.Context) {
 	h.updateBoolField(c, func(v bool) { h.cfg.LoggingToFile = v })
 }
 
+// LogsMaxTotalSizeMB
+func (h *Handler) GetLogsMaxTotalSizeMB(c *gin.Context) {
+	c.JSON(200, gin.H{"logs-max-total-size-mb": h.cfg.LogsMaxTotalSizeMB})
+}
+func (h *Handler) PutLogsMaxTotalSizeMB(c *gin.Context) {
+	var body struct {
+		Value *int `json:"value"`
+	}
+	if errBindJSON := c.ShouldBindJSON(&body); errBindJSON != nil || body.Value == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	value := *body.Value
+	if value < 0 {
+		value = 0
+	}
+	h.cfg.LogsMaxTotalSizeMB = value
+	h.persist(c)
+}
+
 // Request log
 func (h *Handler) GetRequestLog(c *gin.Context) { c.JSON(200, gin.H{"request-log": h.cfg.RequestLog}) }
 func (h *Handler) PutRequestLog(c *gin.Context) {
@@ -331,6 +250,52 @@ func (h *Handler) GetMaxRetryInterval(c *gin.Context) {
 }
 func (h *Handler) PutMaxRetryInterval(c *gin.Context) {
 	h.updateIntField(c, func(v int) { h.cfg.MaxRetryInterval = v })
+}
+
+// ForceModelPrefix
+func (h *Handler) GetForceModelPrefix(c *gin.Context) {
+	c.JSON(200, gin.H{"force-model-prefix": h.cfg.ForceModelPrefix})
+}
+func (h *Handler) PutForceModelPrefix(c *gin.Context) {
+	h.updateBoolField(c, func(v bool) { h.cfg.ForceModelPrefix = v })
+}
+
+func normalizeRoutingStrategy(strategy string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(strategy))
+	switch normalized {
+	case "", "round-robin", "roundrobin", "rr":
+		return "round-robin", true
+	case "fill-first", "fillfirst", "ff":
+		return "fill-first", true
+	default:
+		return "", false
+	}
+}
+
+// RoutingStrategy
+func (h *Handler) GetRoutingStrategy(c *gin.Context) {
+	strategy, ok := normalizeRoutingStrategy(h.cfg.Routing.Strategy)
+	if !ok {
+		c.JSON(200, gin.H{"strategy": strings.TrimSpace(h.cfg.Routing.Strategy)})
+		return
+	}
+	c.JSON(200, gin.H{"strategy": strategy})
+}
+func (h *Handler) PutRoutingStrategy(c *gin.Context) {
+	var body struct {
+		Value *string `json:"value"`
+	}
+	if errBindJSON := c.ShouldBindJSON(&body); errBindJSON != nil || body.Value == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	normalized, ok := normalizeRoutingStrategy(*body.Value)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid strategy"})
+		return
+	}
+	h.cfg.Routing.Strategy = normalized
+	h.persist(c)
 }
 
 // Proxy URL

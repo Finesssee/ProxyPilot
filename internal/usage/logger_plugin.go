@@ -12,18 +12,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
 	coreusage "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/usage"
 )
 
 var statisticsEnabled atomic.Bool
-var usageSamplePermille atomic.Uint32
-var usageRandSeed atomic.Uint64
 
 func init() {
 	statisticsEnabled.Store(true)
-	usageSamplePermille.Store(1000)
-	usageRandSeed.Store(uint64(time.Now().UnixNano()))
 	coreusage.RegisterPlugin(NewLoggerPlugin())
 }
 
@@ -49,9 +44,6 @@ func (p *LoggerPlugin) HandleUsage(ctx context.Context, record coreusage.Record)
 	if !statisticsEnabled.Load() {
 		return
 	}
-	if !shouldSampleUsage() {
-		return
-	}
 	if p == nil || p.stats == nil {
 		return
 	}
@@ -61,60 +53,24 @@ func (p *LoggerPlugin) HandleUsage(ctx context.Context, record coreusage.Record)
 // SetStatisticsEnabled toggles whether in-memory statistics are recorded.
 func SetStatisticsEnabled(enabled bool) { statisticsEnabled.Store(enabled) }
 
-// SetSamplingRate sets the usage sampling rate (0.0-1.0).
-func SetSamplingRate(rate float64) {
-	if rate < 0 {
-		rate = 1
-	}
-	if rate > 1 {
-		rate = 1
-	}
-	usageSamplePermille.Store(uint32(rate * 1000))
-}
-
 // StatisticsEnabled reports the current recording state.
 func StatisticsEnabled() bool { return statisticsEnabled.Load() }
-
-func shouldSampleUsage() bool {
-	rate := usageSamplePermille.Load()
-	if rate >= 1000 {
-		return true
-	}
-	if rate == 0 {
-		return false
-	}
-	return fastRandPermille() < rate
-}
-
-func fastRandPermille() uint32 {
-	x := usageRandSeed.Add(0x9e3779b97f4a7c15)
-	x ^= x >> 30
-	x *= 0xbf58476d1ce4e5b9
-	x ^= x >> 27
-	x *= 0x94d049bb133111eb
-	x ^= x >> 31
-	return uint32(x % 1000)
-}
 
 // RequestStatistics maintains aggregated request metrics in memory.
 type RequestStatistics struct {
 	mu sync.RWMutex
 
-	totalRequests     int64
-	successCount      int64
-	failureCount      int64
-	totalTokens       int64
-	totalInputTokens  int64
-	totalOutputTokens int64
+	totalRequests int64
+	successCount  int64
+	failureCount  int64
+	totalTokens   int64
 
 	apis map[string]*apiStats
 
-	requestsByDay     map[string]int64
-	requestsByHour    map[int]int64
-	tokensByDay       map[string]int64
-	inputTokensByDay  map[string]int64
-	outputTokensByDay map[string]int64
-	tokensByHour      map[int]int64
+	requestsByDay  map[string]int64
+	requestsByHour map[int]int64
+	tokensByDay    map[string]int64
+	tokensByHour   map[int]int64
 }
 
 // apiStats holds aggregated metrics for a single API key.
@@ -151,21 +107,22 @@ type TokenStats struct {
 
 // StatisticsSnapshot represents an immutable view of the aggregated metrics.
 type StatisticsSnapshot struct {
-	TotalRequests     int64 `json:"total_requests"`
-	SuccessCount      int64 `json:"success_count"`
-	FailureCount      int64 `json:"failure_count"`
-	TotalTokens       int64 `json:"total_tokens"`
+	TotalRequests int64 `json:"total_requests"`
+	SuccessCount  int64 `json:"success_count"`
+	FailureCount  int64 `json:"failure_count"`
+	TotalTokens   int64 `json:"total_tokens"`
+
 	TotalInputTokens  int64 `json:"total_input_tokens"`
 	TotalOutputTokens int64 `json:"total_output_tokens"`
 
 	APIs map[string]APISnapshot `json:"apis"`
 
-	RequestsByDay     map[string]int64 `json:"requests_by_day"`
-	RequestsByHour    map[string]int64 `json:"requests_by_hour"`
-	TokensByDay       map[string]int64 `json:"tokens_by_day"`
+	RequestsByDay   map[string]int64 `json:"requests_by_day"`
+	RequestsByHour  map[string]int64 `json:"requests_by_hour"`
+	TokensByDay     map[string]int64 `json:"tokens_by_day"`
+	TokensByHour    map[string]int64 `json:"tokens_by_hour"`
 	InputTokensByDay  map[string]int64 `json:"input_tokens_by_day"`
 	OutputTokensByDay map[string]int64 `json:"output_tokens_by_day"`
-	TokensByHour      map[string]int64 `json:"tokens_by_hour"`
 }
 
 // APISnapshot summarises metrics for a single API key.
@@ -190,13 +147,11 @@ func GetRequestStatistics() *RequestStatistics { return defaultRequestStatistics
 // NewRequestStatistics constructs an empty statistics store.
 func NewRequestStatistics() *RequestStatistics {
 	return &RequestStatistics{
-		apis:              make(map[string]*apiStats),
-		requestsByDay:     make(map[string]int64),
-		requestsByHour:    make(map[int]int64),
-		tokensByDay:       make(map[string]int64),
-		inputTokensByDay:  make(map[string]int64),
-		outputTokensByDay: make(map[string]int64),
-		tokensByHour:      make(map[int]int64),
+		apis:           make(map[string]*apiStats),
+		requestsByDay:  make(map[string]int64),
+		requestsByHour: make(map[int]int64),
+		tokensByDay:    make(map[string]int64),
+		tokensByHour:   make(map[int]int64),
 	}
 }
 
@@ -214,8 +169,6 @@ func (s *RequestStatistics) Record(ctx context.Context, record coreusage.Record)
 	}
 	detail := normaliseDetail(record.Detail)
 	totalTokens := detail.TotalTokens
-	inputTokens := detail.InputTokens
-	outputTokens := detail.OutputTokens
 	statsKey := record.APIKey
 	if statsKey == "" {
 		statsKey = resolveAPIIdentifier(ctx, record)
@@ -242,8 +195,6 @@ func (s *RequestStatistics) Record(ctx context.Context, record coreusage.Record)
 		s.failureCount++
 	}
 	s.totalTokens += totalTokens
-	s.totalInputTokens += inputTokens
-	s.totalOutputTokens += outputTokens
 
 	stats, ok := s.apis[statsKey]
 	if !ok {
@@ -261,8 +212,6 @@ func (s *RequestStatistics) Record(ctx context.Context, record coreusage.Record)
 	s.requestsByDay[dayKey]++
 	s.requestsByHour[hourKey]++
 	s.tokensByDay[dayKey] += totalTokens
-	s.inputTokensByDay[dayKey] += inputTokens
-	s.outputTokensByDay[dayKey] += outputTokens
 	s.tokensByHour[hourKey] += totalTokens
 }
 
@@ -293,8 +242,6 @@ func (s *RequestStatistics) Snapshot() StatisticsSnapshot {
 	result.SuccessCount = s.successCount
 	result.FailureCount = s.failureCount
 	result.TotalTokens = s.totalTokens
-	result.TotalInputTokens = s.totalInputTokens
-	result.TotalOutputTokens = s.totalOutputTokens
 
 	result.APIs = make(map[string]APISnapshot, len(s.apis))
 	for apiName, stats := range s.apis {
@@ -329,16 +276,6 @@ func (s *RequestStatistics) Snapshot() StatisticsSnapshot {
 	result.TokensByDay = make(map[string]int64, len(s.tokensByDay))
 	for k, v := range s.tokensByDay {
 		result.TokensByDay[k] = v
-	}
-
-	result.InputTokensByDay = make(map[string]int64, len(s.inputTokensByDay))
-	for k, v := range s.inputTokensByDay {
-		result.InputTokensByDay[k] = v
-	}
-
-	result.OutputTokensByDay = make(map[string]int64, len(s.outputTokensByDay))
-	for k, v := range s.outputTokensByDay {
-		result.OutputTokensByDay[k] = v
 	}
 
 	result.TokensByHour = make(map[string]int64, len(s.tokensByHour))
@@ -539,121 +476,67 @@ func formatHour(hour int) string {
 	return fmt.Sprintf("%02d", hour)
 }
 
-// ComputeUsageStats converts a StatisticsSnapshot into a structured UsageStats object.
-func ComputeUsageStats(snapshot StatisticsSnapshot) interfaces.UsageStats {
-	stats := interfaces.UsageStats{
-		TotalRequests:      snapshot.TotalRequests,
-		SuccessCount:       snapshot.SuccessCount,
-		FailureCount:       snapshot.FailureCount,
-		TotalInputTokens:   snapshot.TotalInputTokens,
-		TotalOutputTokens:  snapshot.TotalOutputTokens,
-		EstimatedCostSaved: 0,
-		ActualCost:         0,
-		DirectAPICost:      0,
-		Savings:            0,
-		SavingsPercent:     0,
-		ByModel:            make(map[string]int64),
-		ByProvider:         make(map[string]int64),
-		CostByModel:        make(map[string]float64),
-		CostByProvider:     make(map[string]float64),
-		Daily:              make([]interfaces.DailyUsage, 0),
+// UsageStats represents processed usage statistics for display.
+type UsageStats struct {
+	TotalRequests     int64            `json:"total_requests"`
+	SuccessCount      int64            `json:"success_count"`
+	FailureCount      int64            `json:"failure_count"`
+	TotalTokens       int64            `json:"total_tokens"`
+	TotalInputTokens  int64            `json:"total_input_tokens"`
+	TotalOutputTokens int64            `json:"total_output_tokens"`
+	SuccessRate       float64          `json:"success_rate"`
+	RequestsByDay     map[string]int64 `json:"requests_by_day"`
+	TokensByDay       map[string]int64 `json:"tokens_by_day"`
+	TopModels         []ModelUsage     `json:"top_models"`
+}
+
+// ModelUsage represents usage stats for a single model.
+type ModelUsage struct {
+	Model         string `json:"model"`
+	Requests      int64  `json:"requests"`
+	Tokens        int64  `json:"tokens"`
+	InputTokens   int64  `json:"input_tokens"`
+	OutputTokens  int64  `json:"output_tokens"`
+}
+
+// ComputeUsageStats computes processed usage statistics from a snapshot.
+func ComputeUsageStats(snapshot StatisticsSnapshot) UsageStats {
+	stats := UsageStats{
+		TotalRequests:     snapshot.TotalRequests,
+		SuccessCount:      snapshot.SuccessCount,
+		FailureCount:      snapshot.FailureCount,
+		TotalTokens:       snapshot.TotalTokens,
+		TotalInputTokens:  snapshot.TotalInputTokens,
+		TotalOutputTokens: snapshot.TotalOutputTokens,
+		RequestsByDay:     snapshot.RequestsByDay,
+		TokensByDay:       snapshot.TokensByDay,
+		TopModels:         make([]ModelUsage, 0),
 	}
 
-	var totalProxyCost float64
-	var totalDirectCost float64
+	if snapshot.TotalRequests > 0 {
+		stats.SuccessRate = float64(snapshot.SuccessCount) / float64(snapshot.TotalRequests) * 100
+	}
 
-	for apiName, apiSnapshot := range snapshot.APIs {
-		// Try to identify provider from apiName
-		provider := apiName
-		// If apiName is "METHOD PATH", it's not a provider name.
-		if strings.Contains(apiName, " ") {
-			provider = "unknown"
-		}
-
-		for modelName, modelSnapshot := range apiSnapshot.Models {
-			stats.ByModel[modelName] += modelSnapshot.TotalRequests
-
-			// If provider is unknown, try to infer from model name
-			actualProvider := provider
-			if actualProvider == "unknown" {
-				actualProvider = inferProviderFromModel(modelName)
+	// Collect model usage across all APIs
+	modelUsage := make(map[string]*ModelUsage)
+	for _, api := range snapshot.APIs {
+		for modelName, model := range api.Models {
+			if existing, ok := modelUsage[modelName]; ok {
+				existing.Requests += model.TotalRequests
+				existing.Tokens += model.TotalTokens
+			} else {
+				modelUsage[modelName] = &ModelUsage{
+					Model:    modelName,
+					Requests: model.TotalRequests,
+					Tokens:   model.TotalTokens,
+				}
 			}
-			stats.ByProvider[actualProvider] += modelSnapshot.TotalRequests
-
-			for _, detail := range modelSnapshot.Details {
-				proxyCost, directCost := estimateCostWithSavings(
-					actualProvider,
-					modelName,
-					detail.Tokens.InputTokens,
-					detail.Tokens.OutputTokens,
-					detail.Tokens.CachedTokens,
-				)
-				totalProxyCost += proxyCost
-				totalDirectCost += directCost
-				stats.CostByModel[modelName] += proxyCost
-				stats.CostByProvider[actualProvider] += proxyCost
-			}
 		}
 	}
 
-	stats.ActualCost = totalProxyCost
-	stats.DirectAPICost = totalDirectCost
-	stats.Savings = totalDirectCost - totalProxyCost
-	if totalDirectCost > 0 {
-		stats.SavingsPercent = (stats.Savings / totalDirectCost) * 100
-	}
-	// Keep backward compatibility
-	stats.EstimatedCostSaved = totalProxyCost
-
-	// Last 7 days
-	now := time.Now()
-	for i := 6; i >= 0; i-- {
-		date := now.AddDate(0, 0, -i).Format("2006-01-02")
-		daily := interfaces.DailyUsage{
-			Date:         date,
-			Requests:     snapshot.RequestsByDay[date],
-			Tokens:       snapshot.TokensByDay[date],
-			InputTokens:  snapshot.InputTokensByDay[date],
-			OutputTokens: snapshot.OutputTokensByDay[date],
-		}
-		stats.Daily = append(stats.Daily, daily)
+	for _, m := range modelUsage {
+		stats.TopModels = append(stats.TopModels, *m)
 	}
 
 	return stats
-}
-
-func inferProviderFromModel(model string) string {
-	m := strings.ToLower(model)
-	if strings.Contains(m, "claude") {
-		return "anthropic"
-	}
-	if strings.Contains(m, "gpt") {
-		return "openai"
-	}
-	if strings.Contains(m, "gemini") {
-		return "google"
-	}
-	return "unknown"
-}
-
-func estimateCost(provider string, model string, inputTokens, outputTokens int64) float64 {
-	// Try model-specific pricing first
-	proxyCost, _, found := EstimateModelCost(model, inputTokens, outputTokens, 0)
-	if found {
-		return proxyCost
-	}
-	// Fallback to provider-based estimation
-	return FallbackEstimateCost(provider, model, inputTokens, outputTokens)
-}
-
-// estimateCostWithSavings calculates both proxy cost and direct API cost.
-// Returns (proxyCost, directCost).
-func estimateCostWithSavings(provider string, model string, inputTokens, outputTokens, cachedTokens int64) (float64, float64) {
-	proxyCost, directCost, found := EstimateModelCost(model, inputTokens, outputTokens, cachedTokens)
-	if found {
-		return proxyCost, directCost
-	}
-	// Fallback - same cost for both
-	fallback := FallbackEstimateCost(provider, model, inputTokens, outputTokens)
-	return fallback, fallback
 }

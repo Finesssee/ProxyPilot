@@ -15,11 +15,6 @@ type ExcludedModelsSummary struct {
 	count int
 }
 
-type VertexModelsSummary struct {
-	hash  string
-	count int
-}
-
 // SummarizeExcludedModels normalizes and hashes an excluded-model list.
 func SummarizeExcludedModels(list []string) ExcludedModelsSummary {
 	if len(list) == 0 {
@@ -92,30 +87,32 @@ func DiffOAuthExcludedModelChanges(oldMap, newMap map[string][]string) ([]string
 	return changes, affected
 }
 
-// SummarizeVertexModels hashes vertex-compatible models for change detection.
-func SummarizeVertexModels(models []config.VertexCompatModel) VertexModelsSummary {
-	if len(models) == 0 {
-		return VertexModelsSummary{}
+type AmpModelMappingsSummary struct {
+	hash  string
+	count int
+}
+
+// SummarizeAmpModelMappings hashes Amp model mappings for change detection.
+func SummarizeAmpModelMappings(mappings []config.AmpModelMapping) AmpModelMappingsSummary {
+	if len(mappings) == 0 {
+		return AmpModelMappingsSummary{}
 	}
-	names := make([]string, 0, len(models))
-	for _, m := range models {
-		name := strings.TrimSpace(m.Name)
-		alias := strings.TrimSpace(m.Alias)
-		if name == "" && alias == "" {
+	entries := make([]string, 0, len(mappings))
+	for _, mapping := range mappings {
+		from := strings.TrimSpace(mapping.From)
+		to := strings.TrimSpace(mapping.To)
+		if from == "" && to == "" {
 			continue
 		}
-		if alias != "" {
-			name = alias
-		}
-		names = append(names, name)
+		entries = append(entries, from+"->"+to)
 	}
-	if len(names) == 0 {
-		return VertexModelsSummary{}
+	if len(entries) == 0 {
+		return AmpModelMappingsSummary{}
 	}
-	sort.Strings(names)
-	sum := sha256.Sum256([]byte(strings.Join(names, "|")))
-	return VertexModelsSummary{
+	sort.Strings(entries)
+	sum := sha256.Sum256([]byte(strings.Join(entries, "|")))
+	return AmpModelMappingsSummary{
 		hash:  hex.EncodeToString(sum[:]),
-		count: len(names),
+		count: len(entries),
 	}
 }

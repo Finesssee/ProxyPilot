@@ -13,10 +13,6 @@ type StreamForwardOptions struct {
 	// If nil, the configured default is used. If set to <= 0, keep-alives are disabled.
 	KeepAliveInterval *time.Duration
 
-	// MaxChunkSize overrides the configured maximum chunk size.
-	// If nil, the configured default is used. If set to <= 0, chunk splitting is disabled.
-	MaxChunkSize *int
-
 	// WriteChunk writes a single data chunk to the response body. It should not flush.
 	WriteChunk func(chunk []byte)
 
@@ -49,7 +45,7 @@ func (h *BaseAPIHandler) ForwardStream(c *gin.Context, flusher http.Flusher, can
 	writeKeepAlive := opts.WriteKeepAlive
 	if writeKeepAlive == nil {
 		writeKeepAlive = func() {
-			_, _ = c.Writer.Write(sseKeepAlive)
+			_, _ = c.Writer.Write([]byte(": keep-alive\n\n"))
 		}
 	}
 
@@ -63,12 +59,6 @@ func (h *BaseAPIHandler) ForwardStream(c *gin.Context, flusher http.Flusher, can
 		keepAlive = time.NewTicker(keepAliveInterval)
 		defer keepAlive.Stop()
 		keepAliveC = keepAlive.C
-	}
-
-	// Determine max chunk size for splitting large payloads
-	maxChunkSize := StreamingMaxChunkSize(h.Cfg)
-	if opts.MaxChunkSize != nil {
-		maxChunkSize = *opts.MaxChunkSize
 	}
 
 	var terminalErr *interfaces.ErrorMessage
@@ -104,20 +94,8 @@ func (h *BaseAPIHandler) ForwardStream(c *gin.Context, flusher http.Flusher, can
 				cancel(nil)
 				return
 			}
-			// Split large chunks to reduce latency (like vibeproxy's 64KB optimization)
-			if maxChunkSize > 0 && len(chunk) > maxChunkSize {
-				for offset := 0; offset < len(chunk); offset += maxChunkSize {
-					end := offset + maxChunkSize
-					if end > len(chunk) {
-						end = len(chunk)
-					}
-					writeChunk(chunk[offset:end])
-					flusher.Flush()
-				}
-			} else {
-				writeChunk(chunk)
-				flusher.Flush()
-			}
+			writeChunk(chunk)
+			flusher.Flush()
 		case errMsg, ok := <-errs:
 			if !ok {
 				continue
@@ -141,5 +119,3 @@ func (h *BaseAPIHandler) ForwardStream(c *gin.Context, flusher http.Flusher, can
 		}
 	}
 }
-
-var sseKeepAlive = []byte(": keep-alive\n\n")

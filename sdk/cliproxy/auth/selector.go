@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,10 +25,6 @@ type RoundRobinSelector struct {
 // This "burns" one account before moving to the next, which can help stagger
 // rolling-window subscription caps (e.g. chat message limits).
 type FillFirstSelector struct{}
-
-// UsageAwareSelector selects the credential with the lowest daily usage.
-// This spreads load across accounts to avoid hitting quota limits.
-type UsageAwareSelector struct{}
 
 type blockReason int
 
@@ -107,13 +104,29 @@ func (e *modelCooldownError) Headers() http.Header {
 	return headers
 }
 
-func collectAvailable(auths []*Auth, model string, now time.Time) (available []*Auth, cooldownCount int, earliest time.Time) {
-	available = make([]*Auth, 0, len(auths))
+func authPriority(auth *Auth) int {
+	if auth == nil || auth.Attributes == nil {
+		return 0
+	}
+	raw := strings.TrimSpace(auth.Attributes["priority"])
+	if raw == "" {
+		return 0
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0
+	}
+	return parsed
+}
+
+func collectAvailableByPriority(auths []*Auth, model string, now time.Time) (available map[int][]*Auth, cooldownCount int, earliest time.Time) {
+	available = make(map[int][]*Auth)
 	for i := 0; i < len(auths); i++ {
 		candidate := auths[i]
 		blocked, reason, next := isAuthBlockedForModel(candidate, model, now)
 		if !blocked {
-			available = append(available, candidate)
+			priority := authPriority(candidate)
+			available[priority] = append(available[priority], candidate)
 			continue
 		}
 		if reason == blockReasonCooldown {
@@ -123,14 +136,6 @@ func collectAvailable(auths []*Auth, model string, now time.Time) (available []*
 			}
 		}
 	}
-	if len(available) > 1 {
-		sort.Slice(available, func(i, j int) bool {
-			if available[i].Priority != available[j].Priority {
-				return available[i].Priority < available[j].Priority
-			}
-			return available[i].ID < available[j].ID // stable secondary sort
-		})
-	}
 	return available, cooldownCount, earliest
 }
 
@@ -139,18 +144,35 @@ func getAvailableAuths(auths []*Auth, provider, model string, now time.Time) ([]
 		return nil, &Error{Code: "auth_not_found", Message: "no auth candidates"}
 	}
 
-	available, cooldownCount, earliest := collectAvailable(auths, model, now)
-	if len(available) == 0 {
+	availableByPriority, cooldownCount, earliest := collectAvailableByPriority(auths, model, now)
+	if len(availableByPriority) == 0 {
 		if cooldownCount == len(auths) && !earliest.IsZero() {
+			providerForError := provider
+			if providerForError == "mixed" {
+				providerForError = ""
+			}
 			resetIn := earliest.Sub(now)
 			if resetIn < 0 {
 				resetIn = 0
 			}
-			return nil, newModelCooldownError(model, provider, resetIn)
+			return nil, newModelCooldownError(model, providerForError, resetIn)
 		}
 		return nil, &Error{Code: "auth_unavailable", Message: "no auth available"}
 	}
 
+	bestPriority := 0
+	found := false
+	for priority := range availableByPriority {
+		if !found || priority > bestPriority {
+			bestPriority = priority
+			found = true
+		}
+	}
+
+	available := availableByPriority[bestPriority]
+	if len(available) > 1 {
+		sort.Slice(available, func(i, j int) bool { return available[i].ID < available[j].ID })
+	}
 	return available, nil
 }
 
@@ -189,29 +211,6 @@ func (s *FillFirstSelector) Pick(ctx context.Context, provider, model string, op
 	if err != nil {
 		return nil, err
 	}
-	return available[0], nil
-}
-
-// Pick selects the auth with the lowest daily output token usage.
-func (s *UsageAwareSelector) Pick(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*Auth) (*Auth, error) {
-	_ = ctx
-	_ = opts
-	now := time.Now()
-	available, err := getAvailableAuths(auths, provider, model, now)
-	if err != nil {
-		return nil, err
-	}
-	// Sort by daily output tokens ascending (least usage first)
-	sort.Slice(available, func(i, j int) bool {
-		if available[i].Usage.DailyOutputTokens != available[j].Usage.DailyOutputTokens {
-			return available[i].Usage.DailyOutputTokens < available[j].Usage.DailyOutputTokens
-		}
-		// Tie-breaker: priority, then ID
-		if available[i].Priority != available[j].Priority {
-			return available[i].Priority < available[j].Priority
-		}
-		return available[i].ID < available[j].ID
-	})
 	return available[0], nil
 }
 

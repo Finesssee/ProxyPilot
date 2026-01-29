@@ -8,7 +8,6 @@ package chat_completions
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -88,15 +87,15 @@ func ConvertAntigravityResponseToOpenAI(_ context.Context, _ string, originalReq
 
 	// Extract and set usage metadata (token counts).
 	if usageResult := gjson.GetBytes(rawJSON, "response.usageMetadata"); usageResult.Exists() {
+		cachedTokenCount := usageResult.Get("cachedContentTokenCount").Int()
 		if candidatesTokenCountResult := usageResult.Get("candidatesTokenCount"); candidatesTokenCountResult.Exists() {
 			template, _ = sjson.Set(template, "usage.completion_tokens", candidatesTokenCountResult.Int())
 		}
 		if totalTokenCountResult := usageResult.Get("totalTokenCount"); totalTokenCountResult.Exists() {
 			template, _ = sjson.Set(template, "usage.total_tokens", totalTokenCountResult.Int())
 		}
-		promptTokenCount := usageResult.Get("promptTokenCount").Int()
+		promptTokenCount := usageResult.Get("promptTokenCount").Int() - cachedTokenCount
 		thoughtsTokenCount := usageResult.Get("thoughtsTokenCount").Int()
-		cachedTokenCount := usageResult.Get("cachedContentTokenCount").Int()
 		template, _ = sjson.Set(template, "usage.prompt_tokens", promptTokenCount+thoughtsTokenCount)
 		if thoughtsTokenCount > 0 {
 			template, _ = sjson.Set(template, "usage.completion_tokens_details.reasoning_tokens", thoughtsTokenCount)
@@ -187,18 +186,11 @@ func ConvertAntigravityResponseToOpenAI(_ context.Context, _ string, originalReq
 					template, _ = sjson.SetRaw(template, "choices.0.delta.images", `[]`)
 				}
 				imageIndex := len(gjson.Get(template, "choices.0.delta.images").Array())
-				imagePayload, err := json.Marshal(map[string]any{
-					"index": imageIndex,
-					"type":  "image_url",
-					"image_url": map[string]string{
-						"url": imageURL,
-					},
-				})
-				if err != nil {
-					continue
-				}
+				imagePayload := `{"type":"image_url","image_url":{"url":""}}`
+				imagePayload, _ = sjson.Set(imagePayload, "index", imageIndex)
+				imagePayload, _ = sjson.Set(imagePayload, "image_url.url", imageURL)
 				template, _ = sjson.Set(template, "choices.0.delta.role", "assistant")
-				template, _ = sjson.SetRaw(template, "choices.0.delta.images.-1", string(imagePayload))
+				template, _ = sjson.SetRaw(template, "choices.0.delta.images.-1", imagePayload)
 			}
 		}
 	}

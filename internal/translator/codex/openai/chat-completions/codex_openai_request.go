@@ -33,7 +33,7 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 	rawJSON := bytes.Clone(inputRawJSON)
 	userAgent := misc.ExtractCodexUserAgent(rawJSON)
 	// Start with empty JSON object
-	out := `{}`
+	out := `{"instructions":""}`
 
 	// Stream must be set to true
 	out, _ = sjson.Set(out, "stream", stream)
@@ -67,11 +67,6 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 	out, _ = sjson.Set(out, "reasoning.summary", "auto")
 	out, _ = sjson.Set(out, "include", []string{"reasoning.encrypted_content"})
 
-	// The chatgpt.com Codex backend requires a specific instruction prefix (Codex CLI prompt).
-	// Always provide the official Codex instructions for the target model.
-	_, official := misc.CodexInstructionsForModel(modelName, "", userAgent)
-	out, _ = sjson.Set(out, "instructions", official)
-
 	// Model
 	out, _ = sjson.Set(out, "model", modelName)
 
@@ -100,9 +95,27 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 		}
 	}
 
-	// The chatgpt.com Codex backend can reject top-level "instructions".
-	// Preserve system prompts by leaving system messages inside "input" instead.
+	// Extract system instructions from first system message (string or text object)
 	messages := gjson.GetBytes(rawJSON, "messages")
+	_, instructions := misc.CodexInstructionsForModel(modelName, "", userAgent)
+	if misc.GetCodexInstructionsEnabled() {
+		out, _ = sjson.Set(out, "instructions", instructions)
+	}
+	// if messages.IsArray() {
+	// 	arr := messages.Array()
+	// 	for i := 0; i < len(arr); i++ {
+	// 		m := arr[i]
+	// 		if m.Get("role").String() == "system" {
+	// 			c := m.Get("content")
+	// 			if c.Type == gjson.String {
+	// 				out, _ = sjson.Set(out, "instructions", c.String())
+	// 			} else if c.IsObject() && c.Get("type").String() == "text" {
+	// 				out, _ = sjson.Set(out, "instructions", c.Get("text").String())
+	// 			}
+	// 			break
+	// 		}
+	// 	}
+	// }
 
 	// Build input from messages, handling all message types including tool calls
 	out, _ = sjson.SetRaw(out, "input", `[]`)
@@ -111,11 +124,6 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 		for i := 0; i < len(arr); i++ {
 			m := arr[i]
 			role := m.Get("role").String()
-			if role == "system" {
-				// Codex backend rejects role=system in input ("System messages are not allowed").
-				// Preserve the content by downgrading to a user message.
-				role = "user"
-			}
 
 			switch role {
 			case "tool":
@@ -134,7 +142,11 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 				// Handle regular messages
 				msg := `{}`
 				msg, _ = sjson.Set(msg, "type", "message")
-				msg, _ = sjson.Set(msg, "role", role)
+				if role == "system" {
+					msg, _ = sjson.Set(msg, "role", "developer")
+				} else {
+					msg, _ = sjson.Set(msg, "role", role)
+				}
 
 				msg, _ = sjson.SetRaw(msg, "content", `[]`)
 

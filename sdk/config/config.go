@@ -15,6 +15,8 @@ type Config = internalconfig.Config
 type StreamingConfig = internalconfig.StreamingConfig
 type TLSConfig = internalconfig.TLSConfig
 type RemoteManagement = internalconfig.RemoteManagement
+type AmpCode = internalconfig.AmpCode
+type OAuthModelAlias = internalconfig.OAuthModelAlias
 type PayloadConfig = internalconfig.PayloadConfig
 type PayloadRule = internalconfig.PayloadRule
 type PayloadModelRule = internalconfig.PayloadModelRule
@@ -27,15 +29,13 @@ type VertexCompatModel = internalconfig.VertexCompatModel
 type OpenAICompatibility = internalconfig.OpenAICompatibility
 type OpenAICompatibilityAPIKey = internalconfig.OpenAICompatibilityAPIKey
 type OpenAICompatibilityModel = internalconfig.OpenAICompatibilityModel
-type GlobalModelMapping = internalconfig.GlobalModelMapping
 
 type TLS = internalconfig.TLSConfig
 
 const (
 	AccessProviderTypeConfigAPIKey = internalconfig.AccessProviderTypeConfigAPIKey
 	DefaultAccessProviderName      = internalconfig.DefaultAccessProviderName
-	DefaultAutoRefreshBuffer       = internalconfig.DefaultAutoRefreshBuffer
-	DefaultDailyResetHour          = internalconfig.DefaultDailyResetHour
+	DefaultPanelGitHubRepository   = internalconfig.DefaultPanelGitHubRepository
 )
 
 func MakeInlineAPIKeyProvider(keys []string) *AccessProvider {

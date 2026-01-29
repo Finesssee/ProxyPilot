@@ -18,6 +18,10 @@ type ManagementTokenRequester interface {
 	RequestCodexToken(*gin.Context)
 	RequestAntigravityToken(*gin.Context)
 	RequestQwenToken(*gin.Context)
+	RequestIFlowToken(*gin.Context)
+	RequestIFlowCookieToken(*gin.Context)
+	GetAuthStatus(c *gin.Context)
+	PostOAuthCallback(c *gin.Context)
 }
 
 type managementTokenRequester struct {
@@ -49,4 +53,20 @@ func (m *managementTokenRequester) RequestAntigravityToken(c *gin.Context) {
 
 func (m *managementTokenRequester) RequestQwenToken(c *gin.Context) {
 	m.handler.RequestQwenToken(c)
+}
+
+func (m *managementTokenRequester) RequestIFlowToken(c *gin.Context) {
+	m.handler.RequestIFlowToken(c)
+}
+
+func (m *managementTokenRequester) RequestIFlowCookieToken(c *gin.Context) {
+	m.handler.RequestIFlowCookieToken(c)
+}
+
+func (m *managementTokenRequester) GetAuthStatus(c *gin.Context) {
+	m.handler.GetAuthStatus(c)
+}
+
+func (m *managementTokenRequester) PostOAuthCallback(c *gin.Context) {
+	m.handler.PostOAuthCallback(c)
 }

@@ -49,6 +49,11 @@ func (a *CodexAuthenticator) Login(ctx context.Context, cfg *config.Config, opts
 		opts = &LoginOptions{}
 	}
 
+	callbackPort := a.CallbackPort
+	if opts.CallbackPort > 0 {
+		callbackPort = opts.CallbackPort
+	}
+
 	pkceCodes, err := codex.GeneratePKCECodes()
 	if err != nil {
 		return nil, fmt.Errorf("codex pkce generation failed: %w", err)
@@ -59,7 +64,7 @@ func (a *CodexAuthenticator) Login(ctx context.Context, cfg *config.Config, opts
 		return nil, fmt.Errorf("codex state generation failed: %w", err)
 	}
 
-	oauthServer := codex.NewOAuthServer(a.CallbackPort)
+	oauthServer := codex.NewOAuthServer(callbackPort)
 	if err = oauthServer.Start(); err != nil {
 		if strings.Contains(err.Error(), "already in use") {
 			return nil, codex.NewAuthenticationError(codex.ErrPortInUse, err)
@@ -85,15 +90,15 @@ func (a *CodexAuthenticator) Login(ctx context.Context, cfg *config.Config, opts
 		fmt.Println("Opening browser for Codex authentication")
 		if !browser.IsAvailable() {
 			log.Warn("No browser available; please open the URL manually")
-			util.PrintSSHTunnelInstructions(a.CallbackPort)
+			util.PrintSSHTunnelInstructions(callbackPort)
 			fmt.Printf("Visit the following URL to continue authentication:\n%s\n", authURL)
 		} else if err = browser.OpenURL(authURL); err != nil {
 			log.Warnf("Failed to open browser automatically: %v", err)
-			util.PrintSSHTunnelInstructions(a.CallbackPort)
+			util.PrintSSHTunnelInstructions(callbackPort)
 			fmt.Printf("Visit the following URL to continue authentication:\n%s\n", authURL)
 		}
 	} else {
-		util.PrintSSHTunnelInstructions(a.CallbackPort)
+		util.PrintSSHTunnelInstructions(callbackPort)
 		fmt.Printf("Visit the following URL to continue authentication:\n%s\n", authURL)
 	}
 
@@ -188,7 +193,6 @@ waitForCallback:
 		return nil, fmt.Errorf("codex token storage missing account information")
 	}
 
-	// Extract plan type and account ID for filename disambiguation
 	planType := ""
 	hashAccountID := ""
 	if tokenStorage.IDToken != "" {
@@ -201,9 +205,7 @@ waitForCallback:
 			}
 		}
 	}
-
-	// Generate filename with plan type and hashed account ID for team plans
-	fileName := codexCredentialFileName(tokenStorage.Email, planType, hashAccountID)
+	fileName := codex.CredentialFileName(tokenStorage.Email, planType, hashAccountID, true)
 	metadata := map[string]any{
 		"email": tokenStorage.Email,
 	}
@@ -220,29 +222,4 @@ waitForCallback:
 		Storage:  tokenStorage,
 		Metadata: metadata,
 	}, nil
-}
-
-// codexCredentialFileName generates the filename for Codex credential storage.
-// For team plans, it includes a hashed account ID to disambiguate multiple accounts.
-func codexCredentialFileName(email, planType, hashAccountID string) string {
-	email = strings.TrimSpace(email)
-	plan := normalizePlanTypeForFilename(planType)
-
-	if plan == "" {
-		return fmt.Sprintf("codex-%s.json", email)
-	} else if plan == "team" && hashAccountID != "" {
-		return fmt.Sprintf("codex-%s-%s-%s.json", hashAccountID, email, plan)
-	}
-	return fmt.Sprintf("codex-%s-%s.json", email, plan)
-}
-
-// normalizePlanTypeForFilename converts plan types to filename-safe values.
-func normalizePlanTypeForFilename(planType string) string {
-	planType = strings.ToLower(strings.TrimSpace(planType))
-	switch planType {
-	case "plus", "team", "enterprise":
-		return planType
-	default:
-		return ""
-	}
 }

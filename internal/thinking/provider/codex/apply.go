@@ -3,6 +3,7 @@
 // Codex models use the reasoning.effort format with discrete levels
 // (low/medium/high). This is similar to OpenAI but uses nested field
 // "reasoning.effort" instead of "reasoning_effort".
+// See: _bmad-output/planning-artifacts/architecture.md#Epic-8
 package codex
 
 import (

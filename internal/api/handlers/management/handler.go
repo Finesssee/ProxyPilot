@@ -17,7 +17,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/integrations"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	"golang.org/x/crypto/bcrypt"
@@ -52,22 +51,6 @@ type Handler struct {
 	integrationManager  *integrations.Manager
 }
 
-// openAICompatProviderNames returns the configured OpenAI-compat provider names from the current config.
-func (h *Handler) openAICompatProviderNames() []string {
-	cfg := h.cfg
-	if cfg == nil {
-		return nil
-	}
-	out := make([]string, 0, len(cfg.OpenAICompatibility))
-	for _, c := range cfg.OpenAICompatibility {
-		name := strings.TrimSpace(c.Name)
-		if name != "" {
-			out = append(out, name)
-		}
-	}
-	return out
-}
-
 // NewHandler creates a new management handler instance.
 func NewHandler(cfg *config.Config, configFilePath string, manager *coreauth.Manager) *Handler {
 	envSecret, _ := os.LookupEnv("MANAGEMENT_PASSWORD")
@@ -83,28 +66,6 @@ func NewHandler(cfg *config.Config, configFilePath string, manager *coreauth.Man
 		allowRemoteOverride: envSecret != "",
 		envSecret:           envSecret,
 	}
-
-	// Initialize Integration Manager
-	// We need the proxy URL. If not in config, assume localhost default.
-	proxyURL := cfg.ProxyURL
-	if proxyURL == "" {
-		host := cfg.Host
-		if host == "" {
-			host = "http://127.0.0.1"
-		} else {
-			if !strings.HasPrefix(host, "http") {
-				host = "http://" + host
-			}
-		}
-		proxyURL = fmt.Sprintf("%s:%d", host, cfg.Port)
-	}
-
-	h.integrationManager = integrations.NewManager(proxyURL)
-	h.integrationManager.Register(&integrations.CodexIntegration{})
-	h.integrationManager.Register(&integrations.ClaudeIntegration{})
-	h.integrationManager.Register(&integrations.DroidIntegration{})
-	h.integrationManager.Register(&integrations.GeminiIntegration{})
-
 	h.startAttemptCleanup()
 	return h
 }
@@ -149,111 +110,6 @@ func (h *Handler) SetConfig(cfg *config.Config) { h.cfg = cfg }
 
 // SetAuthManager updates the auth manager reference used by management endpoints.
 func (h *Handler) SetAuthManager(manager *coreauth.Manager) { h.authManager = manager }
-
-// routingPreview describes how a model would be normalised and routed according to current config.
-type routingPreview struct {
-	RequestedModel     string         `json:"requested_model"`
-	ResolvedModel      string         `json:"resolved_model"`
-	NormalizedModel    string         `json:"normalized_model"`
-	ProviderCandidates []string       `json:"provider_candidates"`
-	PreferredProvider  string         `json:"preferred_provider"`
-	Dynamic            map[string]any `json:"dynamic"`
-	Metadata           map[string]any `json:"metadata"`
-}
-
-// computeRoutingPreview replicates BaseAPIHandler.getRequestDetails for management/debug purposes.
-func (h *Handler) computeRoutingPreview(modelName string) (*routingPreview, error) {
-	if strings.TrimSpace(modelName) == "" {
-		return nil, fmt.Errorf("model name is empty")
-	}
-
-	requested := strings.TrimSpace(modelName)
-
-	// Droid CLI sometimes sends a "custom:*" model id; normalize it before routing.
-	modelName = util.NormalizeDroidCustomModel(modelName)
-
-	// Resolve "auto" model to an actual available model first
-	resolvedModelName := util.ResolveAutoModel(modelName)
-
-	providerName, extractedModelName, isDynamic := parseDynamicModelWithConfig(resolvedModelName, h.openAICompatProviderNames())
-
-	targetModelName := resolvedModelName
-	if isDynamic {
-		targetModelName = extractedModelName
-	}
-
-	// Normalize the model name to handle dynamic thinking suffixes before determining the provider.
-	normalizedModel, metadata := util.NormalizeThinkingModel(targetModelName)
-
-	var providers []string
-	if isDynamic {
-		providers = []string{providerName}
-	} else {
-		// For non-dynamic models, use the normalizedModel to get the provider name.
-		providers = util.GetProviderName(normalizedModel)
-		if len(providers) == 0 && metadata != nil {
-			if originalRaw, ok := metadata[util.ThinkingOriginalModelMetadataKey]; ok {
-				if originalModel, okStr := originalRaw.(string); okStr {
-					originalModel = strings.TrimSpace(originalModel)
-					if originalModel != "" && !strings.EqualFold(originalModel, normalizedModel) {
-						if altProviders := util.GetProviderName(originalModel); len(altProviders) > 0 {
-							providers = altProviders
-							normalizedModel = originalModel
-						}
-					}
-				}
-			}
-		}
-	}
-
-	if len(providers) == 0 {
-		return nil, fmt.Errorf("unknown provider for model %s", requested)
-	}
-
-	preferred := ""
-	if len(providers) > 0 {
-		preferred = providers[0]
-	}
-
-	preview := &routingPreview{
-		RequestedModel:     requested,
-		ResolvedModel:      resolvedModelName,
-		NormalizedModel:    normalizedModel,
-		ProviderCandidates: providers,
-		PreferredProvider:  preferred,
-		Dynamic: map[string]any{
-			"is_dynamic":       isDynamic,
-			"dynamic_provider": providerName,
-			"dynamic_model":    extractedModelName,
-		},
-		Metadata: metadata,
-	}
-	return preview, nil
-}
-
-// parseDynamicModelWithConfig mirrors BaseAPIHandler.parseDynamicModel but uses the config provider list.
-func parseDynamicModelWithConfig(modelName string, openAICompatProviders []string) (providerName, model string, isDynamic bool) {
-	var providerPart, modelPart string
-	for _, sep := range []string{"://"} {
-		if parts := strings.SplitN(modelName, sep, 2); len(parts) == 2 {
-			providerPart = parts[0]
-			modelPart = parts[1]
-			break
-		}
-	}
-
-	if providerPart == "" {
-		return "", modelName, false
-	}
-
-	for _, pName := range openAICompatProviders {
-		if pName == providerPart {
-			return providerPart, modelPart, true
-		}
-	}
-
-	return "", modelName, false
-}
 
 // SetUsageStatistics allows replacing the usage statistics reference.
 func (h *Handler) SetUsageStatistics(stats *usage.RequestStatistics) { h.usageStats = stats }
@@ -374,15 +230,6 @@ func (h *Handler) Middleware() gin.HandlerFunc {
 				if subtle.ConstantTimeCompare([]byte(provided), []byte(lp)) == 1 {
 					c.Next()
 					return
-				}
-			}
-			// For localhost, also accept configured API keys (same keys that work for main API)
-			if cfg != nil {
-				for _, apiKey := range cfg.APIKeys {
-					if apiKey != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(apiKey)) == 1 {
-						c.Next()
-						return
-					}
 				}
 			}
 		}

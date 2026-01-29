@@ -10,12 +10,10 @@ func init() {
 	registerRefreshLead("codex", func() Authenticator { return NewCodexAuthenticator() })
 	registerRefreshLead("claude", func() Authenticator { return NewClaudeAuthenticator() })
 	registerRefreshLead("qwen", func() Authenticator { return NewQwenAuthenticator() })
+	registerRefreshLead("iflow", func() Authenticator { return NewIFlowAuthenticator() })
 	registerRefreshLead("gemini", func() Authenticator { return NewGeminiAuthenticator() })
 	registerRefreshLead("gemini-cli", func() Authenticator { return NewGeminiAuthenticator() })
 	registerRefreshLead("antigravity", func() Authenticator { return NewAntigravityAuthenticator() })
-	registerRefreshLead("kiro", func() Authenticator { return NewKiroAuthenticator() })
-	registerRefreshLead("minimax", func() Authenticator { return NewMiniMaxAuthenticator() })
-	registerRefreshLead("zhipu", func() Authenticator { return NewZhipuAuthenticator() })
 }
 
 func registerRefreshLead(provider string, factory func() Authenticator) {

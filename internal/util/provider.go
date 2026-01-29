@@ -34,11 +34,7 @@ func GetProviderName(modelName string) []string {
 	if modelName == "" {
 		return nil
 	}
-	if log.IsLevelEnabled(log.DebugLevel) {
-		log.Debugf("GetProviderName called for %q", modelName)
-	}
 
-	normalized := strings.ToLower(strings.TrimSpace(modelName))
 	providers := make([]string, 0, 4)
 	seen := make(map[string]struct{})
 
@@ -53,71 +49,12 @@ func GetProviderName(modelName string) []string {
 		providers = append(providers, name)
 	}
 
-	regProviders := registry.GetGlobalRegistry().GetModelProviders(modelName)
-	for _, provider := range regProviders {
+	for _, provider := range registry.GetGlobalRegistry().GetModelProviders(modelName) {
 		appendProvider(provider)
 	}
 
 	if len(providers) > 0 {
-		// Special-case: for gemini-3-* and antigravity-* models we prefer antigravity as primary and
-		// keep gemini-cli as a fallback (no load balancing between them).
-		if strings.HasPrefix(normalized, "gemini-3-") || strings.HasPrefix(normalized, "antigravity-") {
-			hasAntigravity := false
-			hasGeminiCLI := false
-
-			// Explicitly enable Antigravity for models with the antigravity- prefix
-			if strings.HasPrefix(normalized, "antigravity-") {
-				hasAntigravity = true
-			}
-
-			for _, p := range providers {
-				switch p {
-				case "antigravity":
-					hasAntigravity = true
-				case "gemini-cli":
-					hasGeminiCLI = true
-				}
-			}
-			if hasAntigravity || hasGeminiCLI {
-				ordered := make([]string, 0, len(providers))
-				if hasAntigravity {
-					ordered = append(ordered, "antigravity")
-				}
-				if hasGeminiCLI {
-					ordered = append(ordered, "gemini-cli")
-				}
-				for _, p := range providers {
-					if p == "antigravity" || p == "gemini-cli" {
-						continue
-					}
-					ordered = append(ordered, p)
-				}
-				return ordered
-			}
-		}
 		return providers
-	}
-
-	// Fallback: infer provider from model name when registry has no entry.
-	// This keeps the server resilient when clients request models not yet registered.
-	switch {
-	case strings.HasPrefix(normalized, "gemini-"):
-		appendProvider("gemini")
-	case strings.HasPrefix(normalized, "antigravity-"):
-		appendProvider("antigravity")
-	case strings.HasPrefix(normalized, "kiro-"):
-		appendProvider("kiro")
-	case strings.HasPrefix(normalized, "claude-"):
-		appendProvider("claude")
-	case strings.HasPrefix(normalized, "gpt-"),
-		strings.HasPrefix(normalized, "chatgpt-"),
-		strings.HasPrefix(normalized, "o1"),
-		strings.HasPrefix(normalized, "o3"),
-		strings.HasPrefix(normalized, "o4"),
-		strings.HasPrefix(normalized, "o-"):
-		appendProvider("codex")
-	case strings.HasPrefix(normalized, "qwen-"):
-		appendProvider("qwen")
 	}
 
 	return providers

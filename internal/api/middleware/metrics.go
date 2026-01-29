@@ -337,6 +337,12 @@ func GetActiveConnections() int64 {
 	return atomic.LoadInt64(&activeConnectionsCount)
 }
 
+// GetRequestMonitor returns a stub list of recent requests.
+// TODO: Implement actual request monitoring if needed.
+func GetRequestMonitor() []any {
+	return []any{}
+}
+
 // RecordProviderRequest records a request to a specific AI provider.
 // This can be called from handlers to track provider-specific metrics.
 func RecordProviderRequest(provider, model string) {

@@ -485,8 +485,3 @@ func ensureColonSpacedJSON(payload []byte) []byte {
 
 	return compacted
 }
-
-// Embed is not supported by the AIStudio executor.
-func (e *AIStudioExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	return cliproxyexecutor.Response{}, fmt.Errorf("aistudio executor does not support embeddings")
-}

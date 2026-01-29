@@ -2,6 +2,7 @@
 //
 // OpenAI models use the reasoning_effort format with discrete levels
 // (low/medium/high). Some models support xhigh and none levels.
+// See: _bmad-output/planning-artifacts/architecture.md#Epic-8
 package openai
 
 import (

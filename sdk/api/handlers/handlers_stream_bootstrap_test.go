@@ -56,15 +56,67 @@ func (e *failOnceStreamExecutor) CountTokens(context.Context, *coreauth.Auth, co
 	return coreexecutor.Response{}, &coreauth.Error{Code: "not_implemented", Message: "CountTokens not implemented"}
 }
 
-func (e *failOnceStreamExecutor) Embed(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
-	return coreexecutor.Response{}, coreexecutor.ErrNotImplemented
-}
-
-func (e *failOnceStreamExecutor) HttpRequest(_ context.Context, _ *coreauth.Auth, _ *http.Request) (*http.Response, error) {
-	return nil, coreexecutor.ErrNotImplemented
+func (e *failOnceStreamExecutor) HttpRequest(ctx context.Context, auth *coreauth.Auth, req *http.Request) (*http.Response, error) {
+	return nil, &coreauth.Error{
+		Code:       "not_implemented",
+		Message:    "HttpRequest not implemented",
+		HTTPStatus: http.StatusNotImplemented,
+	}
 }
 
 func (e *failOnceStreamExecutor) Calls() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.calls
+}
+
+type payloadThenErrorStreamExecutor struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (e *payloadThenErrorStreamExecutor) Identifier() string { return "codex" }
+
+func (e *payloadThenErrorStreamExecutor) Execute(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
+	return coreexecutor.Response{}, &coreauth.Error{Code: "not_implemented", Message: "Execute not implemented"}
+}
+
+func (e *payloadThenErrorStreamExecutor) ExecuteStream(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (<-chan coreexecutor.StreamChunk, error) {
+	e.mu.Lock()
+	e.calls++
+	e.mu.Unlock()
+
+	ch := make(chan coreexecutor.StreamChunk, 2)
+	ch <- coreexecutor.StreamChunk{Payload: []byte("partial")}
+	ch <- coreexecutor.StreamChunk{
+		Err: &coreauth.Error{
+			Code:       "upstream_closed",
+			Message:    "upstream closed",
+			Retryable:  false,
+			HTTPStatus: http.StatusBadGateway,
+		},
+	}
+	close(ch)
+	return ch, nil
+}
+
+func (e *payloadThenErrorStreamExecutor) Refresh(ctx context.Context, auth *coreauth.Auth) (*coreauth.Auth, error) {
+	return auth, nil
+}
+
+func (e *payloadThenErrorStreamExecutor) CountTokens(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
+	return coreexecutor.Response{}, &coreauth.Error{Code: "not_implemented", Message: "CountTokens not implemented"}
+}
+
+func (e *payloadThenErrorStreamExecutor) HttpRequest(ctx context.Context, auth *coreauth.Auth, req *http.Request) (*http.Response, error) {
+	return nil, &coreauth.Error{
+		Code:       "not_implemented",
+		Message:    "HttpRequest not implemented",
+		HTTPStatus: http.StatusNotImplemented,
+	}
+}
+
+func (e *payloadThenErrorStreamExecutor) Calls() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.calls
@@ -131,56 +183,6 @@ func TestExecuteStreamWithAuthManager_RetriesBeforeFirstByte(t *testing.T) {
 	}
 }
 
-type payloadThenErrorStreamExecutor struct {
-	mu    sync.Mutex
-	calls int
-}
-
-func (e *payloadThenErrorStreamExecutor) Identifier() string { return "codex" }
-
-func (e *payloadThenErrorStreamExecutor) Execute(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
-	return coreexecutor.Response{}, &coreauth.Error{Code: "not_implemented", Message: "Execute not implemented"}
-}
-
-func (e *payloadThenErrorStreamExecutor) ExecuteStream(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (<-chan coreexecutor.StreamChunk, error) {
-	e.mu.Lock()
-	e.calls++
-	e.mu.Unlock()
-
-	ch := make(chan coreexecutor.StreamChunk, 2)
-	ch <- coreexecutor.StreamChunk{Payload: []byte("partial")}
-	ch <- coreexecutor.StreamChunk{
-		Err: &coreauth.Error{
-			Code:    "server_error",
-			Message: "error after partial",
-		},
-	}
-	close(ch)
-	return ch, nil
-}
-
-func (e *payloadThenErrorStreamExecutor) Refresh(ctx context.Context, auth *coreauth.Auth) (*coreauth.Auth, error) {
-	return auth, nil
-}
-
-func (e *payloadThenErrorStreamExecutor) CountTokens(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
-	return coreexecutor.Response{}, &coreauth.Error{Code: "not_implemented", Message: "CountTokens not implemented"}
-}
-
-func (e *payloadThenErrorStreamExecutor) Embed(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
-	return coreexecutor.Response{}, coreexecutor.ErrNotImplemented
-}
-
-func (e *payloadThenErrorStreamExecutor) HttpRequest(_ context.Context, _ *coreauth.Auth, _ *http.Request) (*http.Response, error) {
-	return nil, coreexecutor.ErrNotImplemented
-}
-
-func (e *payloadThenErrorStreamExecutor) Calls() int {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.calls
-}
-
 func TestExecuteStreamWithAuthManager_DoesNotRetryAfterFirstByte(t *testing.T) {
 	executor := &payloadThenErrorStreamExecutor{}
 	manager := coreauth.NewManager(nil, nil, nil)
@@ -228,17 +230,25 @@ func TestExecuteStreamWithAuthManager_DoesNotRetryAfterFirstByte(t *testing.T) {
 		got = append(got, chunk...)
 	}
 
+	var gotErr error
+	var gotStatus int
 	for msg := range errChan {
-		if msg != nil {
-			// We expect an error after the partial payload, that's fine
-			_ = msg
+		if msg != nil && msg.Error != nil {
+			gotErr = msg.Error
+			gotStatus = msg.StatusCode
 		}
 	}
 
 	if string(got) != "partial" {
-		t.Fatalf("expected payload 'partial', got %q", string(got))
+		t.Fatalf("expected payload partial, got %q", string(got))
+	}
+	if gotErr == nil {
+		t.Fatalf("expected terminal error, got nil")
+	}
+	if gotStatus != http.StatusBadGateway {
+		t.Fatalf("expected status %d, got %d", http.StatusBadGateway, gotStatus)
 	}
 	if executor.Calls() != 1 {
-		t.Fatalf("expected 1 stream attempt (no retries after first byte), got %d", executor.Calls())
+		t.Fatalf("expected 1 stream attempt, got %d", executor.Calls())
 	}
 }

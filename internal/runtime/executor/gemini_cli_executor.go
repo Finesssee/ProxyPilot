@@ -899,8 +899,3 @@ func parseRetryDelay(errorBody []byte) (*time.Duration, error) {
 
 	return nil, fmt.Errorf("no RetryInfo found")
 }
-
-// Embed is not supported by the gemini cli executor.
-func (e *GeminiCLIExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	return cliproxyexecutor.Response{}, fmt.Errorf("gemini cli executor does not support embeddings")
-}

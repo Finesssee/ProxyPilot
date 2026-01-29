@@ -7,37 +7,36 @@ package api
 import (
 	"context"
 	"crypto/subtle"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	internalHandlers "github.com/router-for-me/CLIProxyAPI/v6/internal/api/handlers"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/access"
 	managementHandlers "github.com/router-for-me/CLIProxyAPI/v6/internal/api/handlers/management"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/api/middleware"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/cache"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/api/modules"
+	ampmodule "github.com/router-for-me/CLIProxyAPI/v6/internal/api/modules/amp"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/memory"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/managementasset"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
-	"github.com/router-for-me/CLIProxyAPI/v6/sdk/access"
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers/claude"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers/gemini"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers/openai"
+	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
-	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
-	sdkConfig "github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
@@ -127,8 +126,6 @@ type Server struct {
 
 	// cfg holds the current server configuration.
 	cfg *config.Config
-	// cfgHolder provides race-safe config snapshots for middleware reads.
-	cfgHolder atomic.Value
 
 	// oldConfigYaml stores a YAML snapshot of the previous configuration for change detection.
 	// This prevents issues when the config object is modified in place by Management API.
@@ -156,6 +153,9 @@ type Server struct {
 	// management handler
 	mgmt *managementHandlers.Handler
 
+	// ampModule is the Amp routing module for model mapping hot-reload
+	ampModule *ampmodule.AmpModule
+
 	// managementRoutesRegistered tracks whether the management routes have been attached to the engine.
 	managementRoutesRegistered atomic.Bool
 	// managementRoutesEnabled controls whether management endpoints serve real handlers.
@@ -171,9 +171,6 @@ type Server struct {
 	keepAliveOnTimeout func()
 	keepAliveHeartbeat chan struct{}
 	keepAliveStop      chan struct{}
-
-	// agentsV2 is the new unified agent configuration handler
-	agentsV2 *managementHandlers.AgentsV2Handler
 }
 
 // NewServer creates and initializes a new API server instance.
@@ -204,26 +201,9 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 		optionState.engineConfigurator(engine)
 	}
 
-	metricsEnabled := cfg.IsMetricsEnabled()
-	requestHistoryEnabled := cfg.IsRequestHistoryEnabled()
-	agenticHarnessEnabled := cfg.IsAgenticHarnessEnabled()
-	promptBudgetEnabled := cfg.IsPromptBudgetEnabled()
-	if cfg.CommercialMode {
-		metricsEnabled = false
-		requestHistoryEnabled = false
-		agenticHarnessEnabled = false
-		promptBudgetEnabled = false
-	}
-	middleware.SetMetricsEnabled(metricsEnabled)
-	middleware.SetRequestHistoryEnabled(requestHistoryEnabled)
-	middleware.SetRequestHistorySampleRate(cfg.GetRequestHistorySampleRate())
-	usage.SetSamplingRate(cfg.GetUsageSampleRate())
-
 	// Add middleware
 	engine.Use(logging.GinLogrusLogger())
 	engine.Use(logging.GinLogrusRecovery())
-	engine.Use(middleware.ConnectionTrackerMiddleware())
-	engine.Use(middleware.PrometheusMiddleware())
 	for _, mw := range optionState.extraMiddleware {
 		engine.Use(mw)
 	}
@@ -244,24 +224,8 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 		}
 	}
 
-	// Add agentic harness middleware for long-running agents (Anthropic-style)
-	// Gated by CLIPROXY_HARNESS_ENABLED env var (default: true)
-	if agenticHarnessEnabled {
-		engine.Use(middleware.AgenticHarnessMiddleware())
-	}
-
+	engine.Use(corsMiddleware())
 	wd, err := os.Getwd()
-	if err != nil {
-		wd = configFilePath
-	}
-
-	// Add context compression middleware for Claude Code / Codex CLI
-	// Trims long conversations and uses LLM summarization (Factory.ai pattern)
-	if promptBudgetEnabled {
-		engine.Use(middleware.CodexPromptBudgetMiddlewareWithRootDir(wd))
-	}
-
-	wd, err = os.Getwd()
 	if err != nil {
 		wd = configFilePath
 	}
@@ -283,26 +247,16 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 		envManagementSecret: envManagementSecret,
 		wsRoutes:            make(map[string]struct{}),
 	}
-	s.cfgHolder.Store(cfg)
 	s.wsAuthEnabled.Store(cfg.WebsocketAuth)
 	// Save initial YAML snapshot
 	s.oldConfigYaml, _ = yaml.Marshal(cfg)
 	s.applyAccessConfig(nil, cfg)
-	cache.InitDefaultResponseCache(buildResponseCacheConfig(cfg))
-	cache.InitDefaultPromptCache(buildPromptCacheConfig(cfg))
 	if authManager != nil {
 		authManager.SetRetryConfig(cfg.RequestRetry, time.Duration(cfg.MaxRetryInterval)*time.Second)
 	}
+	managementasset.SetCurrentConfig(cfg)
 	auth.SetQuotaCooldownDisabled(cfg.DisableCooling)
 	misc.SetCodexInstructionsEnabled(cfg.CodexInstructionsEnabled)
-
-	// Initialize LLM summarizer with auth manager for Factory.ai-style context compression
-	if authManager != nil {
-		// Get providers for the summary model (antigravity preferred for gemini-3-flash)
-		summaryProviders := util.GetProviderName("gemini-3-flash")
-		middleware.InitSummarizerWithAuthManager(&authManagerAdapter{authManager}, summaryProviders)
-	}
-
 	// Initialize management handler
 	s.mgmt = managementHandlers.NewHandler(cfg, configFilePath, authManager)
 	if optionState.localPassword != "" {
@@ -312,30 +266,28 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	s.mgmt.SetLogDirectory(logDir)
 	s.localPassword = optionState.localPassword
 
-	// Initialize agents v2 handler
-	agentsPort := cfg.Port
-	if agentsPort == 0 {
-		agentsPort = 8317
-	}
-	if agentsV2Handler, err := managementHandlers.NewAgentsV2Handler(agentsPort); err == nil {
-		s.agentsV2 = agentsV2Handler
-	}
-
 	// Setup routes
-	engine.Use(corsMiddleware(s.getConfig))
 	s.setupRoutes()
 
-	// Register ProxyPilot dashboard routes (embedded UI)
-	s.registerProxyPilotDashboardRoutes()
+	// Register Amp module using V2 interface with Context
+	s.ampModule = ampmodule.NewLegacy(accessManager, AuthMiddleware(accessManager))
+	ctx := modules.Context{
+		Engine:         engine,
+		BaseHandler:    s.handlers,
+		Config:         cfg,
+		AuthMiddleware: AuthMiddleware(accessManager),
+	}
+	if err := modules.RegisterModule(ctx, s.ampModule); err != nil {
+		log.Errorf("Failed to register Amp module: %v", err)
+	}
 
 	// Apply additional router configurators from options
 	if optionState.routerConfigurator != nil {
 		optionState.routerConfigurator(engine, s.handlers, cfg)
 	}
 
-	// Register management routes when configuration or environment secrets are available,
-	// or when a local password is configured for localhost management access.
-	hasManagementSecret := cfg.RemoteManagement.SecretKey != "" || envManagementSecret || optionState.localPassword != ""
+	// Register management routes when configuration or environment secrets are available.
+	hasManagementSecret := cfg.RemoteManagement.SecretKey != "" || envManagementSecret
 	s.managementRoutesEnabled.Store(hasManagementSecret)
 	if hasManagementSecret {
 		s.registerManagementRoutes()
@@ -357,16 +309,16 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 // setupRoutes configures the API routes for the server.
 // It defines the endpoints and associates them with their respective handlers.
 func (s *Server) setupRoutes() {
+	s.engine.GET("/management.html", s.serveManagementControlPanel)
 	openaiHandlers := openai.NewOpenAIAPIHandler(s.handlers)
 	geminiHandlers := gemini.NewGeminiAPIHandler(s.handlers)
 	geminiCLIHandlers := gemini.NewGeminiCLIAPIHandler(s.handlers)
 	claudeCodeHandlers := claude.NewClaudeCodeAPIHandler(s.handlers)
 	openaiResponsesHandlers := openai.NewOpenAIResponsesAPIHandler(s.handlers)
-	authMiddleware := AuthMiddleware(s.accessManager, s.allowUnauthenticated)
 
 	// OpenAI compatible API routes
 	v1 := s.engine.Group("/v1")
-	v1.Use(authMiddleware)
+	v1.Use(AuthMiddleware(s.accessManager))
 	{
 		v1.GET("/models", s.unifiedModelsHandler(openaiHandlers, claudeCodeHandlers))
 		v1.POST("/chat/completions", openaiHandlers.ChatCompletions)
@@ -374,44 +326,16 @@ func (s *Server) setupRoutes() {
 		v1.POST("/messages", claudeCodeHandlers.ClaudeMessages)
 		v1.POST("/messages/count_tokens", claudeCodeHandlers.ClaudeCountTokens)
 		v1.POST("/responses", openaiResponsesHandlers.Responses)
-
-		// Translation API routes
-		translatorHandler := internalHandlers.NewTranslatorHandler()
-		v1.GET("/translations", translatorHandler.GetTranslationsMatrix)
-		v1.GET("/translations/check", translatorHandler.CheckTranslation)
-		v1.GET("/translations/docs", translatorHandler.GetTranslationDocs)
-		v1.POST("/translations/score", translatorHandler.ScoreTranslation)
-		v1.POST("/translations/compare", translatorHandler.CompareStructures)
 	}
 
 	// Gemini compatible API routes
 	v1beta := s.engine.Group("/v1beta")
-	v1beta.Use(authMiddleware)
+	v1beta.Use(AuthMiddleware(s.accessManager))
 	{
 		v1beta.GET("/models", geminiHandlers.GeminiModels)
 		v1beta.POST("/models/*action", geminiHandlers.GeminiHandler)
 		v1beta.GET("/models/*action", geminiHandlers.GeminiGetHandler)
 	}
-
-	// Health check endpoint for Droid CLI and other clients
-	s.engine.GET("/healthz", func(c *gin.Context) {
-		cfg := s.getConfig()
-		port := 0
-		if cfg != nil {
-			port = cfg.Port
-		}
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "port": port})
-	})
-
-	// Prometheus metrics endpoint for observability
-	s.engine.GET("/metrics", middleware.MetricsHandler())
-
-	// Root-level API routes (mirrors /v1/* for clients that dont add /v1 prefix)
-	s.engine.GET("/models", authMiddleware, s.unifiedModelsHandler(openaiHandlers, claudeCodeHandlers))
-	s.engine.POST("/chat/completions", authMiddleware, openaiHandlers.ChatCompletions)
-	s.engine.POST("/completions", authMiddleware, openaiHandlers.Completions)
-	s.engine.POST("/messages", authMiddleware, claudeCodeHandlers.ClaudeMessages)
-	s.engine.POST("/responses", authMiddleware, openaiResponsesHandlers.Responses)
 
 	// Root endpoint
 	s.engine.GET("/", func(c *gin.Context) {
@@ -423,12 +347,6 @@ func (s *Server) setupRoutes() {
 				"GET /v1/models",
 			},
 		})
-	})
-
-	// Event logging endpoint - handles Claude Code telemetry requests
-	// Returns 200 OK to prevent 404 errors in logs
-	s.engine.POST("/api/event_logging/batch", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 	s.engine.POST("/v1internal:method", geminiCLIHandlers.CLIHandler)
 
@@ -443,9 +361,7 @@ func (s *Server) setupRoutes() {
 			errStr = c.Query("error_description")
 		}
 		if state != "" {
-			if cfg := s.getConfig(); cfg != nil {
-				_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(cfg.AuthDir, "anthropic", state, code, errStr)
-			}
+			_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(s.cfg.AuthDir, "anthropic", state, code, errStr)
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.String(http.StatusOK, oauthCallbackSuccessHTML)
@@ -459,9 +375,7 @@ func (s *Server) setupRoutes() {
 			errStr = c.Query("error_description")
 		}
 		if state != "" {
-			if cfg := s.getConfig(); cfg != nil {
-				_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(cfg.AuthDir, "codex", state, code, errStr)
-			}
+			_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(s.cfg.AuthDir, "codex", state, code, errStr)
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.String(http.StatusOK, oauthCallbackSuccessHTML)
@@ -475,9 +389,21 @@ func (s *Server) setupRoutes() {
 			errStr = c.Query("error_description")
 		}
 		if state != "" {
-			if cfg := s.getConfig(); cfg != nil {
-				_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(cfg.AuthDir, "gemini", state, code, errStr)
-			}
+			_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(s.cfg.AuthDir, "gemini", state, code, errStr)
+		}
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		c.String(http.StatusOK, oauthCallbackSuccessHTML)
+	})
+
+	s.engine.GET("/iflow/callback", func(c *gin.Context) {
+		code := c.Query("code")
+		state := c.Query("state")
+		errStr := c.Query("error")
+		if errStr == "" {
+			errStr = c.Query("error_description")
+		}
+		if state != "" {
+			_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(s.cfg.AuthDir, "iflow", state, code, errStr)
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.String(http.StatusOK, oauthCallbackSuccessHTML)
@@ -491,25 +417,7 @@ func (s *Server) setupRoutes() {
 			errStr = c.Query("error_description")
 		}
 		if state != "" {
-			if cfg := s.getConfig(); cfg != nil {
-				_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(cfg.AuthDir, "antigravity", state, code, errStr)
-			}
-		}
-		c.Header("Content-Type", "text/html; charset=utf-8")
-		c.String(http.StatusOK, oauthCallbackSuccessHTML)
-	})
-
-	s.engine.GET("/kiro/callback", func(c *gin.Context) {
-		code := c.Query("code")
-		state := c.Query("state")
-		errStr := c.Query("error")
-		if errStr == "" {
-			errStr = c.Query("error_description")
-		}
-		if state != "" {
-			if cfg := s.getConfig(); cfg != nil {
-				_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(cfg.AuthDir, "kiro", state, code, errStr)
-			}
+			_, _ = managementHandlers.WriteOAuthCallbackFileForPendingSession(s.cfg.AuthDir, "antigravity", state, code, errStr)
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.String(http.StatusOK, oauthCallbackSuccessHTML)
@@ -539,7 +447,7 @@ func (s *Server) AttachWebsocketRoute(path string, handler http.Handler) {
 	s.wsRoutes[trimmed] = struct{}{}
 	s.wsRouteMu.Unlock()
 
-	authMiddleware := AuthMiddleware(s.accessManager, s.allowUnauthenticated)
+	authMiddleware := AuthMiddleware(s.accessManager)
 	conditionalAuth := func(c *gin.Context) {
 		if !s.wsAuthEnabled.Load() {
 			c.Next()
@@ -571,19 +479,6 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/usage", s.mgmt.GetUsageStatistics)
 		mgmt.GET("/usage/export", s.mgmt.ExportUsageStatistics)
 		mgmt.POST("/usage/import", s.mgmt.ImportUsageStatistics)
-
-		// Rate limit monitoring
-		mgmt.GET("/rate-limits", s.mgmt.GetRateLimits)
-		mgmt.GET("/rate-limits/summary", s.mgmt.GetRateLimitsSummary)
-
-		// Request monitoring and history routes
-		mgmt.GET("/requests", s.mgmt.GetRequests)
-		mgmt.GET("/request-history", s.mgmt.GetRequestHistory)
-		mgmt.GET("/request-history/stats", s.mgmt.GetRequestHistoryStats)
-		mgmt.DELETE("/request-history", s.mgmt.ClearRequestHistory)
-		mgmt.GET("/request-history/export", s.mgmt.ExportRequestHistory)
-		mgmt.POST("/request-history/import", s.mgmt.ImportRequestHistory)
-		mgmt.POST("/request-history/save", s.mgmt.SaveRequestHistory)
 		mgmt.GET("/config", s.mgmt.GetConfig)
 		mgmt.GET("/config.yaml", s.mgmt.GetConfigYAML)
 		mgmt.PUT("/config.yaml", s.mgmt.PutConfigYAML)
@@ -596,6 +491,10 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/logging-to-file", s.mgmt.GetLoggingToFile)
 		mgmt.PUT("/logging-to-file", s.mgmt.PutLoggingToFile)
 		mgmt.PATCH("/logging-to-file", s.mgmt.PutLoggingToFile)
+
+		mgmt.GET("/logs-max-total-size-mb", s.mgmt.GetLogsMaxTotalSizeMB)
+		mgmt.PUT("/logs-max-total-size-mb", s.mgmt.PutLogsMaxTotalSizeMB)
+		mgmt.PATCH("/logs-max-total-size-mb", s.mgmt.PutLogsMaxTotalSizeMB)
 
 		mgmt.GET("/usage-statistics-enabled", s.mgmt.GetUsageStatisticsEnabled)
 		mgmt.PUT("/usage-statistics-enabled", s.mgmt.PutUsageStatisticsEnabled)
@@ -638,12 +537,44 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.PUT("/ws-auth", s.mgmt.PutWebsocketAuth)
 		mgmt.PATCH("/ws-auth", s.mgmt.PutWebsocketAuth)
 
+		mgmt.GET("/ampcode", s.mgmt.GetAmpCode)
+		mgmt.GET("/ampcode/upstream-url", s.mgmt.GetAmpUpstreamURL)
+		mgmt.PUT("/ampcode/upstream-url", s.mgmt.PutAmpUpstreamURL)
+		mgmt.PATCH("/ampcode/upstream-url", s.mgmt.PutAmpUpstreamURL)
+		mgmt.DELETE("/ampcode/upstream-url", s.mgmt.DeleteAmpUpstreamURL)
+		mgmt.GET("/ampcode/upstream-api-key", s.mgmt.GetAmpUpstreamAPIKey)
+		mgmt.PUT("/ampcode/upstream-api-key", s.mgmt.PutAmpUpstreamAPIKey)
+		mgmt.PATCH("/ampcode/upstream-api-key", s.mgmt.PutAmpUpstreamAPIKey)
+		mgmt.DELETE("/ampcode/upstream-api-key", s.mgmt.DeleteAmpUpstreamAPIKey)
+		mgmt.GET("/ampcode/restrict-management-to-localhost", s.mgmt.GetAmpRestrictManagementToLocalhost)
+		mgmt.PUT("/ampcode/restrict-management-to-localhost", s.mgmt.PutAmpRestrictManagementToLocalhost)
+		mgmt.PATCH("/ampcode/restrict-management-to-localhost", s.mgmt.PutAmpRestrictManagementToLocalhost)
+		mgmt.GET("/ampcode/model-mappings", s.mgmt.GetAmpModelMappings)
+		mgmt.PUT("/ampcode/model-mappings", s.mgmt.PutAmpModelMappings)
+		mgmt.PATCH("/ampcode/model-mappings", s.mgmt.PatchAmpModelMappings)
+		mgmt.DELETE("/ampcode/model-mappings", s.mgmt.DeleteAmpModelMappings)
+		mgmt.GET("/ampcode/force-model-mappings", s.mgmt.GetAmpForceModelMappings)
+		mgmt.PUT("/ampcode/force-model-mappings", s.mgmt.PutAmpForceModelMappings)
+		mgmt.PATCH("/ampcode/force-model-mappings", s.mgmt.PutAmpForceModelMappings)
+		mgmt.GET("/ampcode/upstream-api-keys", s.mgmt.GetAmpUpstreamAPIKeys)
+		mgmt.PUT("/ampcode/upstream-api-keys", s.mgmt.PutAmpUpstreamAPIKeys)
+		mgmt.PATCH("/ampcode/upstream-api-keys", s.mgmt.PatchAmpUpstreamAPIKeys)
+		mgmt.DELETE("/ampcode/upstream-api-keys", s.mgmt.DeleteAmpUpstreamAPIKeys)
+
 		mgmt.GET("/request-retry", s.mgmt.GetRequestRetry)
 		mgmt.PUT("/request-retry", s.mgmt.PutRequestRetry)
 		mgmt.PATCH("/request-retry", s.mgmt.PutRequestRetry)
 		mgmt.GET("/max-retry-interval", s.mgmt.GetMaxRetryInterval)
 		mgmt.PUT("/max-retry-interval", s.mgmt.PutMaxRetryInterval)
 		mgmt.PATCH("/max-retry-interval", s.mgmt.PutMaxRetryInterval)
+
+		mgmt.GET("/force-model-prefix", s.mgmt.GetForceModelPrefix)
+		mgmt.PUT("/force-model-prefix", s.mgmt.PutForceModelPrefix)
+		mgmt.PATCH("/force-model-prefix", s.mgmt.PutForceModelPrefix)
+
+		mgmt.GET("/routing/strategy", s.mgmt.GetRoutingStrategy)
+		mgmt.PUT("/routing/strategy", s.mgmt.PutRoutingStrategy)
+		mgmt.PATCH("/routing/strategy", s.mgmt.PutRoutingStrategy)
 
 		mgmt.GET("/claude-api-key", s.mgmt.GetClaudeKeys)
 		mgmt.PUT("/claude-api-key", s.mgmt.PutClaudeKeys)
@@ -660,19 +591,28 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.PATCH("/openai-compatibility", s.mgmt.PatchOpenAICompat)
 		mgmt.DELETE("/openai-compatibility", s.mgmt.DeleteOpenAICompat)
 
+		mgmt.GET("/vertex-api-key", s.mgmt.GetVertexCompatKeys)
+		mgmt.PUT("/vertex-api-key", s.mgmt.PutVertexCompatKeys)
+		mgmt.PATCH("/vertex-api-key", s.mgmt.PatchVertexCompatKey)
+		mgmt.DELETE("/vertex-api-key", s.mgmt.DeleteVertexCompatKey)
+
 		mgmt.GET("/oauth-excluded-models", s.mgmt.GetOAuthExcludedModels)
 		mgmt.PUT("/oauth-excluded-models", s.mgmt.PutOAuthExcludedModels)
 		mgmt.PATCH("/oauth-excluded-models", s.mgmt.PatchOAuthExcludedModels)
 		mgmt.DELETE("/oauth-excluded-models", s.mgmt.DeleteOAuthExcludedModels)
 
-			mgmt.GET("/auth-files", s.mgmt.ListAuthFiles)
-			mgmt.GET("/auth-files/models", s.mgmt.GetAuthFileModels)
-			mgmt.GET("/auth-files/download", s.mgmt.DownloadAuthFile)
-			mgmt.POST("/auth-files", s.mgmt.UploadAuthFile)
-			mgmt.DELETE("/auth-files", s.mgmt.DeleteAuthFile)
-			mgmt.POST("/auth/reset-cooldown", s.mgmt.ResetAuthCooldown)
-			mgmt.PATCH("/auth/:id/priority", s.mgmt.SetAuthPriority)
-			mgmt.GET("/auth/:id/usage", s.mgmt.GetAuthUsage)
+		mgmt.GET("/oauth-model-alias", s.mgmt.GetOAuthModelAlias)
+		mgmt.PUT("/oauth-model-alias", s.mgmt.PutOAuthModelAlias)
+		mgmt.PATCH("/oauth-model-alias", s.mgmt.PatchOAuthModelAlias)
+		mgmt.DELETE("/oauth-model-alias", s.mgmt.DeleteOAuthModelAlias)
+
+		mgmt.GET("/auth-files", s.mgmt.ListAuthFiles)
+		mgmt.GET("/auth-files/models", s.mgmt.GetAuthFileModels)
+		mgmt.GET("/model-definitions/:channel", s.mgmt.GetStaticModelDefinitions)
+		mgmt.GET("/auth-files/download", s.mgmt.DownloadAuthFile)
+		mgmt.POST("/auth-files", s.mgmt.UploadAuthFile)
+		mgmt.DELETE("/auth-files", s.mgmt.DeleteAuthFile)
+		mgmt.PATCH("/auth-files/status", s.mgmt.PatchAuthFileStatus)
 		mgmt.POST("/vertex/import", s.mgmt.ImportVertexCredential)
 
 		mgmt.GET("/anthropic-auth-url", s.mgmt.RequestAnthropicToken)
@@ -680,89 +620,10 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/gemini-cli-auth-url", s.mgmt.RequestGeminiCLIToken)
 		mgmt.GET("/antigravity-auth-url", s.mgmt.RequestAntigravityToken)
 		mgmt.GET("/qwen-auth-url", s.mgmt.RequestQwenToken)
-		mgmt.GET("/kiro-auth-url", s.mgmt.RequestKiroToken)
-		mgmt.POST("/amazonq-import", s.mgmt.ImportAmazonQToken)
-		mgmt.POST("/minimax-api-key", s.mgmt.SaveMiniMaxAPIKey)
-		mgmt.POST("/zhipu-api-key", s.mgmt.SaveZhipuAPIKey)
+		mgmt.GET("/iflow-auth-url", s.mgmt.RequestIFlowToken)
+		mgmt.POST("/iflow-auth-url", s.mgmt.RequestIFlowCookieToken)
 		mgmt.POST("/oauth-callback", s.mgmt.PostOAuthCallback)
 		mgmt.GET("/get-auth-status", s.mgmt.GetAuthStatus)
-
-		// Harness management routes
-		mgmt.GET("/harness/files", s.mgmt.GetHarnessFiles)
-		mgmt.GET("/harness/file", s.mgmt.GetHarnessFile)
-		mgmt.PUT("/harness/file", s.mgmt.PutHarnessFile)
-		mgmt.GET("/harness/export", s.mgmt.ExportHarness)
-		mgmt.POST("/harness/import", s.mgmt.ImportHarness)
-
-		// Global model mappings routes
-		mgmt.GET("/model-mappings", s.mgmt.GetModelMappings)
-		mgmt.PUT("/model-mappings", s.mgmt.SetModelMappings)
-		mgmt.GET("/model-mappings/test", s.mgmt.TestModelMapping)
-
-		// Thinking budget routes
-		mgmt.GET("/thinking-budget", s.mgmt.GetThinkingBudget)
-		mgmt.PUT("/thinking-budget", s.mgmt.SetThinkingBudget)
-
-		// Integration detection and setup routes
-		mgmt.GET("/integrations/status", s.mgmt.GetIntegrationsStatus)
-		mgmt.POST("/integrations/:id/configure", s.mgmt.PostIntegrationConfigure)
-		mgmt.GET("/agents", s.mgmt.GetCLIAgents)
-		mgmt.POST("/agents/:id/configure", s.mgmt.PostCLIAgentConfigure)
-		mgmt.POST("/agents/:id/unconfigure", s.mgmt.PostCLIAgentUnconfigure)
-
-		// New unified agent configuration routes (v2)
-		if s.agentsV2 != nil {
-			mgmt.GET("/v2/agents", s.agentsV2.GetAgents)
-			mgmt.GET("/v2/agents/state", s.agentsV2.GetAgentState)
-			mgmt.POST("/v2/agents/enable-all", s.agentsV2.EnableAllAgents)
-			mgmt.POST("/v2/agents/disable-all", s.agentsV2.DisableAllAgents)
-			mgmt.GET("/v2/agents/:id", s.agentsV2.GetAgent)
-			mgmt.POST("/v2/agents/:id/enable", s.agentsV2.EnableAgent)
-			mgmt.POST("/v2/agents/:id/disable", s.agentsV2.DisableAgent)
-		}
-
-		// Memory management routes
-		mgmt.GET("/memory/sessions", s.mgmt.ListMemorySessions)
-		mgmt.GET("/memory/session", s.mgmt.GetMemorySession)
-		mgmt.GET("/memory/events", s.mgmt.GetMemoryEvents)
-		mgmt.GET("/memory/anchors", s.mgmt.GetMemoryAnchors)
-		mgmt.PUT("/memory/todo", s.mgmt.PutMemoryTodo)
-		mgmt.PUT("/memory/pinned", s.mgmt.PutMemoryPinned)
-		mgmt.PUT("/memory/summary", s.mgmt.PutMemorySummary)
-		mgmt.PUT("/memory/semantic-toggle", s.mgmt.PutMemorySemanticToggle)
-		mgmt.DELETE("/memory/session", s.mgmt.DeleteMemorySession)
-		mgmt.POST("/memory/prune", s.mgmt.PruneMemory)
-		mgmt.GET("/memory/export", s.mgmt.ExportMemorySession)
-		mgmt.GET("/memory/export-all", s.mgmt.ExportAllMemory)
-		mgmt.DELETE("/memory/all", s.mgmt.DeleteAllMemory)
-		mgmt.POST("/memory/import", s.mgmt.ImportMemorySession)
-
-		// Semantic memory routes
-		mgmt.GET("/semantic/health", s.mgmt.GetSemanticHealth)
-		mgmt.GET("/semantic/namespaces", s.mgmt.ListSemanticNamespaces)
-		mgmt.GET("/semantic/items", s.mgmt.GetSemanticItems)
-
-		// ProxyPilot diagnostics and logs routes
-		mgmt.GET("/proxypilot/logs/tail", s.mgmt.GetProxyPilotLogTail)
-		mgmt.GET("/proxypilot/diagnostics", s.mgmt.GetProxyPilotDiagnostics)
-
-		mgmt.GET("/updates/check", s.mgmt.GetUpdateInfo)
-		mgmt.GET("/updates/status", s.mgmt.GetUpdateStatus)
-		mgmt.POST("/updates/download", s.mgmt.DownloadUpdate)
-		mgmt.POST("/updates/verify", s.mgmt.VerifyUpdate)
-		mgmt.POST("/updates/install", s.mgmt.InstallUpdate)
-
-		// Cache management routes
-		mgmt.GET("/cache/stats", s.mgmt.GetCacheStats)
-		mgmt.POST("/cache/clear", s.mgmt.ClearCache)
-		mgmt.PUT("/cache/enabled", s.mgmt.SetCacheEnabled)
-
-		// Prompt cache management routes
-		mgmt.GET("/prompt-cache/stats", s.mgmt.GetPromptCacheStats)
-		mgmt.POST("/prompt-cache/clear", s.mgmt.ClearPromptCache)
-		mgmt.PUT("/prompt-cache/enabled", s.mgmt.SetPromptCacheEnabled)
-		mgmt.GET("/prompt-cache/top", s.mgmt.GetTopPrompts)
-		mgmt.POST("/prompt-cache/warm", s.mgmt.WarmPromptCache)
 	}
 }
 
@@ -774,6 +635,33 @@ func (s *Server) managementAvailabilityMiddleware() gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+func (s *Server) serveManagementControlPanel(c *gin.Context) {
+	cfg := s.cfg
+	if cfg == nil || cfg.RemoteManagement.DisableControlPanel {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	filePath := managementasset.FilePath(s.configFilePath)
+	if strings.TrimSpace(filePath) == "" {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+
+	if _, err := os.Stat(filePath); err != nil {
+		if os.IsNotExist(err) {
+			go managementasset.EnsureLatestManagementHTML(context.Background(), managementasset.StaticDir(s.configFilePath), cfg.ProxyURL, cfg.RemoteManagement.PanelGitHubRepository)
+			c.AbortWithStatus(http.StatusNotFound)
+			return
+		}
+
+		log.WithError(err).Error("failed to stat management control panel asset")
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+
+	c.File(filePath)
 }
 
 func (s *Server) enableKeepAlive(timeout time.Duration, onTimeout func()) {
@@ -883,11 +771,10 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to start HTTP server: server not initialized")
 	}
 
-	cfg := s.getConfig()
-	useTLS := cfg != nil && cfg.TLS.Enable
+	useTLS := s.cfg != nil && s.cfg.TLS.Enable
 	if useTLS {
-		cert := strings.TrimSpace(cfg.TLS.Cert)
-		key := strings.TrimSpace(cfg.TLS.Key)
+		cert := strings.TrimSpace(s.cfg.TLS.Cert)
+		key := strings.TrimSpace(s.cfg.TLS.Key)
 		if cert == "" || key == "" {
 			return fmt.Errorf("failed to start HTTPS server: tls.cert or tls.key is empty")
 		}
@@ -938,51 +825,11 @@ func (s *Server) Stop(ctx context.Context) error {
 //
 // Returns:
 //   - gin.HandlerFunc: The CORS middleware handler
-func corsMiddleware(getCfg func() *config.Config) gin.HandlerFunc {
+func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		cfg := (*config.Config)(nil)
-		if getCfg != nil {
-			cfg = getCfg()
-		}
-
-		origin := strings.TrimSpace(c.GetHeader("Origin"))
-		path := c.Request.URL.Path
-		isManagement := strings.HasPrefix(path, "/v0/management")
-
-		allowOrigins := []string{}
-		allowMethods := "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-		allowHeaders := "*"
-		if cfg != nil {
-			allowOrigins = cfg.CORS.AllowOrigins
-			if isManagement && len(cfg.CORS.ManagementAllowOrigins) > 0 {
-				allowOrigins = cfg.CORS.ManagementAllowOrigins
-			}
-			if len(cfg.CORS.AllowMethods) > 0 {
-				allowMethods = strings.Join(cfg.CORS.AllowMethods, ", ")
-			}
-			if len(cfg.CORS.AllowHeaders) > 0 {
-				allowHeaders = strings.Join(cfg.CORS.AllowHeaders, ", ")
-			}
-		}
-
-		allowedOrigin := ""
-		if origin != "" {
-			switch {
-			case len(allowOrigins) == 0 && !isManagement:
-				allowedOrigin = "*"
-			case originAllowed(allowOrigins, origin):
-				allowedOrigin = origin
-			}
-		}
-
-		if allowedOrigin != "" {
-			c.Header("Access-Control-Allow-Origin", allowedOrigin)
-			c.Header("Access-Control-Allow-Methods", allowMethods)
-			c.Header("Access-Control-Allow-Headers", allowHeaders)
-			if allowedOrigin != "*" {
-				c.Header("Vary", "Origin")
-			}
-		}
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "*")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusNoContent)
@@ -993,34 +840,11 @@ func corsMiddleware(getCfg func() *config.Config) gin.HandlerFunc {
 	}
 }
 
-func originAllowed(allowOrigins []string, origin string) bool {
-	if origin == "" || len(allowOrigins) == 0 {
-		return false
-	}
-	for _, allowed := range allowOrigins {
-		allowed = strings.TrimSpace(allowed)
-		if allowed == "" {
-			continue
-		}
-		if allowed == "*" || strings.EqualFold(allowed, origin) {
-			return true
-		}
-	}
-	return false
-}
-
 func (s *Server) applyAccessConfig(oldCfg, newCfg *config.Config) {
 	if s == nil || s.accessManager == nil || newCfg == nil {
 		return
 	}
-	var oldSDK, newSDK *sdkConfig.SDKConfig
-	if oldCfg != nil {
-		oldSDK = &oldCfg.SDKConfig
-	}
-	if newCfg != nil {
-		newSDK = &newCfg.SDKConfig
-	}
-	if _, err := access.ApplyAccessProviders(s.accessManager, oldSDK, newSDK); err != nil {
+	if _, err := access.ApplyAccessProviders(s.accessManager, oldCfg, newCfg); err != nil {
 		return
 	}
 }
@@ -1081,17 +905,6 @@ func (s *Server) UpdateClients(cfg *config.Config) {
 			log.Debugf("usage_statistics_enabled toggled to %t", cfg.UsageStatisticsEnabled)
 		}
 	}
-
-	metricsEnabled := cfg.IsMetricsEnabled()
-	requestHistoryEnabled := cfg.IsRequestHistoryEnabled()
-	if cfg.CommercialMode {
-		metricsEnabled = false
-		requestHistoryEnabled = false
-	}
-	middleware.SetMetricsEnabled(metricsEnabled)
-	middleware.SetRequestHistoryEnabled(requestHistoryEnabled)
-	middleware.SetRequestHistorySampleRate(cfg.GetRequestHistorySampleRate())
-	usage.SetSamplingRate(cfg.GetUsageSampleRate())
 
 	if oldCfg == nil || oldCfg.DisableCooling != cfg.DisableCooling {
 		auth.SetQuotaCooldownDisabled(cfg.DisableCooling)
@@ -1158,26 +971,45 @@ func (s *Server) UpdateClients(cfg *config.Config) {
 	}
 
 	s.applyAccessConfig(oldCfg, cfg)
-	cache.InitDefaultResponseCache(buildResponseCacheConfig(cfg))
-	cache.InitDefaultPromptCache(buildPromptCacheConfig(cfg))
 	s.cfg = cfg
-	s.cfgHolder.Store(cfg)
 	s.wsAuthEnabled.Store(cfg.WebsocketAuth)
 	if oldCfg != nil && s.wsAuthChanged != nil && oldCfg.WebsocketAuth != cfg.WebsocketAuth {
 		s.wsAuthChanged(oldCfg.WebsocketAuth, cfg.WebsocketAuth)
 	}
+	managementasset.SetCurrentConfig(cfg)
 	// Save YAML snapshot for next comparison
 	s.oldConfigYaml, _ = yaml.Marshal(cfg)
 
 	s.handlers.UpdateClients(&cfg.SDKConfig)
 
+	if !cfg.RemoteManagement.DisableControlPanel {
+		staticDir := managementasset.StaticDir(s.configFilePath)
+		go managementasset.EnsureLatestManagementHTML(context.Background(), staticDir, cfg.ProxyURL, cfg.RemoteManagement.PanelGitHubRepository)
+	}
 	if s.mgmt != nil {
 		s.mgmt.SetConfig(cfg)
 		s.mgmt.SetAuthManager(s.handlers.AuthManager)
 	}
 
-	// Count client sources from configuration and auth directory
-	authFiles := util.CountAuthFiles(cfg.AuthDir)
+	// Notify Amp module only when Amp config has changed.
+	ampConfigChanged := oldCfg == nil || !reflect.DeepEqual(oldCfg.AmpCode, cfg.AmpCode)
+	if ampConfigChanged {
+		if s.ampModule != nil {
+			log.Debugf("triggering amp module config update")
+			if err := s.ampModule.OnConfigUpdated(cfg); err != nil {
+				log.Errorf("failed to update Amp module config: %v", err)
+			}
+		} else {
+			log.Warnf("amp module is nil, skipping config update")
+		}
+	}
+
+	// Count client sources from configuration and auth store.
+	tokenStore := sdkAuth.GetTokenStore()
+	if dirSetter, ok := tokenStore.(interface{ SetBaseDir(string) }); ok {
+		dirSetter.SetBaseDir(cfg.AuthDir)
+	}
+	authEntries := util.CountAuthFiles(context.Background(), tokenStore)
 	geminiAPIKeyCount := len(cfg.GeminiKey)
 	claudeAPIKeyCount := len(cfg.ClaudeKey)
 	codexAPIKeyCount := len(cfg.CodexKey)
@@ -1188,10 +1020,10 @@ func (s *Server) UpdateClients(cfg *config.Config) {
 		openAICompatCount += len(entry.APIKeyEntries)
 	}
 
-	total := authFiles + geminiAPIKeyCount + claudeAPIKeyCount + codexAPIKeyCount + vertexAICompatCount + openAICompatCount
-	fmt.Printf("server clients and configuration updated: %d clients (%d auth files + %d Gemini API keys + %d Claude API keys + %d Codex keys + %d Vertex-compat + %d OpenAI-compat)\n",
+	total := authEntries + geminiAPIKeyCount + claudeAPIKeyCount + codexAPIKeyCount + vertexAICompatCount + openAICompatCount
+	fmt.Printf("server clients and configuration updated: %d clients (%d auth entries + %d Gemini API keys + %d Claude API keys + %d Codex keys + %d Vertex-compat + %d OpenAI-compat)\n",
 		total,
-		authFiles,
+		authEntries,
 		geminiAPIKeyCount,
 		claudeAPIKeyCount,
 		codexAPIKeyCount,
@@ -1212,14 +1044,10 @@ func (s *Server) SetWebsocketAuthChangeHandler(fn func(bool, bool)) {
 // AuthMiddleware returns a Gin middleware handler that authenticates requests
 // using the configured authentication providers. When no providers are available,
 // it allows all requests (legacy behaviour).
-func AuthMiddleware(manager *sdkaccess.Manager, allowUnauthenticated func() bool) gin.HandlerFunc {
+func AuthMiddleware(manager *sdkaccess.Manager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if manager == nil {
-			if allowUnauthenticated != nil && allowUnauthenticated() {
-				c.Next()
-				return
-			}
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Missing API key"})
+			c.Next()
 			return
 		}
 
@@ -1245,140 +1073,5 @@ func AuthMiddleware(manager *sdkaccess.Manager, allowUnauthenticated func() bool
 			log.Errorf("authentication middleware error: %v", err)
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Authentication service error"})
 		}
-	}
-}
-
-// authManagerAdapter adapts *auth.Manager to the memory.CoreManagerExecutor interface.
-// This bridges the typed signature to the interface{} signature expected by the summarizer.
-type authManagerAdapter struct {
-	manager *auth.Manager
-}
-
-// Execute implements memory.CoreManagerExecutor by delegating to the typed manager.
-// It converts the interface{} types to/from the concrete executor types.
-func (a *authManagerAdapter) Execute(ctx context.Context, providers []string, req interface{}, opts interface{}) (interface{}, error) {
-	if a.manager == nil {
-		return nil, errors.New("auth manager adapter: manager is nil")
-	}
-
-	// Convert the memory package types to cliproxyexecutor types.
-	var execReq cliproxyexecutor.Request
-	var execOpts cliproxyexecutor.Options
-
-	switch r := req.(type) {
-	case nil:
-	case cliproxyexecutor.Request:
-		execReq = r
-	case *cliproxyexecutor.Request:
-		if r != nil {
-			execReq = *r
-		}
-	case memory.ExecutorRequest:
-		execReq = cliproxyexecutor.Request{
-			Model:    r.Model,
-			Payload:  r.Payload,
-			Metadata: r.Metadata,
-		}
-	case *memory.ExecutorRequest:
-		if r != nil {
-			execReq = cliproxyexecutor.Request{
-				Model:    r.Model,
-				Payload:  r.Payload,
-				Metadata: r.Metadata,
-			}
-		}
-	default:
-		reqBytes, err := json.Marshal(req)
-		if err != nil {
-			return nil, fmt.Errorf("auth manager adapter: failed to marshal request: %w", err)
-		}
-		if err := json.Unmarshal(reqBytes, &execReq); err != nil {
-			return nil, fmt.Errorf("auth manager adapter: failed to unmarshal request: %w", err)
-		}
-	}
-
-	switch o := opts.(type) {
-	case nil:
-	case cliproxyexecutor.Options:
-		execOpts = o
-	case *cliproxyexecutor.Options:
-		if o != nil {
-			execOpts = *o
-		}
-	case memory.ExecutorOptions:
-		execOpts = cliproxyexecutor.Options{
-			Stream:  o.Stream,
-			Headers: o.Headers,
-		}
-	case *memory.ExecutorOptions:
-		if o != nil {
-			execOpts = cliproxyexecutor.Options{
-				Stream:  o.Stream,
-				Headers: o.Headers,
-			}
-		}
-	default:
-		optsBytes, err := json.Marshal(opts)
-		if err != nil {
-			return nil, fmt.Errorf("auth manager adapter: failed to marshal options: %w", err)
-		}
-		if err := json.Unmarshal(optsBytes, &execOpts); err != nil {
-			return nil, fmt.Errorf("auth manager adapter: failed to unmarshal options: %w", err)
-		}
-	}
-
-	resp, err := a.manager.Execute(ctx, providers, execReq, execOpts)
-	if err != nil {
-		return nil, err
-	}
-
-	// Return the response as interface{}
-	return resp, nil
-}
-
-func (s *Server) getConfig() *config.Config {
-	if s == nil {
-		return nil
-	}
-	if v := s.cfgHolder.Load(); v != nil {
-		if cfg, ok := v.(*config.Config); ok {
-			return cfg
-		}
-	}
-	return s.cfg
-}
-
-func (s *Server) allowUnauthenticated() bool {
-	cfg := s.getConfig()
-	if cfg == nil {
-		return false
-	}
-	return cfg.AllowUnauthenticated
-}
-
-func buildResponseCacheConfig(cfg *config.Config) cache.ResponseCacheConfig {
-	if cfg == nil {
-		return cache.DefaultResponseCacheConfig()
-	}
-	return cache.ResponseCacheConfig{
-		Enabled:       cfg.ResponseCache.Enabled,
-		MaxSize:       cfg.ResponseCache.GetMaxSize(),
-		MaxBytes:      cfg.ResponseCache.GetMaxBytes(),
-		TTL:           cfg.ResponseCache.GetTTL(),
-		ExcludeModels: append([]string(nil), cfg.ResponseCache.ExcludeModels...),
-		PersistFile:   cfg.ResponseCache.PersistFile,
-	}
-}
-
-func buildPromptCacheConfig(cfg *config.Config) cache.PromptCacheConfig {
-	if cfg == nil {
-		return cache.DefaultPromptCacheConfig()
-	}
-	return cache.PromptCacheConfig{
-		Enabled:     cfg.PromptCache.Enabled,
-		MaxSize:     cfg.PromptCache.GetMaxSize(),
-		MaxBytes:    cfg.PromptCache.GetMaxBytes(),
-		TTL:         cfg.PromptCache.GetTTL(),
-		PersistFile: cfg.PromptCache.PersistFile,
 	}
 }

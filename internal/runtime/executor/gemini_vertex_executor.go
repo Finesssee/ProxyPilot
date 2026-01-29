@@ -1056,8 +1056,3 @@ func (e *GeminiVertexExecutor) resolveVertexConfig(auth *cliproxyauth.Auth) *con
 	}
 	return nil
 }
-
-// Embed is not supported by the gemini vertex executor.
-func (e *GeminiVertexExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	return cliproxyexecutor.Response{}, fmt.Errorf("gemini vertex executor does not support embeddings")
-}

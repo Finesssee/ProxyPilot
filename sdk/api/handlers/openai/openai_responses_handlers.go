@@ -81,10 +81,6 @@ func (h *OpenAIResponsesAPIHandler) Responses(c *gin.Context) {
 		return
 	}
 
-	// Track system prompt in cache and set header
-	cacheStatus, _ := handlers.ExtractAndTrackSystemPrompt(h.HandlerType(), rawJSON, "openai")
-	handlers.SetPromptCacheHeader(c, cacheStatus)
-
 	// Check if the client requested a streaming response.
 	streamResult := gjson.GetBytes(rawJSON, "stream")
 	if streamResult.Type == gjson.True {
@@ -107,21 +103,17 @@ func (h *OpenAIResponsesAPIHandler) handleNonStreamingResponse(c *gin.Context, r
 
 	modelName := gjson.GetBytes(rawJSON, "model").String()
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
-	defer func() {
-		cliCancel()
-	}()
+	stopKeepAlive := h.StartNonStreamingKeepAlive(c, cliCtx)
 
 	resp, errMsg := h.ExecuteWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, "")
+	stopKeepAlive()
 	if errMsg != nil {
 		h.WriteErrorResponse(c, errMsg)
+		cliCancel(errMsg.Error)
 		return
 	}
-	handlers.SetCacheHeader(c, resp.CacheHit)
-	_, _ = c.Writer.Write(resp.Payload)
-	return
-
-	// no legacy fallback
-
+	_, _ = c.Writer.Write(resp)
+	cliCancel()
 }
 
 // handleStreamingResponse handles streaming responses for Gemini models.
@@ -226,7 +218,7 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesStream(c *gin.Context, flush
 				errText = errMsg.Error.Error()
 			}
 			body := handlers.BuildErrorResponseBody(status, errText)
-			handlers.WriteSSEError(c.Writer, body, true)
+			_, _ = fmt.Fprintf(c.Writer, "\nevent: error\ndata: %s\n\n", string(body))
 		},
 		WriteDone: func() {
 			_, _ = c.Writer.Write([]byte("\n"))

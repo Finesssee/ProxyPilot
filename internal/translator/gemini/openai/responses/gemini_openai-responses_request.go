@@ -192,7 +192,7 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 						var partJSON string
 						switch contentType {
 						case "input_text", "output_text":
-							if text := contentItem.Get("text"); text.Exists() && text.String() != "" {
+							if text := contentItem.Get("text"); text.Exists() {
 								partJSON = `{"text":""}`
 								partJSON, _ = sjson.Set(partJSON, "text", text.String())
 							}
@@ -289,15 +289,9 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 
 				// Set the raw JSON output directly (preserves string encoding)
 				if outputRaw != "" && outputRaw != "null" {
-					// Only treat as raw JSON if the ENTIRE string is valid JSON
-					// gjson.Parse may parse partial JSON (e.g., "[1,2,3]" from "[1,2,3]\n\nextra text")
-					if gjson.Valid(outputRaw) {
-						output := gjson.Parse(outputRaw)
-						if output.Type == gjson.JSON {
-							functionResponse, _ = sjson.SetRaw(functionResponse, "functionResponse.response.result", output.Raw)
-						} else {
-							functionResponse, _ = sjson.Set(functionResponse, "functionResponse.response.result", outputRaw)
-						}
+					output := gjson.Parse(outputRaw)
+					if output.Type == gjson.JSON {
+						functionResponse, _ = sjson.SetRaw(functionResponse, "functionResponse.response.result", output.Raw)
 					} else {
 						functionResponse, _ = sjson.Set(functionResponse, "functionResponse.response.result", outputRaw)
 					}

@@ -2,6 +2,7 @@ package responses
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
@@ -25,17 +26,15 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 	rawJSON, _ = sjson.DeleteBytes(rawJSON, "top_p")
 	rawJSON, _ = sjson.DeleteBytes(rawJSON, "service_tier")
 
+	originalInstructions := ""
 	originalInstructionsText := ""
 	originalInstructionsResult := gjson.GetBytes(rawJSON, "instructions")
 	if originalInstructionsResult.Exists() {
+		originalInstructions = originalInstructionsResult.Raw
 		originalInstructionsText = originalInstructionsResult.String()
 	}
 
-	// The chatgpt.com Codex backend requires a specific instruction prefix (Codex CLI prompt).
-	// Always provide the official Codex instructions for the target model, and move any caller
-	// instructions into a system message in the conversation history.
 	hasOfficialInstructions, instructions := misc.CodexInstructionsForModel(modelName, originalInstructionsResult.String(), userAgent)
-	rawJSON, _ = sjson.SetBytes(rawJSON, "instructions", instructions)
 
 	inputResult := gjson.GetBytes(rawJSON, "input")
 	var inputResults []gjson.Result
@@ -51,19 +50,63 @@ func ConvertOpenAIResponsesRequestToCodex(modelName string, inputRawJSON []byte,
 		inputResults = []gjson.Result{}
 	}
 
-	// Preserve caller instructions by converting them into an explicit leading user message inside "input".
-	// Note: Codex backend rejects role=system in input ("System messages are not allowed").
-	// Only add the original instructions if we replaced them with official instructions.
-	if !hasOfficialInstructions && strings.TrimSpace(originalInstructionsText) != "" {
-		sys := `{"type":"message","role":"user","content":[{"type":"input_text","text":""}]}`
-		sys, _ = sjson.Set(sys, "content.0.text", originalInstructionsText)
+	extractedSystemInstructions := false
+	if originalInstructions == "" && len(inputResults) > 0 {
+		for _, item := range inputResults {
+			if strings.EqualFold(item.Get("role").String(), "system") {
+				var builder strings.Builder
+				if content := item.Get("content"); content.Exists() && content.IsArray() {
+					content.ForEach(func(_, contentItem gjson.Result) bool {
+						text := contentItem.Get("text").String()
+						if builder.Len() > 0 && text != "" {
+							builder.WriteByte('\n')
+						}
+						builder.WriteString(text)
+						return true
+					})
+				}
+				originalInstructionsText = builder.String()
+				originalInstructions = strconv.Quote(originalInstructionsText)
+				extractedSystemInstructions = true
+				break
+			}
+		}
+	}
 
+	if hasOfficialInstructions {
 		newInput := "[]"
-		newInput, _ = sjson.SetRaw(newInput, "-1", sys)
 		for _, item := range inputResults {
 			newInput, _ = sjson.SetRaw(newInput, "-1", item.Raw)
 		}
 		rawJSON, _ = sjson.SetRawBytes(rawJSON, "input", []byte(newInput))
+		return rawJSON
 	}
+	// log.Debugf("instructions not matched, %s\n", originalInstructions)
+
+	if len(inputResults) > 0 {
+		newInput := "[]"
+		firstMessageHandled := false
+		for _, item := range inputResults {
+			if extractedSystemInstructions && strings.EqualFold(item.Get("role").String(), "system") {
+				continue
+			}
+			if !firstMessageHandled {
+				firstText := item.Get("content.0.text")
+				firstInstructions := "EXECUTE ACCORDING TO THE FOLLOWING INSTRUCTIONS!!!"
+				if firstText.Exists() && firstText.String() != firstInstructions {
+					firstTextTemplate := `{"type":"message","role":"user","content":[{"type":"input_text","text":"EXECUTE ACCORDING TO THE FOLLOWING INSTRUCTIONS!!!"}]}`
+					firstTextTemplate, _ = sjson.Set(firstTextTemplate, "content.1.text", originalInstructionsText)
+					firstTextTemplate, _ = sjson.Set(firstTextTemplate, "content.1.type", "input_text")
+					newInput, _ = sjson.SetRaw(newInput, "-1", firstTextTemplate)
+				}
+				firstMessageHandled = true
+			}
+			newInput, _ = sjson.SetRaw(newInput, "-1", item.Raw)
+		}
+		rawJSON, _ = sjson.SetRawBytes(rawJSON, "input", []byte(newInput))
+	}
+
+	rawJSON, _ = sjson.SetBytes(rawJSON, "instructions", instructions)
+
 	return rawJSON
 }

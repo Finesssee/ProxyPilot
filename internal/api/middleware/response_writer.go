@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
@@ -39,12 +38,6 @@ type ResponseWriterWrapper struct {
 	logOnErrorOnly bool                       // logOnErrorOnly enables logging only when an error response is detected.
 }
 
-var responseBodyBufferPool = sync.Pool{
-	New: func() any {
-		return new(bytes.Buffer)
-	},
-}
-
 // NewResponseWriterWrapper creates and initializes a new ResponseWriterWrapper.
 // It takes the original gin.ResponseWriter, a logger instance, and request information.
 //
@@ -56,11 +49,9 @@ var responseBodyBufferPool = sync.Pool{
 // Returns:
 //   - A pointer to a new ResponseWriterWrapper.
 func NewResponseWriterWrapper(w gin.ResponseWriter, logger logging.RequestLogger, requestInfo *RequestInfo) *ResponseWriterWrapper {
-	buf := responseBodyBufferPool.Get().(*bytes.Buffer)
-	buf.Reset()
 	return &ResponseWriterWrapper{
 		ResponseWriter: w,
-		body:           buf,
+		body:           &bytes.Buffer{},
 		logger:         logger,
 		requestInfo:    requestInfo,
 		headers:        make(map[string][]string),
@@ -303,22 +294,10 @@ func (w *ResponseWriterWrapper) Finalize(c *gin.Context) error {
 			return err
 		}
 		w.streamWriter = nil
-		w.releaseBodyBuffer()
 		return nil
 	}
 
-	err := w.logRequest(finalStatusCode, w.cloneHeaders(), w.body.Bytes(), w.extractAPIRequest(c), w.extractAPIResponse(c), slicesAPIResponseError, forceLog)
-	w.releaseBodyBuffer()
-	return err
-}
-
-func (w *ResponseWriterWrapper) releaseBodyBuffer() {
-	if w.body == nil {
-		return
-	}
-	w.body.Reset()
-	responseBodyBufferPool.Put(w.body)
-	w.body = nil
+	return w.logRequest(finalStatusCode, w.cloneHeaders(), w.body.Bytes(), w.extractAPIRequest(c), w.extractAPIResponse(c), slicesAPIResponseError, forceLog)
 }
 
 func (w *ResponseWriterWrapper) cloneHeaders() map[string][]string {

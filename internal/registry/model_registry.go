@@ -4,6 +4,7 @@
 package registry
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -51,9 +52,9 @@ type ModelInfo struct {
 	// This is optional and currently used for Gemini thinking budget normalization.
 	Thinking *ThinkingSupport `json:"thinking,omitempty"`
 
-	// UserDefined indicates whether this model was registered via user configuration
-	// (e.g., openai-compatibility.*.models[], *-api-key.models[]).
-	// User-defined models skip thinking validation and pass through to upstream.
+	// UserDefined indicates this model was defined through config file's models[]
+	// array (e.g., openai-compatibility.*.models[], *-api-key.models[]).
+	// UserDefined models have thinking configuration passed through without validation.
 	UserDefined bool `json:"-"`
 }
 
@@ -91,6 +92,13 @@ type ModelRegistration struct {
 	SuspendedClients map[string]string
 }
 
+// ModelRegistryHook provides optional callbacks for external integrations to track model list changes.
+// Hook implementations must be non-blocking and resilient; calls are executed asynchronously and panics are recovered.
+type ModelRegistryHook interface {
+	OnModelsRegistered(ctx context.Context, provider, clientID string, models []*ModelInfo)
+	OnModelsUnregistered(ctx context.Context, provider, clientID string)
+}
+
 // ModelRegistry manages the global registry of available models
 type ModelRegistry struct {
 	// models maps model ID to registration information
@@ -104,6 +112,8 @@ type ModelRegistry struct {
 	clientProviders map[string]string
 	// mutex ensures thread-safe access to the registry
 	mutex *sync.RWMutex
+	// hook is an optional callback sink for model registration changes
+	hook ModelRegistryHook
 }
 
 // Global model registry instance
@@ -122,6 +132,71 @@ func GetGlobalRegistry() *ModelRegistry {
 		}
 	})
 	return globalRegistry
+}
+
+// LookupModelInfo searches dynamic registry (provider-specific > global) then static definitions.
+func LookupModelInfo(modelID string, provider ...string) *ModelInfo {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return nil
+	}
+
+	p := ""
+	if len(provider) > 0 {
+		p = strings.ToLower(strings.TrimSpace(provider[0]))
+	}
+
+	if info := GetGlobalRegistry().GetModelInfo(modelID, p); info != nil {
+		return info
+	}
+	return LookupStaticModelInfo(modelID)
+}
+
+// SetHook sets an optional hook for observing model registration changes.
+func (r *ModelRegistry) SetHook(hook ModelRegistryHook) {
+	if r == nil {
+		return
+	}
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	r.hook = hook
+}
+
+const defaultModelRegistryHookTimeout = 5 * time.Second
+
+func (r *ModelRegistry) triggerModelsRegistered(provider, clientID string, models []*ModelInfo) {
+	hook := r.hook
+	if hook == nil {
+		return
+	}
+	modelsCopy := cloneModelInfosUnique(models)
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				log.Errorf("model registry hook OnModelsRegistered panic: %v", recovered)
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), defaultModelRegistryHookTimeout)
+		defer cancel()
+		hook.OnModelsRegistered(ctx, provider, clientID, modelsCopy)
+	}()
+}
+
+func (r *ModelRegistry) triggerModelsUnregistered(provider, clientID string) {
+	hook := r.hook
+	if hook == nil {
+		return
+	}
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				log.Errorf("model registry hook OnModelsUnregistered panic: %v", recovered)
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), defaultModelRegistryHookTimeout)
+		defer cancel()
+		hook.OnModelsUnregistered(ctx, provider, clientID)
+	}()
 }
 
 // RegisterClient registers a client and its supported models
@@ -184,6 +259,7 @@ func (r *ModelRegistry) RegisterClient(clientID, clientProvider string, models [
 		} else {
 			delete(r.clientProviders, clientID)
 		}
+		r.triggerModelsRegistered(provider, clientID, models)
 		log.Debugf("Registered client %s from provider %s with %d models", clientID, clientProvider, len(rawModelIDs))
 		misc.LogCredentialSeparator()
 		return
@@ -326,6 +402,7 @@ func (r *ModelRegistry) RegisterClient(clientID, clientProvider string, models [
 		delete(r.clientProviders, clientID)
 	}
 
+	r.triggerModelsRegistered(provider, clientID, models)
 	if len(added) == 0 && len(removed) == 0 && !providerChanged {
 		// Only metadata (e.g., display name) changed; skip separator when no log output.
 		return
@@ -425,6 +502,25 @@ func cloneModelInfo(model *ModelInfo) *ModelInfo {
 	return &copyModel
 }
 
+func cloneModelInfosUnique(models []*ModelInfo) []*ModelInfo {
+	if len(models) == 0 {
+		return nil
+	}
+	cloned := make([]*ModelInfo, 0, len(models))
+	seen := make(map[string]struct{}, len(models))
+	for _, model := range models {
+		if model == nil || model.ID == "" {
+			continue
+		}
+		if _, exists := seen[model.ID]; exists {
+			continue
+		}
+		seen[model.ID] = struct{}{}
+		cloned = append(cloned, cloneModelInfo(model))
+	}
+	return cloned
+}
+
 // UnregisterClient removes a client and decrements counts for its models
 // Parameters:
 //   - clientID: Unique identifier for the client to remove
@@ -488,6 +584,7 @@ func (r *ModelRegistry) unregisterClientInternal(clientID string) {
 	log.Debugf("Unregistered client %s", clientID)
 	// Separator line after completing client unregistration (after the summary line)
 	misc.LogCredentialSeparator()
+	r.triggerModelsUnregistered(provider, clientID)
 }
 
 // SetModelQuotaExceeded marks a model as quota exceeded for a specific client
@@ -598,19 +695,6 @@ func (r *ModelRegistry) ClientSupportsModel(clientID, modelID string) bool {
 	return false
 }
 
-// ClientModelSupportKnown reports whether the registry has an explicit model list for the client.
-// When false, the caller should treat model support as unknown (and typically allow probing).
-func (r *ModelRegistry) ClientModelSupportKnown(clientID string) bool {
-	clientID = strings.TrimSpace(clientID)
-	if clientID == "" {
-		return false
-	}
-	r.mutex.RLock()
-	defer r.mutex.RUnlock()
-	models, exists := r.clientModels[clientID]
-	return exists && len(models) > 0
-}
-
 // GetAvailableModels returns all models that have at least one available client
 // Parameters:
 //   - handlerType: The handler type to filter models for (e.g., "openai", "claude", "gemini")
@@ -664,6 +748,131 @@ func (r *ModelRegistry) GetAvailableModels(handlerType string) []map[string]any 
 	}
 
 	return models
+}
+
+// GetAvailableModelsByProvider returns models available for the given provider identifier.
+// Parameters:
+//   - provider: Provider identifier (e.g., "codex", "gemini", "antigravity")
+//
+// Returns:
+//   - []*ModelInfo: List of available models for the provider
+func (r *ModelRegistry) GetAvailableModelsByProvider(provider string) []*ModelInfo {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		return nil
+	}
+
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
+	type providerModel struct {
+		count int
+		info  *ModelInfo
+	}
+
+	providerModels := make(map[string]*providerModel)
+
+	for clientID, clientProvider := range r.clientProviders {
+		if clientProvider != provider {
+			continue
+		}
+		modelIDs := r.clientModels[clientID]
+		if len(modelIDs) == 0 {
+			continue
+		}
+		clientInfos := r.clientModelInfos[clientID]
+		for _, modelID := range modelIDs {
+			modelID = strings.TrimSpace(modelID)
+			if modelID == "" {
+				continue
+			}
+			entry := providerModels[modelID]
+			if entry == nil {
+				entry = &providerModel{}
+				providerModels[modelID] = entry
+			}
+			entry.count++
+			if entry.info == nil {
+				if clientInfos != nil {
+					if info := clientInfos[modelID]; info != nil {
+						entry.info = info
+					}
+				}
+				if entry.info == nil {
+					if reg, ok := r.models[modelID]; ok && reg != nil && reg.Info != nil {
+						entry.info = reg.Info
+					}
+				}
+			}
+		}
+	}
+
+	if len(providerModels) == 0 {
+		return nil
+	}
+
+	quotaExpiredDuration := 5 * time.Minute
+	now := time.Now()
+	result := make([]*ModelInfo, 0, len(providerModels))
+
+	for modelID, entry := range providerModels {
+		if entry == nil || entry.count <= 0 {
+			continue
+		}
+		registration, ok := r.models[modelID]
+
+		expiredClients := 0
+		cooldownSuspended := 0
+		otherSuspended := 0
+		if ok && registration != nil {
+			if registration.QuotaExceededClients != nil {
+				for clientID, quotaTime := range registration.QuotaExceededClients {
+					if clientID == "" {
+						continue
+					}
+					if p, okProvider := r.clientProviders[clientID]; !okProvider || p != provider {
+						continue
+					}
+					if quotaTime != nil && now.Sub(*quotaTime) < quotaExpiredDuration {
+						expiredClients++
+					}
+				}
+			}
+			if registration.SuspendedClients != nil {
+				for clientID, reason := range registration.SuspendedClients {
+					if clientID == "" {
+						continue
+					}
+					if p, okProvider := r.clientProviders[clientID]; !okProvider || p != provider {
+						continue
+					}
+					if strings.EqualFold(reason, "quota") {
+						cooldownSuspended++
+						continue
+					}
+					otherSuspended++
+				}
+			}
+		}
+
+		availableClients := entry.count
+		effectiveClients := availableClients - expiredClients - otherSuspended
+		if effectiveClients < 0 {
+			effectiveClients = 0
+		}
+
+		if effectiveClients > 0 || (availableClients > 0 && (expiredClients > 0 || cooldownSuspended > 0) && otherSuspended == 0) {
+			if entry.info != nil {
+				result = append(result, entry.info)
+				continue
+			}
+			if ok && registration != nil && registration.Info != nil {
+				result = append(result, registration.Info)
+			}
+		}
+	}
+
+	return result
 }
 
 // GetModelCount returns the number of available clients for a specific model
@@ -786,29 +995,10 @@ func (r *ModelRegistry) convertModelToMap(model *ModelInfo, handlerType string) 
 
 	switch handlerType {
 	case "openai":
-		// For OpenAI-compatible /v1/models, expose a consistent pair of limits for *all* models:
-		// - context_length (max input tokens)
-		// - max_completion_tokens (max output tokens)
-		//
-		// Some providers populate InputTokenLimit/OutputTokenLimit (Gemini-style) while others use
-		// ContextLength/MaxCompletionTokens (OpenAI/Claude/Qwen-style). Prefer the explicit fields,
-		// and fall back to Gemini-style fields when needed.
-		contextLength := model.ContextLength
-		if contextLength == 0 {
-			contextLength = model.InputTokenLimit
-		}
-		maxCompletion := model.MaxCompletionTokens
-		if maxCompletion == 0 {
-			maxCompletion = model.OutputTokenLimit
-		}
-
 		result := map[string]any{
 			"id":       model.ID,
 			"object":   "model",
 			"owned_by": model.OwnedBy,
-			// Always include these keys; 0 means unknown/unset.
-			"context_length":        contextLength,
-			"max_completion_tokens": maxCompletion,
 		}
 		if model.Created > 0 {
 			result["created"] = model.Created
@@ -825,39 +1015,31 @@ func (r *ModelRegistry) convertModelToMap(model *ModelInfo, handlerType string) 
 		if model.Description != "" {
 			result["description"] = model.Description
 		}
+		if model.ContextLength > 0 {
+			result["context_length"] = model.ContextLength
+		}
+		if model.MaxCompletionTokens > 0 {
+			result["max_completion_tokens"] = model.MaxCompletionTokens
+		}
 		if len(model.SupportedParameters) > 0 {
 			result["supported_parameters"] = model.SupportedParameters
 		}
 		return result
 
-	case "claude", "kiro", "antigravity":
-		// Claude, Kiro, and Antigravity all use Claude-compatible format for Claude Code client
+	case "claude":
 		result := map[string]any{
 			"id":       model.ID,
 			"object":   "model",
 			"owned_by": model.OwnedBy,
 		}
 		if model.Created > 0 {
-			result["created"] = model.Created
+			result["created_at"] = model.Created
 		}
 		if model.Type != "" {
-			result["type"] = model.Type
+			result["type"] = "model"
 		}
 		if model.DisplayName != "" {
 			result["display_name"] = model.DisplayName
-		}
-		// Add thinking support for Claude Code client
-		// Claude Code checks for "thinking" field (simple boolean) to enable tab toggle
-		// Also add "extended_thinking" for detailed budget info
-		if model.Thinking != nil {
-			result["thinking"] = true
-			result["extended_thinking"] = map[string]any{
-				"supported":       true,
-				"min":             model.Thinking.Min,
-				"max":             model.Thinking.Max,
-				"zero_allowed":    model.Thinking.ZeroAllowed,
-				"dynamic_allowed": model.Thinking.DynamicAllowed,
-			}
 		}
 		return result
 
@@ -1007,58 +1189,4 @@ func (r *ModelRegistry) GetModelsForClient(clientID string) []*ModelInfo {
 		}
 	}
 	return result
-}
-
-// LookupModelInfo searches dynamic registry (provider-specific > global) then static definitions.
-func LookupModelInfo(modelID string, provider ...string) *ModelInfo {
-	modelID = strings.TrimSpace(modelID)
-	if modelID == "" {
-		return nil
-	}
-
-	p := ""
-	if len(provider) > 0 {
-		p = strings.ToLower(strings.TrimSpace(provider[0]))
-	}
-
-	if info := GetGlobalRegistry().GetModelInfo(modelID, p); info != nil {
-		return info
-	}
-	return LookupStaticModelInfo(modelID)
-}
-
-// LookupStaticModelInfo searches static model definitions for the given model ID.
-// Returns nil if the model is not found in any static definition.
-func LookupStaticModelInfo(modelID string) *ModelInfo {
-	if modelID == "" {
-		return nil
-	}
-
-	allModels := [][]*ModelInfo{
-		GetClaudeModels(),
-		GetGeminiModels(),
-		GetGeminiVertexModels(),
-		GetGeminiCLIModels(),
-		GetAIStudioModels(),
-		GetOpenAIModels(),
-		GetQwenModels(),
-	}
-	for _, models := range allModels {
-		for _, m := range models {
-			if m != nil && m.ID == modelID {
-				return m
-			}
-		}
-	}
-
-	// Check Antigravity static config
-	if cfg := GetAntigravityModelConfig()[modelID]; cfg != nil {
-		return &ModelInfo{
-			ID:                  modelID,
-			Thinking:            cfg.Thinking,
-			MaxCompletionTokens: cfg.MaxCompletionTokens,
-		}
-	}
-
-	return nil
 }

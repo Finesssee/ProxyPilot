@@ -62,12 +62,6 @@ func (h *GeminiCLIAPIHandler) CLIHandler(c *gin.Context) {
 	rawJSON, _ := c.GetRawData()
 	requestRawURI := c.Request.URL.Path
 
-	// Track system prompt in cache and set header for content generation endpoints
-	if requestRawURI == "/v1internal:generateContent" || requestRawURI == "/v1internal:streamGenerateContent" {
-		cacheStatus, _ := handlers.ExtractAndTrackSystemPrompt(h.HandlerType(), rawJSON, "gemini")
-		handlers.SetPromptCacheHeader(c, cacheStatus)
-	}
-
 	if requestRawURI == "/v1internal:generateContent" {
 		h.handleInternalGenerateContent(c, rawJSON)
 	} else if requestRawURI == "/v1internal:streamGenerateContent" {
@@ -183,8 +177,7 @@ func (h *GeminiCLIAPIHandler) handleInternalGenerateContent(c *gin.Context, rawJ
 		cliCancel(errMsg.Error)
 		return
 	}
-	handlers.SetCacheHeader(c, resp.CacheHit)
-	_, _ = c.Writer.Write(resp.Payload)
+	_, _ = c.Writer.Write(resp)
 	cliCancel()
 }
 
@@ -227,7 +220,7 @@ func (h *GeminiCLIAPIHandler) forwardCLIStream(c *gin.Context, flusher http.Flus
 			}
 			body := handlers.BuildErrorResponseBody(status, errText)
 			if alt == "" {
-				handlers.WriteSSEError(c.Writer, body, false)
+				_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", string(body))
 			} else {
 				_, _ = c.Writer.Write(body)
 			}

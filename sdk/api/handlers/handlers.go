@@ -14,9 +14,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/cache"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/thinking"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
@@ -50,7 +50,6 @@ const idempotencyKeyMetadataKey = "idempotency_key"
 const (
 	defaultStreamingKeepAliveSeconds = 0
 	defaultStreamingBootstrapRetries = 0
-	defaultStreamingMaxChunkSize     = 65536 // 64KB like vibeproxy
 )
 
 // BuildErrorResponseBody builds an OpenAI-compatible JSON error response body.
@@ -116,6 +115,19 @@ func StreamingKeepAliveInterval(cfg *config.SDKConfig) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
+// NonStreamingKeepAliveInterval returns the keep-alive interval for non-streaming responses.
+// Returning 0 disables keep-alives (default when unset).
+func NonStreamingKeepAliveInterval(cfg *config.SDKConfig) time.Duration {
+	seconds := 0
+	if cfg != nil {
+		seconds = cfg.NonStreamKeepAliveInterval
+	}
+	if seconds <= 0 {
+		return 0
+	}
+	return time.Duration(seconds) * time.Second
+}
+
 // StreamingBootstrapRetries returns how many times a streaming request may be retried before any bytes are sent.
 func StreamingBootstrapRetries(cfg *config.SDKConfig) int {
 	retries := defaultStreamingBootstrapRetries
@@ -126,36 +138,6 @@ func StreamingBootstrapRetries(cfg *config.SDKConfig) int {
 		retries = 0
 	}
 	return retries
-}
-
-// ExecuteResult contains the response payload and metadata from a request execution.
-type ExecuteResult struct {
-	// Payload is the raw response body.
-	Payload []byte
-	// CacheHit indicates whether the response was served from cache.
-	CacheHit bool
-}
-
-// SetCacheHeader sets the X-Cache header on the response based on cache status.
-func SetCacheHeader(c *gin.Context, cacheHit bool) {
-	if cacheHit {
-		c.Header("X-Cache", "HIT")
-	} else {
-		c.Header("X-Cache", "MISS")
-	}
-}
-
-// StreamingMaxChunkSize returns the maximum size (in bytes) for individual response chunks.
-// Returns 0 when chunk size limiting is disabled. Default is 64KB.
-func StreamingMaxChunkSize(cfg *config.SDKConfig) int {
-	chunkSize := defaultStreamingMaxChunkSize
-	if cfg != nil && cfg.Streaming.MaxChunkSize != nil {
-		chunkSize = *cfg.Streaming.MaxChunkSize
-	}
-	if chunkSize < 0 {
-		chunkSize = 0
-	}
-	return chunkSize
 }
 
 func requestExecutionMetadata(ctx context.Context) map[string]any {
@@ -196,9 +178,6 @@ type BaseAPIHandler struct {
 
 	// Cfg holds the current application configuration.
 	Cfg *config.SDKConfig
-
-	detailsCacheMu sync.RWMutex
-	detailsCache   map[string]cachedRequestDetails
 }
 
 // NewBaseAPIHandlers creates a new API handlers instance.
@@ -211,12 +190,10 @@ type BaseAPIHandler struct {
 // Returns:
 //   - *BaseAPIHandler: A new API handlers instance
 func NewBaseAPIHandlers(cfg *config.SDKConfig, authManager *coreauth.Manager) *BaseAPIHandler {
-	h := &BaseAPIHandler{
-		Cfg:          cfg,
-		AuthManager:  authManager,
-		detailsCache: make(map[string]cachedRequestDetails),
+	return &BaseAPIHandler{
+		Cfg:         cfg,
+		AuthManager: authManager,
 	}
-	return h
 }
 
 // UpdateClients updates the handlers' client list and configuration.
@@ -225,12 +202,7 @@ func NewBaseAPIHandlers(cfg *config.SDKConfig, authManager *coreauth.Manager) *B
 // Parameters:
 //   - clients: The new slice of AI service clients
 //   - cfg: The new application configuration
-func (h *BaseAPIHandler) UpdateClients(cfg *config.SDKConfig) {
-	h.Cfg = cfg
-	h.detailsCacheMu.Lock()
-	h.detailsCache = make(map[string]cachedRequestDetails)
-	h.detailsCacheMu.Unlock()
-}
+func (h *BaseAPIHandler) UpdateClients(cfg *config.SDKConfig) { h.Cfg = cfg }
 
 // GetAlt extracts the 'alt' parameter from the request query string.
 // It checks both 'alt' and '$alt' parameters and returns the appropriate value.
@@ -336,6 +308,53 @@ func (h *BaseAPIHandler) GetContextWithCancel(handler interfaces.APIHandler, c *
 	}
 }
 
+// StartNonStreamingKeepAlive emits blank lines every 5 seconds while waiting for a non-streaming response.
+// It returns a stop function that must be called before writing the final response.
+func (h *BaseAPIHandler) StartNonStreamingKeepAlive(c *gin.Context, ctx context.Context) func() {
+	if h == nil || c == nil {
+		return func() {}
+	}
+	interval := NonStreamingKeepAliveInterval(h.Cfg)
+	if interval <= 0 {
+		return func() {}
+	}
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		return func() {}
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	stopChan := make(chan struct{})
+	var stopOnce sync.Once
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopChan:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				_, _ = c.Writer.Write([]byte("\n"))
+				flusher.Flush()
+			}
+		}
+	}()
+
+	return func() {
+		stopOnce.Do(func() {
+			close(stopChan)
+		})
+		wg.Wait()
+	}
+}
+
 // appendAPIResponse preserves any previously captured API response and appends new data.
 func appendAPIResponse(c *gin.Context, data []byte) {
 	if c == nil || len(data) == 0 {
@@ -360,32 +379,16 @@ func appendAPIResponse(c *gin.Context, data []byte) {
 
 // ExecuteWithAuthManager executes a non-streaming request via the core auth manager.
 // This path is the only supported execution route.
-func (h *BaseAPIHandler) ExecuteWithAuthManager(ctx context.Context, handlerType, modelName string, rawJSON []byte, alt string) (ExecuteResult, *interfaces.ErrorMessage) {
-	providers, normalizedModel, metadata, errMsg := h.getRequestDetails(modelName)
+func (h *BaseAPIHandler) ExecuteWithAuthManager(ctx context.Context, handlerType, modelName string, rawJSON []byte, alt string) ([]byte, *interfaces.ErrorMessage) {
+	providers, normalizedModel, errMsg := h.getRequestDetails(modelName)
 	if errMsg != nil {
-		return ExecuteResult{}, errMsg
+		return nil, errMsg
 	}
-
-	// Set model and provider in context for logging/monitoring
-	if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil {
-		ginCtx.Set("model", normalizedModel)
-		if len(providers) > 0 {
-			ginCtx.Set("provider", providers[0])
-		}
-	}
-
-	// Check response cache before executing
-	if cachedResp, _, found := cache.TryGetCached(normalizedModel, rawJSON); found {
-		return ExecuteResult{Payload: cachedResp, CacheHit: true}, nil
-	}
-
 	reqMeta := requestExecutionMetadata(ctx)
+	reqMeta[coreexecutor.RequestedModelMetadataKey] = normalizedModel
 	req := coreexecutor.Request{
 		Model:   normalizedModel,
 		Payload: cloneBytes(rawJSON),
-	}
-	if cloned := cloneMetadata(metadata); cloned != nil {
-		req.Metadata = cloned
 	}
 	opts := coreexecutor.Options{
 		Stream:          false,
@@ -393,7 +396,7 @@ func (h *BaseAPIHandler) ExecuteWithAuthManager(ctx context.Context, handlerType
 		OriginalRequest: cloneBytes(rawJSON),
 		SourceFormat:    sdktranslator.FromString(handlerType),
 	}
-	opts.Metadata = mergeMetadata(cloneMetadata(metadata), reqMeta)
+	opts.Metadata = reqMeta
 	resp, err := h.AuthManager.Execute(ctx, providers, req, opts)
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -408,38 +411,23 @@ func (h *BaseAPIHandler) ExecuteWithAuthManager(ctx context.Context, handlerType
 				addon = hdr.Clone()
 			}
 		}
-		return ExecuteResult{}, &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
+		return nil, &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
 	}
-
-	// Store successful response in cache
-	cache.StoreCached(normalizedModel, rawJSON, resp.Payload, "application/json", http.StatusOK)
-
-	return ExecuteResult{Payload: cloneBytes(resp.Payload), CacheHit: false}, nil
+	return cloneBytes(resp.Payload), nil
 }
 
 // ExecuteCountWithAuthManager executes a non-streaming request via the core auth manager.
 // This path is the only supported execution route.
 func (h *BaseAPIHandler) ExecuteCountWithAuthManager(ctx context.Context, handlerType, modelName string, rawJSON []byte, alt string) ([]byte, *interfaces.ErrorMessage) {
-	providers, normalizedModel, metadata, errMsg := h.getRequestDetails(modelName)
+	providers, normalizedModel, errMsg := h.getRequestDetails(modelName)
 	if errMsg != nil {
 		return nil, errMsg
 	}
-
-	// Set model and provider in context for logging/monitoring
-	if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil {
-		ginCtx.Set("model", normalizedModel)
-		if len(providers) > 0 {
-			ginCtx.Set("provider", providers[0])
-		}
-	}
-
 	reqMeta := requestExecutionMetadata(ctx)
+	reqMeta[coreexecutor.RequestedModelMetadataKey] = normalizedModel
 	req := coreexecutor.Request{
 		Model:   normalizedModel,
 		Payload: cloneBytes(rawJSON),
-	}
-	if cloned := cloneMetadata(metadata); cloned != nil {
-		req.Metadata = cloned
 	}
 	opts := coreexecutor.Options{
 		Stream:          false,
@@ -447,7 +435,7 @@ func (h *BaseAPIHandler) ExecuteCountWithAuthManager(ctx context.Context, handle
 		OriginalRequest: cloneBytes(rawJSON),
 		SourceFormat:    sdktranslator.FromString(handlerType),
 	}
-	opts.Metadata = mergeMetadata(cloneMetadata(metadata), reqMeta)
+	opts.Metadata = reqMeta
 	resp, err := h.AuthManager.ExecuteCount(ctx, providers, req, opts)
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -470,29 +458,18 @@ func (h *BaseAPIHandler) ExecuteCountWithAuthManager(ctx context.Context, handle
 // ExecuteStreamWithAuthManager executes a streaming request via the core auth manager.
 // This path is the only supported execution route.
 func (h *BaseAPIHandler) ExecuteStreamWithAuthManager(ctx context.Context, handlerType, modelName string, rawJSON []byte, alt string) (<-chan []byte, <-chan *interfaces.ErrorMessage) {
-	providers, normalizedModel, metadata, errMsg := h.getRequestDetails(modelName)
+	providers, normalizedModel, errMsg := h.getRequestDetails(modelName)
 	if errMsg != nil {
 		errChan := make(chan *interfaces.ErrorMessage, 1)
 		errChan <- errMsg
 		close(errChan)
 		return nil, errChan
 	}
-
-	// Set model and provider in context for logging/monitoring
-	if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil {
-		ginCtx.Set("model", normalizedModel)
-		if len(providers) > 0 {
-			ginCtx.Set("provider", providers[0])
-		}
-	}
-
 	reqMeta := requestExecutionMetadata(ctx)
+	reqMeta[coreexecutor.RequestedModelMetadataKey] = normalizedModel
 	req := coreexecutor.Request{
 		Model:   normalizedModel,
 		Payload: cloneBytes(rawJSON),
-	}
-	if cloned := cloneMetadata(metadata); cloned != nil {
-		req.Metadata = cloned
 	}
 	opts := coreexecutor.Options{
 		Stream:          true,
@@ -500,7 +477,7 @@ func (h *BaseAPIHandler) ExecuteStreamWithAuthManager(ctx context.Context, handl
 		OriginalRequest: cloneBytes(rawJSON),
 		SourceFormat:    sdktranslator.FromString(handlerType),
 	}
-	opts.Metadata = mergeMetadata(cloneMetadata(metadata), reqMeta)
+	opts.Metadata = reqMeta
 	chunks, err := h.AuthManager.ExecuteStream(ctx, providers, req, opts)
 	if err != nil {
 		errChan := make(chan *interfaces.ErrorMessage, 1)
@@ -528,6 +505,32 @@ func (h *BaseAPIHandler) ExecuteStreamWithAuthManager(ctx context.Context, handl
 		sentPayload := false
 		bootstrapRetries := 0
 		maxBootstrapRetries := StreamingBootstrapRetries(h.Cfg)
+
+		sendErr := func(msg *interfaces.ErrorMessage) bool {
+			if ctx == nil {
+				errChan <- msg
+				return true
+			}
+			select {
+			case <-ctx.Done():
+				return false
+			case errChan <- msg:
+				return true
+			}
+		}
+
+		sendData := func(chunk []byte) bool {
+			if ctx == nil {
+				dataChan <- chunk
+				return true
+			}
+			select {
+			case <-ctx.Done():
+				return false
+			case dataChan <- chunk:
+				return true
+			}
+		}
 
 		bootstrapEligible := func(err error) bool {
 			status := statusFromError(err)
@@ -588,12 +591,14 @@ func (h *BaseAPIHandler) ExecuteStreamWithAuthManager(ctx context.Context, handl
 							addon = hdr.Clone()
 						}
 					}
-					errChan <- &interfaces.ErrorMessage{StatusCode: status, Error: streamErr, Addon: addon}
+					_ = sendErr(&interfaces.ErrorMessage{StatusCode: status, Error: streamErr, Addon: addon})
 					return
 				}
 				if len(chunk.Payload) > 0 {
 					sentPayload = true
-					dataChan <- cloneBytes(chunk.Payload)
+					if okSendData := sendData(cloneBytes(chunk.Payload)); !okSendData {
+						return
+					}
 				}
 			}
 		}
@@ -613,110 +618,40 @@ func statusFromError(err error) int {
 	return 0
 }
 
-func (h *BaseAPIHandler) getRequestDetails(modelName string) (providers []string, normalizedModel string, metadata map[string]any, err *interfaces.ErrorMessage) {
-	if modelName != "" {
-		if cached, ok := h.loadRequestDetailsCache(modelName); ok {
-			return cached.providers, cached.normalizedModel, cached.metadata, cached.err
+func (h *BaseAPIHandler) getRequestDetails(modelName string) (providers []string, normalizedModel string, err *interfaces.ErrorMessage) {
+	resolvedModelName := modelName
+	initialSuffix := thinking.ParseSuffix(modelName)
+	if initialSuffix.ModelName == "auto" {
+		resolvedBase := util.ResolveAutoModel(initialSuffix.ModelName)
+		if initialSuffix.HasSuffix {
+			resolvedModelName = fmt.Sprintf("%s(%s)", resolvedBase, initialSuffix.RawSuffix)
+		} else {
+			resolvedModelName = resolvedBase
 		}
+	} else {
+		resolvedModelName = util.ResolveAutoModel(modelName)
 	}
 
-	// Resolve "auto" model to an actual available model first
-	resolvedModelName := util.ResolveAutoModel(modelName)
+	parsed := thinking.ParseSuffix(resolvedModelName)
+	baseModel := strings.TrimSpace(parsed.ModelName)
 
-	// Check for global model mapping (provider-agnostic first pass)
-	// This allows mappings like "gpt-4o" -> "claude-sonnet-4-20250514" to work
-	if h.Cfg != nil {
-		if mappedModel := h.Cfg.LookupGlobalModelMapping(resolvedModelName, ""); mappedModel != "" {
-			resolvedModelName = mappedModel
-		}
-	}
-
-	// Normalize the model name to handle dynamic thinking suffixes before determining the provider.
-	normalizedModel, metadata = normalizeModelMetadata(resolvedModelName)
-
-	// Use the normalizedModel to get the provider name.
-	providers = util.GetProviderName(normalizedModel)
-	if len(providers) == 0 && metadata != nil {
-		if originalRaw, ok := metadata[util.ThinkingOriginalModelMetadataKey]; ok {
-			if originalModel, okStr := originalRaw.(string); okStr {
-				originalModel = strings.TrimSpace(originalModel)
-				if originalModel != "" && !strings.EqualFold(originalModel, normalizedModel) {
-					if altProviders := util.GetProviderName(originalModel); len(altProviders) > 0 {
-						providers = altProviders
-						normalizedModel = originalModel
-					}
-				}
-			}
-		}
+	providers = util.GetProviderName(baseModel)
+	// Fallback: if baseModel has no provider but differs from resolvedModelName,
+	// try using the full model name. This handles edge cases where custom models
+	// may be registered with their full suffixed name (e.g., "my-model(8192)").
+	// Evaluated in Story 11.8: This fallback is intentionally preserved to support
+	// custom model registrations that include thinking suffixes.
+	if len(providers) == 0 && baseModel != resolvedModelName {
+		providers = util.GetProviderName(resolvedModelName)
 	}
 
 	if len(providers) == 0 {
-		errMsg := &interfaces.ErrorMessage{StatusCode: http.StatusBadRequest, Error: fmt.Errorf("unknown provider for model %s", modelName)}
-		h.storeRequestDetailsCache(modelName, nil, "", nil, errMsg)
-		return nil, "", nil, errMsg
+		return nil, "", &interfaces.ErrorMessage{StatusCode: http.StatusBadRequest, Error: fmt.Errorf("unknown provider for model %s", modelName)}
 	}
 
-	// If it's a dynamic model, the normalizedModel was already set to extractedModelName.
-	// If it's a non-dynamic model, normalizedModel was set by normalizeModelMetadata.
-	// So, normalizedModel is already correctly set at this point.
-
-	h.storeRequestDetailsCache(modelName, providers, normalizedModel, metadata, nil)
-	return providers, normalizedModel, metadata, nil
-}
-
-type cachedRequestDetails struct {
-	providers       []string
-	normalizedModel string
-	metadata        map[string]any
-	err             *interfaces.ErrorMessage
-}
-
-func (h *BaseAPIHandler) loadRequestDetailsCache(modelName string) (cachedRequestDetails, bool) {
-	h.detailsCacheMu.RLock()
-	defer h.detailsCacheMu.RUnlock()
-	if h.detailsCache == nil {
-		return cachedRequestDetails{}, false
-	}
-	cached, ok := h.detailsCache[modelName]
-	if !ok {
-		return cachedRequestDetails{}, false
-	}
-	return cached.clone(), true
-}
-
-func (h *BaseAPIHandler) storeRequestDetailsCache(modelName string, providers []string, normalizedModel string, metadata map[string]any, errMsg *interfaces.ErrorMessage) {
-	if modelName == "" {
-		return
-	}
-	h.detailsCacheMu.Lock()
-	if h.detailsCache == nil {
-		h.detailsCache = make(map[string]cachedRequestDetails)
-	}
-	h.detailsCache[modelName] = cachedRequestDetails{
-		providers:       cloneProviders(providers),
-		normalizedModel: normalizedModel,
-		metadata:        cloneMetadata(metadata),
-		err:             errMsg,
-	}
-	h.detailsCacheMu.Unlock()
-}
-
-func (c cachedRequestDetails) clone() cachedRequestDetails {
-	return cachedRequestDetails{
-		providers:       cloneProviders(c.providers),
-		normalizedModel: c.normalizedModel,
-		metadata:        cloneMetadata(c.metadata),
-		err:             c.err,
-	}
-}
-
-func cloneProviders(src []string) []string {
-	if len(src) == 0 {
-		return nil
-	}
-	out := make([]string, len(src))
-	copy(out, src)
-	return out
+	// The thinking suffix is preserved in the model name itself, so no
+	// metadata-based configuration passing is needed.
+	return providers, resolvedModelName, nil
 }
 
 func cloneBytes(src []byte) []byte {
@@ -726,10 +661,6 @@ func cloneBytes(src []byte) []byte {
 	dst := make([]byte, len(src))
 	copy(dst, src)
 	return dst
-}
-
-func normalizeModelMetadata(modelName string) (string, map[string]any) {
-	return util.NormalizeThinkingModel(modelName)
 }
 
 func cloneMetadata(src map[string]any) map[string]any {

@@ -76,10 +76,6 @@ func (h *ClaudeCodeAPIHandler) ClaudeMessages(c *gin.Context) {
 		return
 	}
 
-	// Track system prompt in cache and set header
-	cacheStatus, _ := handlers.ExtractAndTrackSystemPrompt(h.HandlerType(), rawJSON, "anthropic")
-	handlers.SetPromptCacheHeader(c, cacheStatus)
-
 	// Check if the client requested a streaming response.
 	streamResult := gjson.GetBytes(rawJSON, "stream")
 	if !streamResult.Exists() || streamResult.Type == gjson.False {
@@ -132,8 +128,23 @@ func (h *ClaudeCodeAPIHandler) ClaudeCountTokens(c *gin.Context) {
 // Parameters:
 //   - c: The Gin context for the request.
 func (h *ClaudeCodeAPIHandler) ClaudeModels(c *gin.Context) {
+	models := h.Models()
+	firstID := ""
+	lastID := ""
+	if len(models) > 0 {
+		if id, ok := models[0]["id"].(string); ok {
+			firstID = id
+		}
+		if id, ok := models[len(models)-1]["id"].(string); ok {
+			lastID = id
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"data": h.Models(),
+		"data":     models,
+		"has_more": false,
+		"first_id": firstID,
+		"last_id":  lastID,
 	})
 }
 
@@ -150,36 +161,40 @@ func (h *ClaudeCodeAPIHandler) handleNonStreamingResponse(c *gin.Context, rawJSO
 	c.Header("Content-Type", "application/json")
 	alt := h.GetAlt(c)
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
+	stopKeepAlive := h.StartNonStreamingKeepAlive(c, cliCtx)
 
 	modelName := gjson.GetBytes(rawJSON, "model").String()
 
 	resp, errMsg := h.ExecuteWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, alt)
+	stopKeepAlive()
 	if errMsg != nil {
 		h.WriteErrorResponse(c, errMsg)
 		cliCancel(errMsg.Error)
 		return
 	}
 
-	handlers.SetCacheHeader(c, resp.CacheHit)
-
 	// Decompress gzipped responses - Claude API sometimes returns gzip without Content-Encoding header
 	// This fixes title generation and other non-streaming responses that arrive compressed
-	respPayload := resp.Payload
-	if len(respPayload) >= 2 && respPayload[0] == 0x1f && respPayload[1] == 0x8b {
-		gzReader, err := gzip.NewReader(bytes.NewReader(respPayload))
-		if err != nil {
-			log.Warnf("failed to decompress gzipped Claude response: %v", err)
+	if len(resp) >= 2 && resp[0] == 0x1f && resp[1] == 0x8b {
+		gzReader, errGzip := gzip.NewReader(bytes.NewReader(resp))
+		if errGzip != nil {
+			log.Warnf("failed to decompress gzipped Claude response: %v", errGzip)
 		} else {
-			defer gzReader.Close()
-			if decompressed, err := io.ReadAll(gzReader); err != nil {
-				log.Warnf("failed to read decompressed Claude response: %v", err)
+			defer func() {
+				if errClose := gzReader.Close(); errClose != nil {
+					log.Warnf("failed to close Claude gzip reader: %v", errClose)
+				}
+			}()
+			decompressed, errRead := io.ReadAll(gzReader)
+			if errRead != nil {
+				log.Warnf("failed to read decompressed Claude response: %v", errRead)
 			} else {
-				respPayload = decompressed
+				resp = decompressed
 			}
 		}
 	}
 
-	_, _ = c.Writer.Write(respPayload)
+	_, _ = c.Writer.Write(resp)
 	cliCancel()
 }
 
@@ -282,7 +297,7 @@ func (h *ClaudeCodeAPIHandler) forwardClaudeStream(c *gin.Context, flusher http.
 			c.Status(status)
 
 			errorBytes, _ := json.Marshal(h.toClaudeError(errMsg))
-			handlers.WriteSSEError(c.Writer, errorBytes, false)
+			_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", errorBytes)
 		},
 	})
 }

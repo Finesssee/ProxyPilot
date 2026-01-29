@@ -1594,9 +1594,3 @@ func generateProjectID() string {
 	randomPart := strings.ToLower(uuid.NewString())[:5]
 	return adj + "-" + noun + "-" + randomPart
 }
-
-// Embed is a stub to satisfy the ProviderExecutor interface.
-// Antigravity does not support embeddings.
-func (e *AntigravityExecutor) Embed(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	return cliproxyexecutor.Response{}, fmt.Errorf("antigravity executor does not support embeddings")
-}

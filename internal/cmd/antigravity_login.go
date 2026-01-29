@@ -6,7 +6,6 @@ import (
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
-	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -23,9 +22,10 @@ func DoAntigravityLogin(cfg *config.Config, options *LoginOptions) {
 
 	manager := newAuthManager()
 	authOpts := &sdkAuth.LoginOptions{
-		NoBrowser: options.NoBrowser,
-		Metadata:  map[string]string{},
-		Prompt:    promptFn,
+		NoBrowser:    options.NoBrowser,
+		CallbackPort: options.CallbackPort,
+		Metadata:     map[string]string{},
+		Prompt:       promptFn,
 	}
 
 	record, savedPath, err := manager.Login(context.Background(), "antigravity", cfg, authOpts)
@@ -43,32 +43,10 @@ func DoAntigravityLogin(cfg *config.Config, options *LoginOptions) {
 	fmt.Println("Antigravity authentication successful!")
 }
 
-// DoAntigravityImport imports tokens from Antigravity IDE's storage
-// and saves them as Antigravity credentials for use with ProxyPilot.
+// DoAntigravityImport imports Antigravity credentials from existing browser sessions or config files.
+// This allows using existing Antigravity subscriptions without re-authenticating.
 func DoAntigravityImport(cfg *config.Config) {
-	manager := newAuthManager()
-
-	authenticator := sdkAuth.NewAntigravityAuthenticator()
-	auth, ok := authenticator.(interface {
-		ImportFromAntigravityIDE(ctx context.Context, cfg *config.Config) (*coreauth.Auth, error)
-	})
-	if !ok {
-		log.Error("Antigravity authenticator does not support ImportFromAntigravityIDE")
-		return
-	}
-
-	record, err := auth.ImportFromAntigravityIDE(context.Background(), cfg)
-	if err != nil {
-		log.Errorf("Failed to import from Antigravity IDE: %v", err)
-		return
-	}
-
-	savedPath, errSave := manager.SaveAuth(record, cfg)
-	if errSave != nil {
-		log.Errorf("Failed to save imported token: %v", errSave)
-		return
-	}
-
-	fmt.Printf("Token saved to %s\n", savedPath)
-	fmt.Println("You can now use Antigravity provider with your Antigravity IDE credentials!")
+	log.Info("Antigravity import is not yet implemented")
+	fmt.Println("Antigravity credential import is not yet supported.")
+	fmt.Println("Please use --antigravity-login to authenticate instead.")
 }

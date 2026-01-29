@@ -158,12 +158,7 @@ func (s *oauthSessionStore) IsPending(state, provider string) bool {
 		return false
 	}
 	if session.Status != "" {
-		if !strings.EqualFold(session.Provider, "kiro") {
-			return false
-		}
-		if !strings.HasPrefix(session.Status, "device_code|") && !strings.HasPrefix(session.Status, "auth_url|") {
-			return false
-		}
+		return false
 	}
 	if provider == "" {
 		return true
@@ -230,12 +225,12 @@ func NormalizeOAuthProvider(provider string) (string, error) {
 		return "codex", nil
 	case "gemini", "google":
 		return "gemini", nil
+	case "iflow", "i-flow":
+		return "iflow", nil
 	case "antigravity", "anti-gravity":
 		return "antigravity", nil
 	case "qwen":
 		return "qwen", nil
-	case "kiro":
-		return "kiro", nil
 	default:
 		return "", errUnsupportedOAuthFlow
 	}

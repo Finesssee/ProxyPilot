@@ -26,12 +26,8 @@ func (h *Handler) GetUsageStatistics(c *gin.Context) {
 	if h != nil && h.usageStats != nil {
 		snapshot = h.usageStats.Snapshot()
 	}
-
-	usageStats := usage.ComputeUsageStats(snapshot)
-
 	c.JSON(http.StatusOK, gin.H{
-		"usage":           usageStats,
-		"raw_snapshot":    snapshot,
+		"usage":           snapshot,
 		"failed_requests": snapshot.FailureCount,
 	})
 }

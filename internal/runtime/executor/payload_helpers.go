@@ -2,101 +2,20 @@ package executor
 
 import (
 	"encoding/json"
-	"fmt"
-	"net/http"
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/thinking"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
-	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
-// ApplyThinkingMetadata applies thinking config from model suffix metadata (e.g., (high), (8192))
-// for standard Gemini format payloads. It normalizes the budget when the model supports thinking.
-func ApplyThinkingMetadata(payload []byte, metadata map[string]any, model string) []byte {
-	budgetOverride, includeOverride, ok := util.ResolveThinkingConfigFromMetadata(model, metadata)
-	if !ok || (budgetOverride == nil && includeOverride == nil) {
-		return payload
-	}
-	if !util.ModelSupportsThinking(model) {
-		return payload
-	}
-	if budgetOverride != nil {
-		norm := util.NormalizeThinkingBudget(model, *budgetOverride)
-		budgetOverride = &norm
-	}
-	return util.ApplyGeminiThinkingConfig(payload, budgetOverride, includeOverride)
-}
-
-// applyThinkingMetadataCLI applies thinking config from model suffix metadata (e.g., (high), (8192))
-// for Gemini CLI format payloads (nested under "request"). It normalizes the budget when the model supports thinking.
-func applyThinkingMetadataCLI(payload []byte, metadata map[string]any, model string) []byte {
-	budgetOverride, includeOverride, ok := util.ResolveThinkingConfigFromMetadata(model, metadata)
-	if !ok || (budgetOverride == nil && includeOverride == nil) {
-		return payload
-	}
-	if !util.ModelSupportsThinking(model) {
-		return payload
-	}
-	if budgetOverride != nil {
-		norm := util.NormalizeThinkingBudget(model, *budgetOverride)
-		budgetOverride = &norm
-	}
-	return util.ApplyGeminiCLIThinkingConfig(payload, budgetOverride, includeOverride)
-}
-
-// ApplyReasoningEffortMetadata applies reasoning effort overrides from metadata to the given JSON path.
-// Metadata values take precedence over any existing field when the model supports thinking, intentionally
-// overwriting caller-provided values to honor suffix/default metadata priority.
-func ApplyReasoningEffortMetadata(payload []byte, metadata map[string]any, model, field string, allowCompat bool) []byte {
-	if len(metadata) == 0 {
-		return payload
-	}
-	if field == "" {
-		return payload
-	}
-	baseModel := util.ResolveOriginalModel(model, metadata)
-	if baseModel == "" {
-		baseModel = model
-	}
-	if !util.ModelSupportsThinking(baseModel) && !allowCompat {
-		return payload
-	}
-	if effort, ok := util.ReasoningEffortFromMetadata(metadata); ok && effort != "" {
-		if util.ModelUsesThinkingLevels(baseModel) || allowCompat {
-			if updated, err := sjson.SetBytes(payload, field, effort); err == nil {
-				return updated
-			}
-		}
-	}
-	// Fallback: numeric thinking_budget suffix for level-based (OpenAI-style) models.
-	if util.ModelUsesThinkingLevels(baseModel) || allowCompat {
-		if budget, _, _, matched := util.ThinkingFromMetadata(metadata); matched && budget != nil {
-			if effort, ok := util.ThinkingBudgetToEffort(baseModel, *budget); ok && effort != "" {
-				if updated, err := sjson.SetBytes(payload, field, effort); err == nil {
-					return updated
-				}
-			}
-		}
-	}
-	return payload
-}
-
-// applyPayloadConfig applies payload default and override rules from configuration
-// to the given JSON payload for the specified model.
-// Defaults only fill missing fields, while overrides always overwrite existing values.
-func applyPayloadConfig(cfg *config.Config, model string, payload []byte) []byte {
-	return applyPayloadConfigWithRoot(cfg, model, "", "", payload, nil, "")
-}
-
 // applyPayloadConfigWithRoot behaves like applyPayloadConfig but treats all parameter
 // paths as relative to the provided root path (for example, "request" for Gemini CLI)
 // and restricts matches to the given protocol when supplied. Defaults are checked
-// against the original payload when provided. The requestedModel parameter is used
-// for matching payload rules when different from the resolved model.
+// against the original payload when provided. requestedModel carries the client-visible
+// model name before alias resolution so payload rules can target aliases precisely.
 func applyPayloadConfigWithRoot(cfg *config.Config, model, protocol, root string, payload, original []byte, requestedModel string) []byte {
 	if cfg == nil || len(payload) == 0 {
 		return payload
@@ -106,9 +25,11 @@ func applyPayloadConfigWithRoot(cfg *config.Config, model, protocol, root string
 		return payload
 	}
 	model = strings.TrimSpace(model)
-	if model == "" {
+	requestedModel = strings.TrimSpace(requestedModel)
+	if model == "" && requestedModel == "" {
 		return payload
 	}
+	candidates := payloadModelCandidates(model, requestedModel)
 	out := payload
 	source := original
 	if len(source) == 0 {
@@ -118,7 +39,7 @@ func applyPayloadConfigWithRoot(cfg *config.Config, model, protocol, root string
 	// Apply default rules: first write wins per field across all matching rules.
 	for i := range rules.Default {
 		rule := &rules.Default[i]
-		if !payloadRuleMatchesModel(rule, model, protocol) {
+		if !payloadRuleMatchesModels(rule, protocol, candidates) {
 			continue
 		}
 		for path, value := range rule.Params {
@@ -143,7 +64,7 @@ func applyPayloadConfigWithRoot(cfg *config.Config, model, protocol, root string
 	// Apply default raw rules: first write wins per field across all matching rules.
 	for i := range rules.DefaultRaw {
 		rule := &rules.DefaultRaw[i]
-		if !payloadRuleMatchesModel(rule, model, protocol) {
+		if !payloadRuleMatchesModels(rule, protocol, candidates) {
 			continue
 		}
 		for path, value := range rule.Params {
@@ -172,7 +93,7 @@ func applyPayloadConfigWithRoot(cfg *config.Config, model, protocol, root string
 	// Apply override rules: last write wins per field across all matching rules.
 	for i := range rules.Override {
 		rule := &rules.Override[i]
-		if !payloadRuleMatchesModel(rule, model, protocol) {
+		if !payloadRuleMatchesModels(rule, protocol, candidates) {
 			continue
 		}
 		for path, value := range rule.Params {
@@ -190,7 +111,7 @@ func applyPayloadConfigWithRoot(cfg *config.Config, model, protocol, root string
 	// Apply override raw rules: last write wins per field across all matching rules.
 	for i := range rules.OverrideRaw {
 		rule := &rules.OverrideRaw[i]
-		if !payloadRuleMatchesModel(rule, model, protocol) {
+		if !payloadRuleMatchesModels(rule, protocol, candidates) {
 			continue
 		}
 		for path, value := range rule.Params {
@@ -210,6 +131,18 @@ func applyPayloadConfigWithRoot(cfg *config.Config, model, protocol, root string
 		}
 	}
 	return out
+}
+
+func payloadRuleMatchesModels(rule *config.PayloadRule, protocol string, models []string) bool {
+	if rule == nil || len(models) == 0 {
+		return false
+	}
+	for _, model := range models {
+		if payloadRuleMatchesModel(rule, model, protocol) {
+			return true
+		}
+	}
+	return false
 }
 
 func payloadRuleMatchesModel(rule *config.PayloadRule, model, protocol string) bool {
@@ -232,6 +165,42 @@ func payloadRuleMatchesModel(rule *config.PayloadRule, model, protocol string) b
 		}
 	}
 	return false
+}
+
+func payloadModelCandidates(model, requestedModel string) []string {
+	model = strings.TrimSpace(model)
+	requestedModel = strings.TrimSpace(requestedModel)
+	if model == "" && requestedModel == "" {
+		return nil
+	}
+	candidates := make([]string, 0, 3)
+	seen := make(map[string]struct{}, 3)
+	addCandidate := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		key := strings.ToLower(value)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		candidates = append(candidates, value)
+	}
+	if model != "" {
+		addCandidate(model)
+	}
+	if requestedModel != "" {
+		parsed := thinking.ParseSuffix(requestedModel)
+		base := strings.TrimSpace(parsed.ModelName)
+		if base != "" {
+			addCandidate(base)
+		}
+		if parsed.HasSuffix {
+			addCandidate(requestedModel)
+		}
+	}
+	return candidates
 }
 
 // buildPayloadPath combines an optional root path with a relative parameter path.
@@ -270,8 +239,6 @@ func payloadRawValue(value any) ([]byte, bool) {
 	}
 }
 
-// payloadRequestedModel extracts the originally requested model from executor options metadata.
-// Returns the fallback value if not found or empty.
 func payloadRequestedModel(opts cliproxyexecutor.Options, fallback string) string {
 	fallback = strings.TrimSpace(fallback)
 	if len(opts.Metadata) == 0 {
@@ -346,126 +313,38 @@ func matchModelPattern(pattern, model string) bool {
 	return pi == len(pattern)
 }
 
-// NormalizeThinkingConfig normalizes thinking-related fields in the payload
-// based on model capabilities. For models without thinking support, it strips
-// reasoning fields and logs a warning. For models with level-based thinking,
-// it validates and normalizes the reasoning effort level. For models with
-// numeric budget thinking, it strips the effort string fields.
-func NormalizeThinkingConfig(payload []byte, model string, allowCompat bool) []byte {
-	if len(payload) == 0 || model == "" {
+// applyPayloadConfig applies payload configuration rules without a root path prefix.
+// This is a convenience wrapper for executors that don't need nested path handling.
+func applyPayloadConfig(cfg *config.Config, model string, payload []byte) []byte {
+	return applyPayloadConfigWithRoot(cfg, model, "", "", payload, nil, "")
+}
+
+// ApplyReasoningEffortMetadata applies reasoning effort metadata to the request payload.
+// It extracts the value from metadata and sets it on the specified path.
+func ApplyReasoningEffortMetadata(payload []byte, metadata map[string]any, model string, path string, force bool) []byte {
+	if metadata == nil {
 		return payload
 	}
-
-	if !util.ModelSupportsThinking(model) {
-		if allowCompat {
-			return payload
-		}
-		return StripThinkingFieldsWithWarning(payload, model, false)
+	effort, ok := metadata["reasoning_effort"]
+	if !ok {
+		return payload
 	}
-
-	if util.ModelUsesThinkingLevels(model) {
-		return NormalizeReasoningEffortLevel(payload, model)
+	if !force && gjson.GetBytes(payload, path).Exists() {
+		return payload
 	}
-
-	// Model supports thinking but uses numeric budgets, not levels.
-	// Strip effort string fields since they are not applicable.
-	return StripThinkingFields(payload, true)
+	updated, err := sjson.SetBytes(payload, path, effort)
+	if err != nil {
+		return payload
+	}
+	return updated
 }
 
-// StripThinkingFieldsWithWarning removes thinking-related fields from the payload
-// and logs a warning when fields are actually stripped. This helps users understand
-// why their thinking/reasoning parameters are not being applied.
-func StripThinkingFieldsWithWarning(payload []byte, model string, effortOnly bool) []byte {
-	fieldsToRemove := []string{
-		"reasoning_effort",
-		"reasoning.effort",
-	}
-	if !effortOnly {
-		fieldsToRemove = append([]string{"reasoning", "thinking"}, fieldsToRemove...)
-	}
-	out := payload
-	var strippedFields []string
-	for _, field := range fieldsToRemove {
-		if gjson.GetBytes(out, field).Exists() {
-			strippedFields = append(strippedFields, field)
-			out, _ = sjson.DeleteBytes(out, field)
-		}
-	}
-	if len(strippedFields) > 0 {
-		log.Warnf("model %q does not support thinking/reasoning; stripped fields: %s", model, strings.Join(strippedFields, ", "))
-	}
-	return out
-}
-
-// StripThinkingFields removes thinking-related fields from the payload for
-// models that do not support thinking. If effortOnly is true, only removes
-// effort string fields (for models using numeric budgets).
-func StripThinkingFields(payload []byte, effortOnly bool) []byte {
-	fieldsToRemove := []string{
-		"reasoning_effort",
-		"reasoning.effort",
-	}
-	if !effortOnly {
-		fieldsToRemove = append([]string{"reasoning", "thinking"}, fieldsToRemove...)
-	}
-	out := payload
-	for _, field := range fieldsToRemove {
-		if gjson.GetBytes(out, field).Exists() {
-			out, _ = sjson.DeleteBytes(out, field)
-		}
-	}
-	return out
-}
-
-// NormalizeReasoningEffortLevel validates and normalizes the reasoning_effort
-// or reasoning.effort field for level-based thinking models.
-func NormalizeReasoningEffortLevel(payload []byte, model string) []byte {
-	out := payload
-
-	if effort := gjson.GetBytes(out, "reasoning_effort"); effort.Exists() {
-		if normalized, ok := util.NormalizeReasoningEffortLevel(model, effort.String()); ok {
-			out, _ = sjson.SetBytes(out, "reasoning_effort", normalized)
-		}
-	}
-
-	if effort := gjson.GetBytes(out, "reasoning.effort"); effort.Exists() {
-		if normalized, ok := util.NormalizeReasoningEffortLevel(model, effort.String()); ok {
-			out, _ = sjson.SetBytes(out, "reasoning.effort", normalized)
-		}
-	}
-
-	return out
-}
-
-// ValidateThinkingConfig checks for unsupported reasoning levels on level-based models.
-// Returns a statusErr with 400 when an unsupported level is supplied to avoid silently
-// downgrading requests.
-func ValidateThinkingConfig(payload []byte, model string) error {
-	if len(payload) == 0 || model == "" {
-		return nil
-	}
-	if !util.ModelSupportsThinking(model) || !util.ModelUsesThinkingLevels(model) {
-		return nil
-	}
-
-	levels := util.GetModelThinkingLevels(model)
-	checkField := func(path string) error {
-		if effort := gjson.GetBytes(payload, path); effort.Exists() {
-			if _, ok := util.NormalizeReasoningEffortLevel(model, effort.String()); !ok {
-				return statusErr{
-					code: http.StatusBadRequest,
-					msg:  fmt.Sprintf("unsupported reasoning effort level %q for model %s (supported: %s)", effort.String(), model, strings.Join(levels, ", ")),
-				}
-			}
-		}
-		return nil
-	}
-
-	if err := checkField("reasoning_effort"); err != nil {
-		return err
-	}
-	if err := checkField("reasoning.effort"); err != nil {
-		return err
-	}
-	return nil
+// EstimateRequestTokens estimates the number of tokens in a request payload.
+// This is a heuristic approximation based on byte length.
+// Returns an error to indicate the estimate is not precise and callers should use fallback logic.
+func EstimateRequestTokens(model string, body []byte) (int64, error) {
+	// Simple heuristic: approximately 4 characters per token for most models
+	// This is intentionally conservative and returns an error to signal
+	// that the estimate is not authoritative.
+	return int64(len(body) / 4), nil
 }
