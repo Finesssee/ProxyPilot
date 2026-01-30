@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
@@ -20,6 +21,7 @@ type RequestInfo struct {
 	Headers   map[string][]string // Headers contains the request headers.
 	Body      []byte              // Body is the raw request body.
 	RequestID string              // RequestID is the unique identifier for the request.
+	Timestamp time.Time           // Timestamp is when the request was received.
 }
 
 // ResponseWriterWrapper wraps the standard gin.ResponseWriter to intercept and log response data.
@@ -297,7 +299,7 @@ func (w *ResponseWriterWrapper) Finalize(c *gin.Context) error {
 		return nil
 	}
 
-	return w.logRequest(finalStatusCode, w.cloneHeaders(), w.body.Bytes(), w.extractAPIRequest(c), w.extractAPIResponse(c), slicesAPIResponseError, forceLog)
+	return w.logRequest(finalStatusCode, w.cloneHeaders(), w.body.Bytes(), w.extractAPIRequest(c), w.extractAPIResponse(c), w.extractAPIResponseTimestamp(c), slicesAPIResponseError, forceLog)
 }
 
 func (w *ResponseWriterWrapper) cloneHeaders() map[string][]string {
@@ -337,7 +339,18 @@ func (w *ResponseWriterWrapper) extractAPIResponse(c *gin.Context) []byte {
 	return data
 }
 
-func (w *ResponseWriterWrapper) logRequest(statusCode int, headers map[string][]string, body []byte, apiRequestBody, apiResponseBody []byte, apiResponseErrors []*interfaces.ErrorMessage, forceLog bool) error {
+func (w *ResponseWriterWrapper) extractAPIResponseTimestamp(c *gin.Context) time.Time {
+	ts, isExist := c.Get("API_RESPONSE_TIMESTAMP")
+	if !isExist {
+		return time.Time{}
+	}
+	if t, ok := ts.(time.Time); ok {
+		return t
+	}
+	return time.Time{}
+}
+
+func (w *ResponseWriterWrapper) logRequest(statusCode int, headers map[string][]string, body []byte, apiRequestBody, apiResponseBody []byte, apiResponseTimestamp time.Time, apiResponseErrors []*interfaces.ErrorMessage, forceLog bool) error {
 	if w.requestInfo == nil {
 		return nil
 	}
@@ -348,7 +361,7 @@ func (w *ResponseWriterWrapper) logRequest(statusCode int, headers map[string][]
 	}
 
 	if loggerWithOptions, ok := w.logger.(interface {
-		LogRequestWithOptions(string, string, map[string][]string, []byte, int, map[string][]string, []byte, []byte, []byte, []*interfaces.ErrorMessage, bool, string) error
+		LogRequestWithOptions(string, string, map[string][]string, []byte, int, map[string][]string, []byte, []byte, []byte, []*interfaces.ErrorMessage, bool, string, time.Time, time.Time) error
 	}); ok {
 		return loggerWithOptions.LogRequestWithOptions(
 			w.requestInfo.URL,
@@ -363,6 +376,8 @@ func (w *ResponseWriterWrapper) logRequest(statusCode int, headers map[string][]
 			apiResponseErrors,
 			forceLog,
 			w.requestInfo.RequestID,
+			w.requestInfo.Timestamp,
+			apiResponseTimestamp,
 		)
 	}
 

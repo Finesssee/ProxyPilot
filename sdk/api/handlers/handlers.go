@@ -361,6 +361,11 @@ func appendAPIResponse(c *gin.Context, data []byte) {
 		return
 	}
 
+	// Capture timestamp on first API response
+	if _, exists := c.Get("API_RESPONSE_TIMESTAMP"); !exists {
+		c.Set("API_RESPONSE_TIMESTAMP", time.Now())
+	}
+
 	if existing, exists := c.Get("API_RESPONSE"); exists {
 		if existingBytes, ok := existing.([]byte); ok && len(existingBytes) > 0 {
 			combined := make([]byte, 0, len(existingBytes)+len(data)+1)
