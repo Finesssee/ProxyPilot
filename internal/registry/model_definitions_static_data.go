@@ -554,21 +554,21 @@ func GetAIStudioModels() []*ModelInfo {
 			SupportedGenerationMethods: []string{"generateContent", "countTokens", "createCachedContent", "batchGenerateContent"},
 			Thinking:                   &ThinkingSupport{Min: 512, Max: 24576, ZeroAllowed: true, DynamicAllowed: true},
 		},
-		// {
-		// 	ID:                         "gemini-2.5-flash-image-preview",
-		// 	Object:                     "model",
-		// 	Created:                    1756166400,
-		// 	OwnedBy:                    "google",
-		// 	Type:                       "gemini",
-		// 	Name:                       "models/gemini-2.5-flash-image-preview",
-		// 	Version:                    "2.5",
-		// 	DisplayName:                "Gemini 2.5 Flash Image Preview",
-		// 	Description:                "State-of-the-art image generation and editing model.",
-		// 	InputTokenLimit:            1048576,
-		// 	OutputTokenLimit:           8192,
-		// 	SupportedGenerationMethods: []string{"generateContent", "countTokens", "createCachedContent", "batchGenerateContent"},
-		// 	// image models don't support thinkingConfig; leave Thinking nil
-		// },
+		{
+			ID:                         "gemini-2.5-flash-image-preview",
+			Object:                     "model",
+			Created:                    1756166400,
+			OwnedBy:                    "google",
+			Type:                       "gemini",
+			Name:                       "models/gemini-2.5-flash-image-preview",
+			Version:                    "2.5",
+			DisplayName:                "Gemini 2.5 Flash Image Preview",
+			Description:                "State-of-the-art image generation and editing model.",
+			InputTokenLimit:            1048576,
+			OutputTokenLimit:           8192,
+			SupportedGenerationMethods: []string{"generateContent", "countTokens", "createCachedContent", "batchGenerateContent"},
+			// image models don't support thinkingConfig; leave Thinking nil
+		},
 		{
 			ID:                         "gemini-2.5-flash-image",
 			Object:                     "model",
@@ -784,7 +784,7 @@ func GetIFlowModels() []*ModelInfo {
 		{ID: "qwen3-coder-plus", DisplayName: "Qwen3-Coder-Plus", Description: "Qwen3 Coder Plus code generation", Created: 1753228800},
 		{ID: "qwen3-max", DisplayName: "Qwen3-Max", Description: "Qwen3 flagship model", Created: 1758672000},
 		{ID: "qwen3-vl-plus", DisplayName: "Qwen3-VL-Plus", Description: "Qwen3 multimodal vision-language", Created: 1758672000},
-		{ID: "qwen3-max-preview", DisplayName: "Qwen3-Max-Preview", Description: "Qwen3 Max preview build", Created: 1757030400, Thinking: iFlowThinkingSupport},
+		{ID: "qwen3-max-preview", DisplayName: "Qwen3-Max-Preview", Description: "Qwen3 Max preview build", Created: 1757030400},
 		{ID: "kimi-k2-0905", DisplayName: "Kimi-K2-Instruct-0905", Description: "Moonshot Kimi K2 instruct 0905", Created: 1757030400},
 		{ID: "glm-4.6", DisplayName: "GLM-4.6", Description: "Zhipu GLM 4.6 general model", Created: 1759190400, Thinking: iFlowThinkingSupport},
 		{ID: "glm-4.7", DisplayName: "GLM-4.7", Description: "Zhipu GLM 4.7 general model", Created: 1766448000, Thinking: iFlowThinkingSupport},
@@ -792,8 +792,8 @@ func GetIFlowModels() []*ModelInfo {
 		{ID: "kimi-k2-thinking", DisplayName: "Kimi-K2-Thinking", Description: "Moonshot Kimi K2 thinking model", Created: 1762387200},
 		{ID: "deepseek-v3.2-chat", DisplayName: "DeepSeek-V3.2", Description: "DeepSeek V3.2 Chat", Created: 1764576000},
 		{ID: "deepseek-v3.2-reasoner", DisplayName: "DeepSeek-V3.2", Description: "DeepSeek V3.2 Reasoner", Created: 1764576000},
-		{ID: "deepseek-v3.2", DisplayName: "DeepSeek-V3.2-Exp", Description: "DeepSeek V3.2 experimental", Created: 1759104000, Thinking: iFlowThinkingSupport},
-		{ID: "deepseek-v3.1", DisplayName: "DeepSeek-V3.1-Terminus", Description: "DeepSeek V3.1 Terminus", Created: 1756339200, Thinking: iFlowThinkingSupport},
+		{ID: "deepseek-v3.2", DisplayName: "DeepSeek-V3.2-Exp", Description: "DeepSeek V3.2 experimental", Created: 1759104000},
+		{ID: "deepseek-v3.1", DisplayName: "DeepSeek-V3.1-Terminus", Description: "DeepSeek V3.1 Terminus", Created: 1756339200},
 		{ID: "deepseek-r1", DisplayName: "DeepSeek-R1", Description: "DeepSeek reasoning model R1", Created: 1737331200},
 		{ID: "deepseek-v3", DisplayName: "DeepSeek-V3-671B", Description: "DeepSeek V3 671B", Created: 1734307200},
 		{ID: "qwen3-32b", DisplayName: "Qwen3-32B", Description: "Qwen3 32B", Created: 1747094400},
@@ -831,9 +831,9 @@ type AntigravityModelConfig struct {
 // Keys use upstream model names returned by the Antigravity models endpoint.
 func GetAntigravityModelConfig() map[string]*AntigravityModelConfig {
 	return map[string]*AntigravityModelConfig{
-		// "rev19-uic3-1p":              {Thinking: &ThinkingSupport{Min: 128, Max: 32768, ZeroAllowed: false, DynamicAllowed: true}},
 		"gemini-2.5-flash":           {Thinking: &ThinkingSupport{Min: 0, Max: 24576, ZeroAllowed: true, DynamicAllowed: true}},
 		"gemini-2.5-flash-lite":      {Thinking: &ThinkingSupport{Min: 0, Max: 24576, ZeroAllowed: true, DynamicAllowed: true}},
+		"rev19-uic3-1p":              {Thinking: &ThinkingSupport{Min: 128, Max: 32768, ZeroAllowed: false, DynamicAllowed: true}},
 		"gemini-3-pro-high":          {Thinking: &ThinkingSupport{Min: 128, Max: 32768, ZeroAllowed: false, DynamicAllowed: true, Levels: []string{"low", "high"}}},
 		"gemini-3-pro-image":         {Thinking: &ThinkingSupport{Min: 128, Max: 32768, ZeroAllowed: false, DynamicAllowed: true, Levels: []string{"low", "high"}}},
 		"gemini-3-flash":             {Thinking: &ThinkingSupport{Min: 128, Max: 32768, ZeroAllowed: false, DynamicAllowed: true, Levels: []string{"minimal", "low", "medium", "high"}}},
@@ -842,40 +842,5 @@ func GetAntigravityModelConfig() map[string]*AntigravityModelConfig {
 		"claude-sonnet-4-5":          {MaxCompletionTokens: 64000},
 		"gpt-oss-120b-medium":        {},
 		"tab_flash_lite_preview":     {},
-	}
-}
-
-// GetMiniMaxModels returns supported models for MiniMax accounts.
-func GetMiniMaxModels() []*ModelInfo {
-	return []*ModelInfo{
-		{ID: "MiniMax-Text-01", DisplayName: "MiniMax-Text-01", Description: "MiniMax Text model"},
-	}
-}
-
-// GetZhipuModels returns supported models for Zhipu (GLM) accounts.
-func GetZhipuModels() []*ModelInfo {
-	return []*ModelInfo{
-		{ID: "glm-4", DisplayName: "GLM-4", Description: "Zhipu GLM-4 model"},
-	}
-}
-
-// GetKiroModels returns supported models for Kiro accounts.
-func GetKiroModels() []*ModelInfo {
-	return []*ModelInfo{
-		{ID: "kiro-default", DisplayName: "Kiro Default", Description: "Kiro default model"},
-	}
-}
-
-// GetAmazonQModels returns supported models for Amazon Q accounts.
-func GetAmazonQModels() []*ModelInfo {
-	return []*ModelInfo{
-		{ID: "amazon-q", DisplayName: "Amazon Q", Description: "Amazon Q Developer model"},
-	}
-}
-
-// GetGitHubCopilotModels returns supported models for GitHub Copilot accounts.
-func GetGitHubCopilotModels() []*ModelInfo {
-	return []*ModelInfo{
-		{ID: "gpt-4o", DisplayName: "GPT-4o", Description: "OpenAI GPT-4o via GitHub Copilot"},
 	}
 }
