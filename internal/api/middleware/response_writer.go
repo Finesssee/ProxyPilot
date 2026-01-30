@@ -28,16 +28,17 @@ type RequestInfo struct {
 // It is designed to handle both standard and streaming responses, ensuring that logging operations do not block the client response.
 type ResponseWriterWrapper struct {
 	gin.ResponseWriter
-	body           *bytes.Buffer              // body is a buffer to store the response body for non-streaming responses.
-	isStreaming    bool                       // isStreaming indicates whether the response is a streaming type (e.g., text/event-stream).
-	streamWriter   logging.StreamingLogWriter // streamWriter is a writer for handling streaming log entries.
-	chunkChannel   chan []byte                // chunkChannel is a channel for asynchronously passing response chunks to the logger.
-	streamDone     chan struct{}              // streamDone signals when the streaming goroutine completes.
-	logger         logging.RequestLogger      // logger is the instance of the request logger service.
-	requestInfo    *RequestInfo               // requestInfo holds the details of the original request.
-	statusCode     int                        // statusCode stores the HTTP status code of the response.
-	headers        map[string][]string        // headers stores the response headers.
-	logOnErrorOnly bool                       // logOnErrorOnly enables logging only when an error response is detected.
+	body                *bytes.Buffer              // body is a buffer to store the response body for non-streaming responses.
+	isStreaming         bool                       // isStreaming indicates whether the response is a streaming type (e.g., text/event-stream).
+	streamWriter        logging.StreamingLogWriter // streamWriter is a writer for handling streaming log entries.
+	chunkChannel        chan []byte                // chunkChannel is a channel for asynchronously passing response chunks to the logger.
+	streamDone          chan struct{}              // streamDone signals when the streaming goroutine completes.
+	logger              logging.RequestLogger      // logger is the instance of the request logger service.
+	requestInfo         *RequestInfo               // requestInfo holds the details of the original request.
+	statusCode          int                        // statusCode stores the HTTP status code of the response.
+	headers             map[string][]string        // headers stores the response headers.
+	logOnErrorOnly      bool                       // logOnErrorOnly enables logging only when an error response is detected.
+	firstChunkTimestamp time.Time                  // firstChunkTimestamp captures TTFB for streaming responses.
 }
 
 // NewResponseWriterWrapper creates and initializes a new ResponseWriterWrapper.
@@ -75,6 +76,10 @@ func (w *ResponseWriterWrapper) Write(data []byte) (int, error) {
 
 	// THEN: Handle logging based on response type
 	if w.isStreaming && w.chunkChannel != nil {
+		// Capture TTFB on first chunk (synchronous, before async channel send)
+		if w.firstChunkTimestamp.IsZero() {
+			w.firstChunkTimestamp = time.Now()
+		}
 		// For streaming responses: Send to async logging channel (non-blocking)
 		select {
 		case w.chunkChannel <- append([]byte(nil), data...): // Non-blocking send with copy
@@ -119,6 +124,10 @@ func (w *ResponseWriterWrapper) WriteString(data string) (int, error) {
 
 	// THEN: Capture for logging
 	if w.isStreaming && w.chunkChannel != nil {
+		// Capture TTFB on first chunk (synchronous, before async channel send)
+		if w.firstChunkTimestamp.IsZero() {
+			w.firstChunkTimestamp = time.Now()
+		}
 		select {
 		case w.chunkChannel <- []byte(data):
 		default:
@@ -282,6 +291,8 @@ func (w *ResponseWriterWrapper) Finalize(c *gin.Context) error {
 			w.streamDone = nil
 		}
 
+		w.streamWriter.SetFirstChunkTimestamp(w.firstChunkTimestamp)
+
 		// Write API Request and Response to the streaming log before closing
 		apiRequest := w.extractAPIRequest(c)
 		if len(apiRequest) > 0 {
@@ -393,5 +404,7 @@ func (w *ResponseWriterWrapper) logRequest(statusCode int, headers map[string][]
 		apiResponseBody,
 		apiResponseErrors,
 		w.requestInfo.RequestID,
+		w.requestInfo.Timestamp,
+		apiResponseTimestamp,
 	)
 }
