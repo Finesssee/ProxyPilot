@@ -9,6 +9,7 @@ import (
 	"time"
 
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 )
 
 // --- Mock implementations ---
@@ -526,6 +527,13 @@ func TestManager_Execute_SuccessfulRequest(t *testing.T) {
 			}
 			_, _ = m.Register(ctx, auth)
 
+			// Register the test model with the client in the global registry
+			if tt.model != "" {
+				registry.GetGlobalRegistry().RegisterClient(auth.ID, tt.authProvider, []*registry.ModelInfo{
+					{ID: tt.model},
+				})
+			}
+
 			req := cliproxyexecutor.Request{Model: tt.model}
 			resp, err := m.Execute(ctx, tt.providers, req, cliproxyexecutor.Options{})
 
@@ -620,6 +628,10 @@ func TestManager_Execute_RetryOnFailure(t *testing.T) {
 				m.mu.Lock()
 				m.auths[auth.ID] = auth
 				m.mu.Unlock()
+				// Register the test model with each client
+				registry.GetGlobalRegistry().RegisterClient(auth.ID, "testprovider", []*registry.ModelInfo{
+					{ID: "test-model"},
+				})
 			}
 
 			req := cliproxyexecutor.Request{Model: "test-model"}
