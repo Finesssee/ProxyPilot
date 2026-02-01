@@ -20,12 +20,12 @@ import (
 // It extracts the model name, system instruction, message contents, and tool declarations
 // from the raw JSON request and returns them in the format expected by the internal client.
 // The function performs the following transformations:
-// 1. Sets up a template with the model name and Codex instructions
-// 2. Processes system messages and converts them to input content
-// 3. Transforms message contents (text, tool_use, tool_result) to appropriate formats
+// 1. Sets up a template with the model name and empty instructions field
+// 2. Processes system messages and converts them to developer input content
+// 3. Transforms message contents (text, image, tool_use, tool_result) to appropriate formats
 // 4. Converts tools declarations to the expected format
 // 5. Adds additional configuration parameters for the Codex API
-// 6. Prepends a special instruction message to override system instructions
+// 6. Maps Claude thinking configuration to Codex reasoning settings
 //
 // Parameters:
 //   - modelName: The name of the model to use for the request
