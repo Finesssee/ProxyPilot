@@ -2,14 +2,14 @@
   "FixedFileInfo": {
     "FileVersion": {
       "Major": 0,
-      "Minor": 1,
-      "Patch": 6,
+      "Minor": 3,
+      "Patch": 0,
       "Build": 0
     },
     "ProductVersion": {
       "Major": 0,
-      "Minor": 1,
-      "Patch": 6,
+      "Minor": 3,
+      "Patch": 0,
       "Build": 0
     },
     "FileFlagsMask": "3f",
@@ -22,12 +22,12 @@
     "Comments": "Local AI Proxy Engine",
     "CompanyName": "ProxyPilot",
     "FileDescription": "ProxyPilot Engine",
-    "FileVersion": "0.1.6",
+    "FileVersion": "0.3.0",
     "InternalName": "proxypilot-engine",
     "LegalCopyright": "MIT License",
     "OriginalFilename": "proxypilot-engine.exe",
     "ProductName": "ProxyPilot",
-    "ProductVersion": "0.1.6"
+    "ProductVersion": "0.3.0"
   },
   "VarFileInfo": {
     "Translation": {
