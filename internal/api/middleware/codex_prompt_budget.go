@@ -76,7 +76,12 @@ func CodexPromptBudgetMiddlewareWithRootDir(rootDir string) gin.HandlerFunc {
 		// Read body with a hard cap.
 		body, err := io.ReadAll(io.LimitReader(req.Body, codexHardReadLimit+1))
 		_ = req.Body.Close()
-		if err != nil || len(body) == 0 {
+		if err != nil {
+			// On read error, return 400 rather than passing empty body downstream
+			c.AbortWithStatus(http.StatusBadRequest)
+			return
+		}
+		if len(body) == 0 {
 			c.Next()
 			return
 		}
@@ -122,6 +127,11 @@ func CodexPromptBudgetMiddlewareWithRootDir(rootDir string) gin.HandlerFunc {
 			session := extractAgenticSessionKey(req, body)
 			body = agenticMaybeUpsertAndInjectPackedState(req, session, body, maxBytes, rootDir)
 			originalLen = len(body)
+			// Recompute token analysis after scaffold injection since body size changed
+			tokenAnalysis = analyzeTokenBudget(body)
+			if tokenAnalysis.ShouldTrim {
+				maxBytes = tokenAnalysis.TargetMaxBytes
+			}
 		}
 
 		// Proactive compression: trim if over token threshold OR over byte limit
@@ -174,6 +184,11 @@ func agenticMaybeUpsertAndInjectPackedState(req *http.Request, session string, b
 	if req == nil || session == "" || len(body) == 0 {
 		return body
 	}
+
+	// Always strip internal headers to prevent forwarding upstream, regardless of memory store availability
+	todoHeader := strings.TrimSpace(req.Header.Get("X-CLIProxyAPI-Todo"))
+	req.Header.Del("X-CLIProxyAPI-Todo")
+
 	store := agenticMemoryStore()
 	if store == nil {
 		return body
@@ -185,10 +200,8 @@ func agenticMaybeUpsertAndInjectPackedState(req *http.Request, session string, b
 
 	// Allow external controllers (ProxyPilot UI) to set TODO via header.
 	// Keep it small and redacted; no auth is stored.
-	if hdr := strings.TrimSpace(req.Header.Get("X-CLIProxyAPI-Todo")); hdr != "" {
-		_ = fs.WriteTodo(session, hdr, 8000)
-		// Avoid forwarding this header upstream.
-		req.Header.Del("X-CLIProxyAPI-Todo")
+	if todoHeader != "" {
+		_ = fs.WriteTodo(session, todoHeader, 8000)
 	}
 
 	// Upgrade pinned context: capture coding guidelines / AGENTS.md content when present in the payload.
