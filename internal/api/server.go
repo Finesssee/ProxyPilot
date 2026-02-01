@@ -878,64 +878,30 @@ func (s *Server) UpdateClients(cfg *config.Config) {
 		} else if toggler, ok := s.requestLogger.(interface{ SetEnabled(bool) }); ok {
 			toggler.SetEnabled(cfg.RequestLog)
 		}
-		if oldCfg != nil {
-			log.Debugf("request logging updated from %t to %t", previousRequestLog, cfg.RequestLog)
-		} else {
-			log.Debugf("request logging toggled to %t", cfg.RequestLog)
-		}
 	}
 
 	if oldCfg == nil || oldCfg.LoggingToFile != cfg.LoggingToFile || oldCfg.LogsMaxTotalSizeMB != cfg.LogsMaxTotalSizeMB {
 		if err := logging.ConfigureLogOutput(cfg); err != nil {
 			log.Errorf("failed to reconfigure log output: %v", err)
-		} else {
-			if oldCfg == nil {
-				log.Debug("log output configuration refreshed")
-			} else {
-				if oldCfg.LoggingToFile != cfg.LoggingToFile {
-					log.Debugf("logging_to_file updated from %t to %t", oldCfg.LoggingToFile, cfg.LoggingToFile)
-				}
-				if oldCfg.LogsMaxTotalSizeMB != cfg.LogsMaxTotalSizeMB {
-					log.Debugf("logs_max_total_size_mb updated from %d to %d", oldCfg.LogsMaxTotalSizeMB, cfg.LogsMaxTotalSizeMB)
-				}
-			}
 		}
 	}
 
 	if oldCfg == nil || oldCfg.UsageStatisticsEnabled != cfg.UsageStatisticsEnabled {
 		usage.SetStatisticsEnabled(cfg.UsageStatisticsEnabled)
-		if oldCfg != nil {
-			log.Debugf("usage_statistics_enabled updated from %t to %t", oldCfg.UsageStatisticsEnabled, cfg.UsageStatisticsEnabled)
-		} else {
-			log.Debugf("usage_statistics_enabled toggled to %t", cfg.UsageStatisticsEnabled)
-		}
 	}
 
 	if s.requestLogger != nil && (oldCfg == nil || oldCfg.ErrorLogsMaxFiles != cfg.ErrorLogsMaxFiles) {
 		if setter, ok := s.requestLogger.(interface{ SetErrorLogsMaxFiles(int) }); ok {
 			setter.SetErrorLogsMaxFiles(cfg.ErrorLogsMaxFiles)
 		}
-		if oldCfg != nil {
-			log.Debugf("error_logs_max_files updated from %d to %d", oldCfg.ErrorLogsMaxFiles, cfg.ErrorLogsMaxFiles)
-		}
 	}
 
 	if oldCfg == nil || oldCfg.DisableCooling != cfg.DisableCooling {
 		auth.SetQuotaCooldownDisabled(cfg.DisableCooling)
-		if oldCfg != nil {
-			log.Debugf("disable_cooling updated from %t to %t", oldCfg.DisableCooling, cfg.DisableCooling)
-		} else {
-			log.Debugf("disable_cooling toggled to %t", cfg.DisableCooling)
-		}
 	}
 
 	if oldCfg == nil || oldCfg.CodexInstructionsEnabled != cfg.CodexInstructionsEnabled {
 		misc.SetCodexInstructionsEnabled(cfg.CodexInstructionsEnabled)
-		if oldCfg != nil {
-			log.Debugf("codex_instructions_enabled updated from %t to %t", oldCfg.CodexInstructionsEnabled, cfg.CodexInstructionsEnabled)
-		} else {
-			log.Debugf("codex_instructions_enabled toggled to %t", cfg.CodexInstructionsEnabled)
-		}
 	}
 
 	if s.handlers != nil && s.handlers.AuthManager != nil {
@@ -945,11 +911,6 @@ func (s *Server) UpdateClients(cfg *config.Config) {
 	// Update log level dynamically when debug flag changes
 	if oldCfg == nil || oldCfg.Debug != cfg.Debug {
 		util.SetLogLevel(cfg)
-		if oldCfg != nil {
-			log.Debugf("debug mode updated from %t to %t", oldCfg.Debug, cfg.Debug)
-		} else {
-			log.Debugf("debug mode toggled to %t", cfg.Debug)
-		}
 	}
 
 	prevSecretEmpty := true
