@@ -168,6 +168,9 @@ func trimOpenAIChatCompletions(body []byte, maxBytes int, mustKeepTools bool) []
 	perTextLimit := 20_000
 	dropTools := false
 	minKeep := agenticMinKeepMessages()
+	if keep < minKeep {
+		keep = minKeep
+	}
 	for keep >= minKeep {
 		outBody := body
 		if dropTools && !mustKeepTools {
@@ -244,6 +247,9 @@ func trimOpenAIResponses(body []byte, maxBytes int, mustKeepTools bool) []byte {
 	perTextLimit := 20_000
 	dropTools := false
 	minKeep := agenticMinKeepMessages()
+	if keep < minKeep {
+		keep = minKeep
+	}
 	for keep >= minKeep {
 		outBody := body
 		if dropTools && !mustKeepTools {
@@ -383,6 +389,9 @@ func trimOpenAIChatCompletionsWithMemory(body []byte, maxBytes int, mustKeepTool
 	keep := 20
 	perTextLimit := 20_000
 	dropTools := false
+	if keep < minKeep {
+		keep = minKeep
+	}
 	for keep >= minKeep {
 		outBody := body
 		if dropTools && !mustKeepTools {
@@ -533,6 +542,9 @@ func trimOpenAIResponsesWithMemory(body []byte, maxBytes int, mustKeepTools bool
 	keep := 30
 	perTextLimit := 20_000
 	dropTools := false
+	if keep < minKeep {
+		keep = minKeep
+	}
 	for keep >= minKeep {
 		outBody := body
 		if dropTools && !mustKeepTools {
@@ -724,6 +736,9 @@ func trimClaudeMessagesWithMemory(body []byte, maxBytes int, mustKeepTools bool)
 	keep := 20
 	perTextLimit := 20_000
 	dropTools := false
+	if keep < minKeep {
+		keep = minKeep
+	}
 	for keep >= minKeep {
 		outBody := body
 		if dropTools && !mustKeepTools {
