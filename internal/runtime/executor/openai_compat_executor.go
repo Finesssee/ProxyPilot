@@ -81,9 +81,13 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *cliproxyauth.A
 		return
 	}
 
-	// Translate inbound request to OpenAI format
 	from := opts.SourceFormat
 	to := sdktranslator.FromString("openai")
+	endpoint := "/chat/completions"
+	if opts.Alt == "responses/compact" {
+		to = sdktranslator.FromString("openai-response")
+		endpoint = "/responses/compact"
+	}
 	originalPayload := bytes.Clone(req.Payload)
 	if len(opts.OriginalRequest) > 0 {
 		originalPayload = bytes.Clone(opts.OriginalRequest)
@@ -98,7 +102,7 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *cliproxyauth.A
 		return resp, err
 	}
 
-	url := strings.TrimSuffix(baseURL, "/") + "/chat/completions"
+	url := strings.TrimSuffix(baseURL, "/") + endpoint
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(translated))
 	if err != nil {
 		return resp, err

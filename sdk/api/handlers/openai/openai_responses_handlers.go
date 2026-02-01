@@ -91,6 +91,44 @@ func (h *OpenAIResponsesAPIHandler) Responses(c *gin.Context) {
 
 }
 
+func (h *OpenAIResponsesAPIHandler) Compact(c *gin.Context) {
+	rawJSON, err := c.GetRawData()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, handlers.ErrorResponse{
+			Error: handlers.ErrorDetail{
+				Message: fmt.Sprintf("Invalid request: %v", err),
+				Type:    "invalid_request_error",
+			},
+		})
+		return
+	}
+
+	streamResult := gjson.GetBytes(rawJSON, "stream")
+	if streamResult.Type == gjson.True {
+		c.JSON(http.StatusBadRequest, handlers.ErrorResponse{
+			Error: handlers.ErrorDetail{
+				Message: "Streaming not supported for compact responses",
+				Type:    "invalid_request_error",
+			},
+		})
+		return
+	}
+
+	c.Header("Content-Type", "application/json")
+	modelName := gjson.GetBytes(rawJSON, "model").String()
+	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
+	stopKeepAlive := h.StartNonStreamingKeepAlive(c, cliCtx)
+	resp, errMsg := h.ExecuteWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, "responses/compact")
+	stopKeepAlive()
+	if errMsg != nil {
+		h.WriteErrorResponse(c, errMsg)
+		cliCancel(errMsg.Error)
+		return
+	}
+	_, _ = c.Writer.Write(resp)
+	cliCancel()
+}
+
 // handleNonStreamingResponse handles non-streaming chat completion responses
 // for Gemini models. It selects a client from the pool, sends the request, and
 // aggregates the response before sending it back to the client in OpenAIResponses format.
