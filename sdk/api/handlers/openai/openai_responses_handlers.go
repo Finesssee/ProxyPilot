@@ -18,6 +18,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // OpenAIResponsesAPIHandler contains the handlers for OpenAIResponses API endpoints.
@@ -112,6 +113,11 @@ func (h *OpenAIResponsesAPIHandler) Compact(c *gin.Context) {
 			},
 		})
 		return
+	}
+	if streamResult.Exists() {
+		if updated, err := sjson.DeleteBytes(rawJSON, "stream"); err == nil {
+			rawJSON = updated
+		}
 	}
 
 	c.Header("Content-Type", "application/json")
