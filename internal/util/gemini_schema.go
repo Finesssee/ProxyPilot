@@ -4,6 +4,7 @@ package util
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -441,31 +442,42 @@ func removeUnsupportedKeywords(jsonStr string) string {
 func removeExtensionFields(jsonStr string) string {
 	var paths []string
 	walkForExtensions(gjson.Parse(jsonStr), "", &paths)
-	sortByDepth(paths)
+	// walkForExtensions returns paths in a way that deeper paths are added before their ancestors
+	// when they are not deleted wholesale, but since we skip children of deleted x-* nodes,
+	// any collected path is safe to delete. We still use DeleteBytes for efficiency.
+
+	b := []byte(jsonStr)
 	for _, p := range paths {
-		jsonStr, _ = sjson.Delete(jsonStr, p)
+		b, _ = sjson.DeleteBytes(b, p)
 	}
-	return jsonStr
+	return string(b)
 }
 
 func walkForExtensions(value gjson.Result, path string, paths *[]string) {
-	if !value.IsObject() && !value.IsArray() {
+	if value.IsArray() {
+		arr := value.Array()
+		for i := len(arr) - 1; i >= 0; i-- {
+			walkForExtensions(arr[i], joinPath(path, strconv.Itoa(i)), paths)
+		}
 		return
 	}
 
-	value.ForEach(func(key, val gjson.Result) bool {
-		keyStr := key.String()
-		safeKey := escapeGJSONPathKey(keyStr)
-		childPath := joinPath(path, safeKey)
+	if value.IsObject() {
+		value.ForEach(func(key, val gjson.Result) bool {
+			keyStr := key.String()
+			safeKey := escapeGJSONPathKey(keyStr)
+			childPath := joinPath(path, safeKey)
 
-		// Only remove x-* extension fields, but protect them if they are property definitions.
-		if strings.HasPrefix(keyStr, "x-") && !isPropertyDefinition(path) {
-			*paths = append(*paths, childPath)
-		}
+			// If it's an extension field, we delete it and don't need to look at its children.
+			if strings.HasPrefix(keyStr, "x-") && !isPropertyDefinition(path) {
+				*paths = append(*paths, childPath)
+				return true
+			}
 
-		walkForExtensions(val, childPath, paths)
-		return true
-	})
+			walkForExtensions(val, childPath, paths)
+			return true
+		})
+	}
 }
 
 func cleanupRequiredFields(jsonStr string) string {
