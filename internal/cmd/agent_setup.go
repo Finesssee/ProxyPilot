@@ -807,7 +807,7 @@ func RestoreBackup(backupPath string) error {
 	// Reconstruct original filename (everything before the timestamp)
 	// e.g., "config.json.20240101-120000.bak" -> "config.json"
 	var originalParts []string
-	for i, part := range parts {
+	for _, part := range parts {
 		// Stop before timestamp (which looks like 20XXXXXX-XXXXXX)
 		if len(part) == 15 && strings.Contains(part, "-") {
 			break
@@ -817,7 +817,6 @@ func RestoreBackup(backupPath string) error {
 			break
 		}
 		originalParts = append(originalParts, part)
-		_ = i
 	}
 
 	originalName := strings.Join(originalParts, ".")
