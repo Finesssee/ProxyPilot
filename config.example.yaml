@@ -1,23 +1,28 @@
 # Server host/interface to bind to. Default is empty ("") to bind all interfaces (IPv4 + IPv6).
 # Use "127.0.0.1" or "localhost" to restrict access to local machine only.
 host: ""
+
 # Server port
 port: 8317
+
 # TLS settings for HTTPS. When enabled, the server listens with the provided certificate and key.
 tls:
   enable: false
   cert: ""
   key: ""
+
 # Management API settings
 remote-management:
-# Whether to allow remote (non-localhost) management access.
-# When false, only localhost can access management endpoints (a key is still required).
+  # Whether to allow remote (non-localhost) management access.
+  # When false, only localhost can access management endpoints (a key is still required).
   allow-remote: false
-# Management key. If a plaintext value is provided here, it will be hashed on startup.
-# All management requests (even from localhost) require this key.
-# Leave empty to disable the Management API entirely (404 for all /v0/management routes).
-  secret-key: "$2a$10$iphjVa6f4T/FARz4e/edtOHvdoxTbE4tv/9mS0ebvDg/C8fEbPtgq"
-# Disable the bundled management control panel asset download and HTTP route when true.
+
+  # Management key. If a plaintext value is provided here, it will be hashed on startup.
+  # All management requests (even from localhost) require this key.
+  # Leave empty to disable the Management API entirely (404 for all /v0/management routes).
+  secret-key: ""
+
+  # Disable the bundled management control panel asset download and HTTP route when true.
   disable-control-panel: false
 
   # GitHub repository for the management control panel. Accepts a repository URL or releases API URL.
@@ -25,43 +30,18 @@ remote-management:
 
 # Authentication directory (supports ~ for home directory)
 auth-dir: "~/.cli-proxy-api"
-# Long-running agent harness files root directory (feature_list.json, claude-progress.txt).
-# The harness guides AI agents through structured, incremental development workflows.
-# - INITIALIZER mode: Creates feature list, progress log, and init.sh for new sessions
-# - CODING mode: Forces one-feature-at-a-time workflow with verification
-# Leave empty to use session-based memory storage (recommended).
-# Set to a specific directory to share harness files across sessions.
-# harness-root-dir: ""
-#
-# Environment variables:
-#   CLIPROXY_HARNESS_ENABLED=true/false  # Enable/disable harness injection (default: true)
 
 # API keys for authentication
 api-keys:
-  - "local-dev-key"
+  - "your-api-key-1"
+  - "your-api-key-2"
+  - "your-api-key-3"
+
 # Enable debug logging
 debug: false
 
 # When true, disable high-overhead HTTP middleware features to reduce per-request memory usage under high concurrency.
 commercial-mode: false
-
-# Lightweight profile (example)
-# commercial-mode: true
-# usage-statistics-enabled: false
-# metrics-enabled: false
-# request-history-enabled: false
-# agentic-harness-enabled: false
-# prompt-budget-enabled: false
-# request-log: false
-# response-cache:
-#   enabled: false
-# prompt-cache:
-#   enabled: false
-
-# Open OAuth URLs in incognito/private browser mode.
-# Useful when you want to login with a different account without logging out from your current session.
-# Default: false (but Kiro auth defaults to true for multi-account support)
-incognito-browser: true
 
 # When true, write application logs to rotating files instead of stdout
 logging-to-file: false
@@ -76,18 +56,7 @@ error-logs-max-files: 10
 
 # When false, disable in-memory usage statistics aggregation
 usage-statistics-enabled: false
-# Usage sampling (0.0-1.0). Default: 1.0 (no sampling)
-# usage-sample-rate: 1.0
-# Prometheus metrics + /metrics endpoint (opt-in)
-metrics-enabled: false
-# Persistent request history (opt-in)
-request-history-enabled: false
-# Request history sampling (0.0-1.0). Default: 1.0 (no sampling)
-# request-history-sample-rate: 1.0
-# Agentic harness middleware (default: true)
-agentic-harness-enabled: true
-# Codex prompt budget middleware (default: true)
-prompt-budget-enabled: true
+
 # Proxy URL. Supports socks5/http/https protocols. Example: socks5://user:pass@192.168.1.1:1080/
 proxy-url: ""
 
@@ -96,8 +65,10 @@ force-model-prefix: false
 
 # Number of times to retry a request. Retries will occur if the HTTP response code is 403, 408, 500, 502, 503, or 504.
 request-retry: 3
+
 # Maximum wait time in seconds for a cooled-down credential before triggering a retry.
 max-retry-interval: 30
+
 # Quota exceeded behavior
 quota-exceeded:
   switch-project: true # Whether to automatically switch to another project when a quota is exceeded
@@ -105,98 +76,18 @@ quota-exceeded:
 
 # Routing strategy for selecting credentials when multiple match.
 routing:
-  strategy: "round-robin" # round-robin (default), fill-first, usage-aware
-
-# Global model mappings - route friendly names to actual models across all providers.
-# These mappings are checked before per-credential model mappings.
-# global-model-mappings:
-#   - from: "smart"                    # Client requests "smart"
-#     to: "claude-opus-4-5-20251101"   # Routes to Claude Opus
-#   - from: "rush"
-#     to: "claude-haiku-4-5-20251001"  # Routes to Claude Haiku (fast)
-#   - from: "think"
-#     to: "claude-opus-4-5-thinking"   # Routes to thinking model
-#   - from: "gemini-pro"
-#     to: "gemini-2.5-pro-preview"
-#     provider: "gemini"               # Only applies to Gemini provider
-#   - from: "cheap"
-#     to: "gpt-4o-mini"
-#     provider: "codex"
-#     enabled: false                   # Disabled mapping (kept for reference)
+  strategy: "round-robin" # round-robin (default), fill-first
 
 # When true, enable authentication for the WebSocket API (/v1/ws).
 ws-auth: false
 
-# Allow requests without API keys. Default: false (deny unauthenticated).
-allow-unauthenticated: false
+# When > 0, emit blank lines every N seconds for non-streaming responses to prevent idle timeouts.
+nonstream-keepalive-interval: 0
 
-# CORS settings. By default, non-management endpoints allow "*" and
-# management endpoints send no CORS headers.
-# cors:
-#   allow-origins:
-#     - "http://localhost:5173"
-#   management-allow-origins:
-#     - "http://localhost:5173"
-#   allow-methods:
-#     - "GET"
-#     - "POST"
-#     - "PUT"
-#     - "PATCH"
-#     - "DELETE"
-#     - "OPTIONS"
-#   allow-headers:
-#     - "Authorization"
-#     - "Content-Type"
-#     - "X-Management-Key"
-#     - "X-Local-Password"
-
-# Streaming behavior (SSE keep-alives, bootstrap retries, chunk sizing).
+# Streaming behavior (SSE keep-alives + safe bootstrap retries).
 # streaming:
 #   keepalive-seconds: 15   # Default: 0 (disabled). <= 0 disables keep-alives.
 #   bootstrap-retries: 1    # Default: 0 (disabled). Retries before first byte is sent.
-#   max-chunk-size: 65536   # Default: 65536 (64KB). Max bytes per response chunk. 0 disables limiting.
-
-# Context compression behavior (Factory.ai-style structured summarization).
-# Uses LLM to generate intelligent summaries with structured sections when context
-# exceeds the threshold. Summaries include: session intent, file modifications,
-# decisions made, next steps, and technical details.
-# compression:
-#   enabled: true                       # Default: true. Enable LLM-based structured summarization.
-#   threshold-percent: 0.75             # Default: 0.75. Trigger compression at 75% of context window.
-#   max-summary-tokens: 2000            # Default: 2000. Maximum tokens for generated summaries.
-#   summarization-timeout-seconds: 30   # Default: 30. Timeout for LLM summarization calls.
-#   fallback-to-regex: true             # Default: true. Use regex-based summary when LLM fails.
-
-# Response caching - cache identical API responses to reduce upstream calls.
-# response-cache:
-#   enabled: true
-#   max-size: 1000         # Max cached responses
-#   max-bytes: 0           # Optional total cache size cap in bytes
-#   ttl-seconds: 300       # 5 minutes
-#   exclude-models:        # Don't cache these models
-#     - "*-thinking"
-#     - "o1-*"
-
-# Prompt caching - track system prompts for analytics.
-# prompt-cache:
-#   enabled: true
-#   max-size: 500
-#   max-bytes: 0           # Optional total cache size cap in bytes
-#   ttl-seconds: 1800      # 30 minutes
-#   warm-from-file: "./prompts-to-cache.json"  # Optional: pre-load prompts on startup
-                                               # Format: [{"prompt": "...", "provider": "claude"}, ...]
-
-# Token refresh and usage tracking configuration.
-# auto-refresh-buffer: 5m              # Default: 5m. Refresh tokens this long before expiry.
-#                                       # Supports Go duration format: "5m", "10m", "1h", etc.
-# daily-reset-hour: 0                  # Default: 0 (midnight UTC). Hour (0-23, UTC) to reset daily usage stats.
-
-# Token-aware compression (proactive trimming based on model context window).
-# Prevents "prompt too long" errors by trimming before hitting model limits.
-# Environment variables:
-#   CLIPROXY_TOKEN_AWARE_ENABLED=true   # Default: true. Enable token-based compression.
-#   CLIPROXY_COMPRESSION_THRESHOLD=0.75 # Default: 0.75. Trim at 75% of context window.
-#   CLIPROXY_RESERVE_TOKENS=8192        # Default: 8192. Tokens reserved for model output.
 
 # Gemini API keys
 # gemini-api-key:
@@ -206,10 +97,13 @@ allow-unauthenticated: false
 #     headers:
 #       X-Custom-Header: "custom-value"
 #     proxy-url: "socks5://proxy.example.com:1080"
+#     models:
+#       - name: "gemini-2.5-flash" # upstream model name
+#         alias: "gemini-flash"    # client alias mapped to the upstream model
 #     excluded-models:
 #       - "gemini-2.5-pro"     # exclude specific models from this provider (exact match)
 #       - "gemini-2.5-*"       # wildcard matching prefix (e.g. gemini-2.5-flash, gemini-2.5-pro)
-#       - "*-preview"          # wildcard matching suffix (e.g. gemini-3-pro-preview, gemini-3-flash-preview)
+#       - "*-preview"          # wildcard matching suffix (e.g. gemini-3-pro-preview)
 #       - "*flash*"            # wildcard matching substring (e.g. gemini-2.5-flash-lite)
 #   - api-key: "AIzaSy...02"
 
@@ -222,10 +116,10 @@ allow-unauthenticated: false
 #       X-Custom-Header: "custom-value"
 #     proxy-url: "socks5://proxy.example.com:1080" # optional: per-key proxy override
 #     models:
-#       - name: "gpt-5-codex" # upstream model name
+#       - name: "gpt-5-codex"   # upstream model name
 #         alias: "codex-latest" # client alias mapped to the upstream model
 #     excluded-models:
-#       - "gpt-5.2"         # exclude specific models (exact match)
+#       - "gpt-5.1"         # exclude specific models (exact match)
 #       - "gpt-5-*"         # wildcard matching prefix (e.g. gpt-5-medium, gpt-5-codex)
 #       - "*-mini"          # wildcard matching suffix (e.g. gpt-5-codex-mini)
 #       - "*codex*"         # wildcard matching substring (e.g. gpt-5-codex-low)
@@ -240,32 +134,22 @@ allow-unauthenticated: false
 #       X-Custom-Header: "custom-value"
 #     proxy-url: "socks5://proxy.example.com:1080" # optional: per-key proxy override
 #     models:
-#       - name: "claude-sonnet-4-5-20250929" # upstream model name
-#         alias: "claude-sonnet-latest" # client alias mapped to the upstream model
+#       - name: "claude-3-5-sonnet-20241022" # upstream model name
+#         alias: "claude-sonnet-latest"      # client alias mapped to the upstream model
 #     excluded-models:
 #       - "claude-opus-4-5-20251101" # exclude specific models (exact match)
-#       - "claude-4-*"               # wildcard matching prefix (e.g. claude-sonnet-4-5-20250929)
+#       - "claude-3-*"               # wildcard matching prefix (e.g. claude-3-7-sonnet-20250219)
 #       - "*-thinking"               # wildcard matching suffix (e.g. claude-opus-4-5-thinking)
-#       - "*haiku*"                  # wildcard matching substring (e.g. claude-haiku-4-5-20251001)
-
-# Kiro (AWS CodeWhisperer) configuration
-# kiro-key:
-#   - token-file: "~/.aws/sso/cache/kiro-auth-token.json"
-#     region: "us-east-1"
-#     proxy-url: "socks5://proxy.example.com:1080"
-#     agent-task-type: "dev"
-#     excluded-models:
-#       - "kiro-claude-haiku"
-
-# Kiro (AWS CodeWhisperer) configuration
-# Note: Kiro API currently only operates in us-east-1 region
-#kiro:
-#  - token-file: "~/.aws/sso/cache/kiro-auth-token.json" # path to Kiro token file
-#    agent-task-type: "" # optional: "vibe" or empty (API default)
-#  - access-token: "aoaAAAAA..." # or provide tokens directly
-#    refresh-token: "aorAAAAA..."
-#    profile-arn: "arn:aws:codewhisperer:us-east-1:..."
-#    proxy-url: "socks5://proxy.example.com:1080" # optional: proxy override
+#       - "*haiku*"                  # wildcard matching substring (e.g. claude-3-5-haiku-20241022)
+#     cloak:                         # optional: request cloaking for non-Claude-Code clients
+#       mode: "auto"                 # "auto" (default): cloak only when client is not Claude Code
+#                                    # "always": always apply cloaking
+#                                    # "never": never apply cloaking
+#       strict-mode: false           # false (default): prepend Claude Code prompt to user system messages
+#                                    # true: strip all user system messages, keep only Claude Code prompt
+#       sensitive-words:             # optional: words to obfuscate with zero-width characters
+#         - "API"
+#         - "proxy"
 
 # OpenAI compatibility providers
 # openai-compatibility:
@@ -293,19 +177,96 @@ allow-unauthenticated: false
 #     models:                                     # optional: map aliases to upstream model names
 #       - name: "gemini-2.5-flash"                # upstream model name
 #         alias: "vertex-flash"                   # client-visible alias
-#       - name: "gemini-1.5-pro"
+#       - name: "gemini-2.5-pro"
 #         alias: "vertex-pro"
+
+# Amp Integration
+# ampcode:
+#   # Configure upstream URL for Amp CLI OAuth and management features
+#   upstream-url: "https://ampcode.com"
+#   # Optional: Override API key for Amp upstream (otherwise uses env or file)
+#   upstream-api-key: ""
+#   # Per-client upstream API key mapping
+#   # Maps client API keys (from top-level api-keys) to different Amp upstream API keys.
+#   # Useful when different clients need to use different Amp accounts/quotas.
+#   # If a client key isn't mapped, falls back to upstream-api-key (default behavior).
+#   upstream-api-keys:
+#     - upstream-api-key: "amp_key_for_team_a"    # Upstream key to use for these clients
+#       api-keys:                                 # Client keys that use this upstream key
+#         - "your-api-key-1"
+#         - "your-api-key-2"
+#     - upstream-api-key: "amp_key_for_team_b"
+#       api-keys:
+#         - "your-api-key-3"
+#   # Restrict Amp management routes (/api/auth, /api/user, etc.) to localhost only (default: false)
+#   restrict-management-to-localhost: false
+#   # Force model mappings to run before checking local API keys (default: false)
+#   force-model-mappings: false
+#   # Amp Model Mappings
+#   # Route unavailable Amp models to alternative models available in your local proxy.
+#   # Useful when Amp CLI requests models you don't have access to (e.g., Claude Opus 4.5)
+#   # but you have a similar model available (e.g., Claude Sonnet 4).
+#   model-mappings:
+#     - from: "claude-opus-4-5-20251101"          # Model requested by Amp CLI
+#       to: "gemini-claude-opus-4-5-thinking"     # Route to this available model instead
+#     - from: "claude-sonnet-4-5-20250929"
+#       to: "gemini-claude-sonnet-4-5-thinking"
+#     - from: "claude-haiku-4-5-20251001"
+#       to: "gemini-2.5-flash"
+
+# Global OAuth model name aliases (per channel)
+# These aliases rename model IDs for both model listing and request routing.
+# Supported channels: gemini-cli, vertex, aistudio, antigravity, claude, codex, qwen, iflow.
+# NOTE: Aliases do not apply to gemini-api-key, codex-api-key, claude-api-key, openai-compatibility, vertex-api-key, or ampcode.
+# You can repeat the same name with different aliases to expose multiple client model names.
+oauth-model-alias:
+  antigravity:
+    - name: "rev19-uic3-1p"
+      alias: "gemini-2.5-computer-use-preview-10-2025"
+    - name: "gemini-3-pro-image"
+      alias: "gemini-3-pro-image-preview"
+    - name: "gemini-3-pro-high"
+      alias: "gemini-3-pro-preview"
+    - name: "gemini-3-flash"
+      alias: "gemini-3-flash-preview"
+    - name: "claude-sonnet-4-5"
+      alias: "gemini-claude-sonnet-4-5"
+    - name: "claude-sonnet-4-5-thinking"
+      alias: "gemini-claude-sonnet-4-5-thinking"
+    - name: "claude-opus-4-5-thinking"
+      alias: "gemini-claude-opus-4-5-thinking"
+#   gemini-cli:
+#     - name: "gemini-2.5-pro"          # original model name under this channel
+#       alias: "g2.5p"                  # client-visible alias
+#       fork: true                      # when true, keep original and also add the alias as an extra model (default: false)
+#   vertex:
+#     - name: "gemini-2.5-pro"
+#       alias: "g2.5p"
+#   aistudio:
+#     - name: "gemini-2.5-pro"
+#       alias: "g2.5p"
+#   claude:
+#     - name: "claude-sonnet-4-5-20250929"
+#       alias: "cs4.5"
+#   codex:
+#     - name: "gpt-5"
+#       alias: "g5"
+#   qwen:
+#     - name: "qwen3-coder-plus"
+#       alias: "qwen-plus"
+#   iflow:
+#     - name: "glm-4.7"
+#       alias: "glm-god"
 
 # OAuth provider excluded models
 # oauth-excluded-models:
 #   gemini-cli:
 #     - "gemini-2.5-pro"     # exclude specific models (exact match)
 #     - "gemini-2.5-*"       # wildcard matching prefix (e.g. gemini-2.5-flash, gemini-2.5-pro)
-#     - "*-preview"          # wildcard matching suffix (e.g. gemini-3-pro-preview, gemini-3-flash-preview)
+#     - "*-preview"          # wildcard matching suffix (e.g. gemini-3-pro-preview)
 #     - "*flash*"            # wildcard matching substring (e.g. gemini-2.5-flash-lite)
 #   vertex:
 #     - "gemini-3-pro-preview"
-#     - "gemini-3-flash-preview"
 #   aistudio:
 #     - "gemini-3-pro-preview"
 #   antigravity:
@@ -316,8 +277,8 @@ allow-unauthenticated: false
 #     - "gpt-5-codex-mini"
 #   qwen:
 #     - "vision-model"
-#   kiro:
-#     - "kiro-claude-haiku"
+#   iflow:
+#     - "tstars2.0"
 
 # Optional payload configuration
 # payload:

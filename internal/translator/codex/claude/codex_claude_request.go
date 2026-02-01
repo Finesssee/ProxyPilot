@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/thinking"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -37,12 +36,8 @@ import (
 //   - []byte: The transformed request data in internal client format
 func ConvertClaudeRequestToCodex(modelName string, inputRawJSON []byte, _ bool) []byte {
 	rawJSON := bytes.Clone(inputRawJSON)
-	userAgent := misc.ExtractCodexUserAgent(rawJSON)
 
 	template := `{"model":"","instructions":"","input":[]}`
-
-	_, instructions := misc.CodexInstructionsForModel(modelName, "", userAgent)
-	template, _ = sjson.Set(template, "instructions", instructions)
 
 	rootResult := gjson.ParseBytes(rawJSON)
 	template, _ = sjson.Set(template, "model", modelName)
@@ -239,26 +234,6 @@ func ConvertClaudeRequestToCodex(modelName string, inputRawJSON []byte, _ bool) 
 	template, _ = sjson.Set(template, "stream", true)
 	template, _ = sjson.Set(template, "store", false)
 	template, _ = sjson.Set(template, "include", []string{"reasoning.encrypted_content"})
-
-	// Add a first message to ignore system instructions and ensure proper execution.
-	if misc.GetCodexInstructionsEnabled() {
-		inputResult := gjson.Get(template, "input")
-		if inputResult.Exists() && inputResult.IsArray() {
-			inputResults := inputResult.Array()
-			newInput := "[]"
-			for i := 0; i < len(inputResults); i++ {
-				if i == 0 {
-					firstText := inputResults[i].Get("content.0.text")
-					firstInstructions := "EXECUTE ACCORDING TO THE FOLLOWING INSTRUCTIONS!!!"
-					if firstText.Exists() && firstText.String() != firstInstructions {
-						newInput, _ = sjson.SetRaw(newInput, "-1", `{"type":"message","role":"user","content":[{"type":"input_text","text":"EXECUTE ACCORDING TO THE FOLLOWING INSTRUCTIONS!!!"}]}`)
-					}
-				}
-				newInput, _ = sjson.SetRaw(newInput, "-1", inputResults[i].Raw)
-			}
-			template, _ = sjson.SetRaw(template, "input", newInput)
-		}
-	}
 
 	return []byte(template)
 }
