@@ -337,8 +337,8 @@ func GetActiveConnections() int64 {
 	return atomic.LoadInt64(&activeConnectionsCount)
 }
 
-// GetRequestMonitor returns a stub list of recent requests.
-// TODO: Implement actual request monitoring if needed.
+// GetRequestMonitor returns an empty list as request monitoring is not currently required.
+// This stub exists for API compatibility and can be extended if monitoring needs arise.
 func GetRequestMonitor() []any {
 	return []any{}
 }
