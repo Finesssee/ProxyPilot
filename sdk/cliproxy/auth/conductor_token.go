@@ -18,17 +18,22 @@ import (
 // every few seconds and triggers refresh operations when required.
 // Only one loop is kept alive; starting a new one cancels the previous run.
 func (m *Manager) StartAutoRefresh(parent context.Context, interval time.Duration) {
+	// Use caller-provided interval if valid, otherwise fall back to default
 	if interval <= 0 || interval > refreshCheckInterval {
 		interval = refreshCheckInterval
-	} else {
-		interval = refreshCheckInterval
 	}
+	// Note: removed the else branch that was incorrectly overwriting valid intervals
+
+	// Lock to prevent race condition on refreshCancel
+	m.mu.Lock()
 	if m.refreshCancel != nil {
 		m.refreshCancel()
 		m.refreshCancel = nil
 	}
 	ctx, cancel := context.WithCancel(parent)
 	m.refreshCancel = cancel
+	m.mu.Unlock()
+
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -46,6 +51,8 @@ func (m *Manager) StartAutoRefresh(parent context.Context, interval time.Duratio
 
 // StopAutoRefresh cancels the background refresh loop, if running.
 func (m *Manager) StopAutoRefresh() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.refreshCancel != nil {
 		m.refreshCancel()
 		m.refreshCancel = nil
@@ -313,7 +320,8 @@ func (m *Manager) refreshAuth(ctx context.Context, id string) {
 	auth := m.auths[id]
 	var exec ProviderExecutor
 	if auth != nil {
-		exec = m.executors[auth.Provider]
+		// Use executorKeyFromAuth to handle compat/provider_key auths correctly
+		exec = m.executors[executorKeyFromAuth(auth)]
 	}
 	m.mu.RUnlock()
 	if auth == nil || exec == nil {

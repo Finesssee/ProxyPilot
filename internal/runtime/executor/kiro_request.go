@@ -68,6 +68,13 @@ func isRetryableError(err error) bool {
 		return false
 	}
 
+	// Check for EventStreamError FIRST - fatal and malformed errors are never retryable
+	// This must come before string pattern matching to avoid false positives
+	var streamErr *EventStreamError
+	if errors.As(err, &streamErr) {
+		return false
+	}
+
 	// Check for net.Error (timeout, temporary)
 	var netErr net.Error
 	if errors.As(err, &netErr) {
@@ -122,12 +129,6 @@ func isRetryableError(err error) bool {
 			log.Debugf("kiro: isRetryableError: pattern '%s' matched in error: %s", pattern, errMsg)
 			return true
 		}
-	}
-
-	// Check for EventStreamError - fatal and malformed errors are not retryable
-	var streamErr *EventStreamError
-	if errors.As(err, &streamErr) {
-		return false
 	}
 
 	return false
@@ -249,8 +250,15 @@ func applyDynamicFingerprint(req *http.Request, auth *cliproxyauth.Auth) {
 		req.Header.Set("X-Amz-User-Agent", fp.BuildAmzUserAgent())
 		req.Header.Set("x-amzn-kiro-agent-mode", kiroIDEAgentModeSpec)
 
+		// Safely truncate tokenKey for logging (avoid panic if shorter than 8 chars)
+		tokenKeyPreview := tokenKey
+		if len(tokenKey) > 8 {
+			tokenKeyPreview = tokenKey[:8] + "..."
+		} else if len(tokenKey) > 0 {
+			tokenKeyPreview = tokenKey[:min(len(tokenKey), 4)] + "..."
+		}
 		log.Debugf("kiro: using dynamic fingerprint for token %s (SDK:%s, OS:%s/%s, Kiro:%s)",
-			tokenKey[:8]+"...", fp.SDKVersion, fp.OSType, fp.OSVersion, fp.KiroVersion)
+			tokenKeyPreview, fp.SDKVersion, fp.OSType, fp.OSVersion, fp.KiroVersion)
 	} else {
 		// Use static Amazon Q CLI style headers for non-IDC auth
 		req.Header.Set("User-Agent", kiroUserAgent)

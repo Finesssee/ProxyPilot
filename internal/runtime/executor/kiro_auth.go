@@ -413,8 +413,8 @@ func (e *KiroExecutor) isTokenExpired(accessToken string) bool {
 	// JWT tokens have 3 parts separated by dots
 	parts := strings.Split(accessToken, ".")
 	if len(parts) != 3 {
-		// Not a JWT token, assume not expired
-		return false
+		// Not a JWT token, treat as expired to trigger refresh
+		return true
 	}
 
 	// Decode the payload (second part)
@@ -432,7 +432,8 @@ func (e *KiroExecutor) isTokenExpired(accessToken string) bool {
 		decoded, err = base64.URLEncoding.DecodeString(payload)
 		if err != nil {
 			log.Debugf("kiro: failed to decode JWT payload: %v", err)
-			return false
+			// Parse failure - treat as expired per function contract
+			return true
 		}
 	}
 
