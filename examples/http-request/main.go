@@ -70,10 +70,6 @@ func (EchoExecutor) CountTokens(context.Context, *coreauth.Auth, clipexec.Reques
 	return clipexec.Response{}, errors.New("echo executor: CountTokens not implemented")
 }
 
-func (EchoExecutor) Embed(context.Context, *coreauth.Auth, clipexec.Request, clipexec.Options) (clipexec.Response, error) {
-	return clipexec.Response{}, errors.New("echo executor: Embed not implemented")
-}
-
 func main() {
 	log.SetLevel(log.InfoLevel)
 

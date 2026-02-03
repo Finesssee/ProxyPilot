@@ -27,7 +27,6 @@ static/*
 !static/icon.png
 !static/icon.ico
 test/
-refs/*
 dist/*
 .proxypilot/*
 memory/*
@@ -56,8 +55,8 @@ GEMINI.md
 
 # Tooling metadata
 .vscode/*
-.claude/*
 .codex/*
+.claude/*
 .gemini/*
 .serena/*
 .agent/*
@@ -109,7 +108,6 @@ tray_click_log.txt
 node_modules/
 dist/
 .turbo/
-.env
 build/
 
 # Local files

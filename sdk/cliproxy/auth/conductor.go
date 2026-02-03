@@ -658,9 +658,6 @@ func (m *Manager) normalizeProviders(providers []string) []string {
 	return result
 }
 
-// rotateProviders applies round-robin rotation to the provider list for load balancing.
-// Special handling: gemini-3 models with both "antigravity" and "gemini-cli" providers
-// preserve their order to prefer antigravity for these specific models.
 func (m *Manager) rotateProviders(model string, providers []string) []string {
 	if len(providers) == 0 {
 		return providers
