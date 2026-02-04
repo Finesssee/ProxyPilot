@@ -33,7 +33,9 @@ func TestOpenAIToCodex_PreservesBuiltinTools(t *testing.T) {
 	}
 }
 
-func TestOpenAIResponsesToOpenAI_PreservesBuiltinTools(t *testing.T) {
+func TestOpenAIResponsesToOpenAI_DropsBuiltinTools(t *testing.T) {
+	// Upstream v6.7.47 intentionally drops non-function tools because
+	// "almost all providers lack built-in tools" support.
 	in := []byte(`{
 		"model":"gpt-5",
 		"input":[{"role":"user","content":[{"type":"input_text","text":"hi"}]}],
@@ -42,13 +44,8 @@ func TestOpenAIResponsesToOpenAI_PreservesBuiltinTools(t *testing.T) {
 
 	out := sdktranslator.TranslateRequest(sdktranslator.FormatOpenAIResponse, sdktranslator.FormatOpenAI, "gpt-5", in, false)
 
-	if got := gjson.GetBytes(out, "tools.#").Int(); got != 1 {
-		t.Fatalf("expected 1 tool, got %d: %s", got, string(out))
-	}
-	if got := gjson.GetBytes(out, "tools.0.type").String(); got != "web_search" {
-		t.Fatalf("expected tools[0].type=web_search, got %q: %s", got, string(out))
-	}
-	if got := gjson.GetBytes(out, "tools.0.search_context_size").String(); got != "low" {
-		t.Fatalf("expected tools[0].search_context_size=low, got %q: %s", got, string(out))
+	// Built-in tools (non-function type) are now dropped
+	if got := gjson.GetBytes(out, "tools.#").Int(); got != 0 {
+		t.Fatalf("expected 0 tools (built-in tools dropped), got %d: %s", got, string(out))
 	}
 }

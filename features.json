@@ -1,0 +1,126 @@
+{
+  "project": "ProxyPilot",
+  "version": "0.3.0",
+  "upstream": "CLIProxyAPI v6.7.40",
+  "features": [
+    {
+      "id": 1,
+      "name": "Version sync",
+      "description": "Version strings synced to 0.3.0 in versioninfo.json files",
+      "passes": true
+    },
+    {
+      "id": 2,
+      "name": "Dead code removal",
+      "description": "Deprecated RouteModule V1 interface removed",
+      "passes": true
+    },
+    {
+      "id": 3,
+      "name": "conductor.go split",
+      "description": "Split 2,280-line conductor.go into 3 focused modules",
+      "passes": true
+    },
+    {
+      "id": 4,
+      "name": "kiro_executor.go split",
+      "description": "Split 3,891-line kiro_executor.go into 4 focused modules",
+      "passes": true
+    },
+    {
+      "id": 5,
+      "name": "codex_prompt_budget.go split",
+      "description": "Split 2,762-line codex_prompt_budget.go into 3 focused modules",
+      "passes": true
+    },
+    {
+      "id": 6,
+      "name": "Auth package tests",
+      "description": "Unit tests for claude, codex, gemini auth packages",
+      "passes": true
+    },
+    {
+      "id": 7,
+      "name": "Trimming loop fix",
+      "description": "Fixed prompt budget trimming loop that never executed",
+      "passes": true
+    },
+    {
+      "id": 8,
+      "name": "Token analysis recompute",
+      "description": "Token analysis recomputed after scaffold injection",
+      "passes": true
+    },
+    {
+      "id": 9,
+      "name": "Body read error handling",
+      "description": "Return 400 on body read error instead of empty body",
+      "passes": true
+    },
+    {
+      "id": 10,
+      "name": "Header leak fix",
+      "description": "Strip internal header regardless of memory store state",
+      "passes": true
+    },
+    {
+      "id": 11,
+      "name": "TokenKey panic fix",
+      "description": "Safe truncation of tokenKey for logging",
+      "passes": true
+    },
+    {
+      "id": 12,
+      "name": "EventStreamError order fix",
+      "description": "Check EventStreamError before string patterns in isRetryableError",
+      "passes": true
+    },
+    {
+      "id": 13,
+      "name": "isTokenExpired logic fix",
+      "description": "Return true on parse failure per function contract",
+      "passes": true
+    },
+    {
+      "id": 14,
+      "name": "StartAutoRefresh interval fix",
+      "description": "Respect caller-provided interval parameter",
+      "passes": true
+    },
+    {
+      "id": 15,
+      "name": "refreshCancel race fix",
+      "description": "Protect refreshCancel with mutex",
+      "passes": true
+    },
+    {
+      "id": 16,
+      "name": "executorKeyFromAuth fix",
+      "description": "Use correct key lookup for compat auths in refreshAuth",
+      "passes": true
+    },
+    {
+      "id": 17,
+      "name": "Auth packages code review",
+      "description": "Codex review of internal/auth/* packages",
+      "passes": false
+    },
+    {
+      "id": 18,
+      "name": "Translator packages code review",
+      "description": "Codex review of internal/translator/* packages",
+      "passes": false
+    },
+    {
+      "id": 19,
+      "name": "API handlers code review",
+      "description": "Codex review of internal/api/handlers/* packages",
+      "passes": false
+    }
+  ],
+  "summary": {
+    "total": 19,
+    "passing": 16,
+    "failing": 3
+  }
+}
