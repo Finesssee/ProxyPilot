@@ -33,9 +33,7 @@ func TestOpenAIToCodex_PreservesBuiltinTools(t *testing.T) {
 	}
 }
 
-func TestOpenAIResponsesToOpenAI_DropsBuiltinTools(t *testing.T) {
-	// Upstream v6.7.47 intentionally drops non-function tools because
-	// "almost all providers lack built-in tools" support.
+func TestOpenAIResponsesToOpenAI_IgnoresBuiltinTools(t *testing.T) {
 	in := []byte(`{
 		"model":"gpt-5",
 		"input":[{"role":"user","content":[{"type":"input_text","text":"hi"}]}],
@@ -44,8 +42,7 @@ func TestOpenAIResponsesToOpenAI_DropsBuiltinTools(t *testing.T) {
 
 	out := sdktranslator.TranslateRequest(sdktranslator.FormatOpenAIResponse, sdktranslator.FormatOpenAI, "gpt-5", in, false)
 
-	// Built-in tools (non-function type) are now dropped
 	if got := gjson.GetBytes(out, "tools.#").Int(); got != 0 {
-		t.Fatalf("expected 0 tools (built-in tools dropped), got %d: %s", got, string(out))
+		t.Fatalf("expected 0 tools (builtin tools not supported in Chat Completions), got %d: %s", got, string(out))
 	}
 }
