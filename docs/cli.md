@@ -76,7 +76,6 @@ proxypilot --zhipu-login             # Add Zhipu AI API key
 ```bash
 proxypilot --vertex-import <file>    # Import Vertex service account key JSON
 proxypilot --kiro-import             # Import Kiro token from Kiro IDE
-proxypilot --amazonq-import          # Import Amazon Q CLI token
 ```
 
 ## Agent Configuration

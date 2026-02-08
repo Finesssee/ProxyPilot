@@ -112,7 +112,6 @@ Run OAuth login for your provider:
 ./proxypilot --antigravity-login   # Antigravity
 
 # Import providers (from existing CLI tools)
-./proxypilot --amazonq-import      # Amazon Q CLI (run 'q login' first)
 ./proxypilot --kiro-import         # Kiro IDE token
 
 # API key providers (prompts for key)
