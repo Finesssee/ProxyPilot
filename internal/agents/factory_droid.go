@@ -254,17 +254,12 @@ func buildDroidModels(proxyURL string) []map[string]any {
 		// OpenAI latest
 		{"GPT 5.2", "gpt-5.2", "openai"},
 		{"GPT 5.2 Codex", "gpt-5.2-codex", "openai"},
-		{"GPT 5.1 Codex Max", "gpt-5.1-codex-max", "openai"},
+		{"GPT 5.3 Codex", "gpt-5.3-codex", "openai"},
 
 		// Kiro (AWS)
 		{"Kiro Claude Opus 4.5", "kiro-claude-opus-4-5", "kiro"},
 		{"Kiro Claude Sonnet 4.5", "kiro-claude-sonnet-4-5", "kiro"},
 		{"Kiro Claude Haiku 4.5", "kiro-claude-haiku-4-5", "kiro"},
-
-		// Amazon Q
-		{"Amazon Q Auto", "amazonq-auto", "amazonq"},
-		{"Amazon Q Claude Opus 4.5", "amazonq-claude-opus-4.5", "amazonq"},
-		{"Amazon Q Claude Sonnet 4.5", "amazonq-claude-sonnet-4.5", "amazonq"},
 
 		// GitHub Copilot
 		{"Copilot GPT 5.2", "gpt-5.2", "github-copilot"},
