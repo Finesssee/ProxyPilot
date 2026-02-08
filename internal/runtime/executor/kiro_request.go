@@ -406,11 +406,8 @@ func getKiroEndpointConfigs(auth *cliproxyauth.Auth) []kiroEndpointConfig {
 		name := strings.ToLower(cfg.Name)
 		// Check for matches
 		// CodeWhisperer aliases: codewhisperer, ide
-		// AmazonQ aliases: amazonq, q, cli
 		isMatch := false
 		if (preference == "codewhisperer" || preference == "ide") && name == "codewhisperer" {
-			isMatch = true
-		} else if (preference == "amazonq" || preference == "q" || preference == "cli") && name == "amazonq" {
 			isMatch = true
 		}
 

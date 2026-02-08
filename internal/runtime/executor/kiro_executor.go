@@ -35,10 +35,10 @@ const (
 	// Event Stream error type constants
 	ErrStreamFatal     = "fatal"     // Connection/authentication errors, not recoverable
 	ErrStreamMalformed = "malformed" // Format errors, data cannot be parsed
-	// kiroUserAgent matches amq2api format for User-Agent header (Amazon Q CLI style)
+	// kiroUserAgent matches the User-Agent header for Kiro IDE
 	kiroUserAgent = "aws-sdk-rust/1.3.9 os/macos lang/rust/1.87.0"
-	// kiroFullUserAgent is the complete x-amz-user-agent header matching amq2api (Amazon Q CLI style)
-	kiroFullUserAgent = "aws-sdk-rust/1.3.9 ua/2.1 api/ssooidc/1.88.0 os/macos lang/rust/1.87.0 m/E app/AmazonQ-For-CLI"
+	// kiroFullUserAgent is the complete x-amz-user-agent header
+	kiroFullUserAgent = "aws-sdk-rust/1.3.9 ua/2.1 api/ssooidc/1.88.0 os/macos lang/rust/1.87.0 m/E"
 
 	// Kiro IDE style headers (from kiro2api - for IDC auth)
 	kiroIDEUserAgent     = "aws-sdk-js/1.0.18 ua/2.1 os/darwin#25.0.0 lang/js md/nodejs#20.16.0 api/codewhispererstreaming#1.0.18 m/E KiroIDE-0.2.13-66c23a8c5d15afabec89ef9954ef52a119f10d369df04d548fc6c1eac694b0d1"
@@ -100,11 +100,10 @@ var (
 // Origin and X-Amz-Target header values.
 //
 // Based on reference implementations:
-// - amq2api-main: Uses Amazon Q endpoint with CLI origin and AmazonQDeveloperStreamingService target
 // - AIClient-2-API: Uses CodeWhisperer endpoint with AI_EDITOR origin and AmazonCodeWhispererStreamingService target
 type kiroEndpointConfig struct {
 	URL       string // Endpoint URL
-	Origin    string // Request Origin: "CLI" for Amazon Q quota, "AI_EDITOR" for Kiro IDE quota
+	Origin    string // Request Origin: "AI_EDITOR" for Kiro IDE quota
 	AmzTarget string // X-Amz-Target header value
 	Name      string // Endpoint name for logging
 }
@@ -114,14 +113,12 @@ type kiroEndpointConfig struct {
 //
 // CRITICAL: Each endpoint MUST use its compatible Origin and AmzTarget values:
 // - CodeWhisperer endpoint (codewhisperer.us-east-1.amazonaws.com): Uses AI_EDITOR origin and AmazonCodeWhispererStreamingService target
-// - Amazon Q endpoint (q.us-east-1.amazonaws.com): Uses CLI origin and AmazonQDeveloperStreamingService target
 //
 // Mismatched combinations will result in 403 Forbidden errors.
 //
-// NOTE: CodeWhisperer is set as the default endpoint because:
+// NOTE: CodeWhisperer is the default endpoint because:
 // 1. Most tokens come from Kiro IDE / VSCode extensions (AWS Builder ID auth)
 // 2. These tokens use AI_EDITOR origin which is only compatible with CodeWhisperer endpoint
-// 3. Amazon Q endpoint requires CLI origin which is for Amazon Q CLI tokens
 // This matches the AIClient-2-API-main project's configuration.
 var kiroEndpointConfigs = []kiroEndpointConfig{
 	{
@@ -129,12 +126,6 @@ var kiroEndpointConfigs = []kiroEndpointConfig{
 		Origin:    "AI_EDITOR",
 		AmzTarget: "AmazonCodeWhispererStreamingService.GenerateAssistantResponse",
 		Name:      "CodeWhisperer",
-	},
-	{
-		URL:       "https://q.us-east-1.amazonaws.com/",
-		Origin:    "CLI",
-		AmzTarget: "AmazonQDeveloperStreamingService.SendMessage",
-		Name:      "AmazonQ",
 	},
 }
 
@@ -853,14 +844,6 @@ func (e *KiroExecutor) executeStreamWithRetry(ctx context.Context, auth *cliprox
 // mapModelToKiro maps external model names to Kiro model IDs.
 func (e *KiroExecutor) mapModelToKiro(model string) string {
 	modelMap := map[string]string{
-		// Amazon Q format (amazonq- prefix) - same API as Kiro
-		"amazonq-auto":                       "auto",
-		"amazonq-claude-opus-4-5":            "claude-opus-4.5",
-		"amazonq-claude-sonnet-4-5":          "claude-sonnet-4.5",
-		"amazonq-claude-sonnet-4-5-20250929": "claude-sonnet-4.5",
-		"amazonq-claude-sonnet-4":            "claude-sonnet-4",
-		"amazonq-claude-sonnet-4-20250514":   "claude-sonnet-4",
-		"amazonq-claude-haiku-4-5":           "claude-haiku-4.5",
 		// Kiro format (kiro- prefix)
 		"kiro-claude-opus-4-5":            "claude-opus-4.5",
 		"kiro-claude-sonnet-4-5":          "claude-sonnet-4.5",

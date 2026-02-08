@@ -59,7 +59,7 @@ func tokenizerForModel(model string) (*TokenizerWrapper, error) {
 
 	// Claude models use cl100k_base with 1.1 adjustment factor
 	// because tiktoken may underestimate Claude's actual token count
-	if strings.Contains(sanitized, "claude") || strings.HasPrefix(sanitized, "kiro-") || strings.HasPrefix(sanitized, "amazonq-") {
+	if strings.Contains(sanitized, "claude") || strings.HasPrefix(sanitized, "kiro-") {
 		enc, err := tokenizer.Get(tokenizer.Cl100kBase)
 		if err != nil {
 			return nil, err
