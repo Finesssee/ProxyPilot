@@ -46,7 +46,6 @@ func collectModelGroups() []ModelGroup {
 		{"MiniMax", registry.GetMiniMaxModels()},
 		{"Zhipu", registry.GetZhipuModels()},
 		{"Kiro", registry.GetKiroModels()},
-		{"Amazon Q", registry.GetAmazonQModels()},
 		{"GitHub Copilot", registry.GetGitHubCopilotModels()},
 	}
 
