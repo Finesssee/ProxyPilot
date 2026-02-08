@@ -14,7 +14,6 @@ const providers = [
   { id: 'qwen', name: 'Qwen', color: 'oklch(0.60 0.14 280)', icon: '🔮' },
   { id: 'antigravity', name: 'Antigravity', color: 'oklch(0.65 0.20 320)', icon: '🚀' },
   { id: 'kiro', name: 'Kiro', color: 'oklch(0.58 0.17 200)', icon: '🛸' },
-  { id: 'amazonq', name: 'Amazon Q', color: 'oklch(0.55 0.16 30)', icon: '📦', isImport: true },
   { id: 'minimax', name: 'MiniMax', color: 'oklch(0.60 0.18 60)', icon: '🔶', isApiKey: true },
   { id: 'zhipu', name: 'Zhipu', color: 'oklch(0.55 0.15 180)', icon: '🧠', isApiKey: true },
 ] as const
@@ -253,7 +252,6 @@ export function ProviderLogins() {
     qwen: authFiles.some(f => f.toLowerCase().includes('qwen')),
     antigravity: authFiles.some(f => f.toLowerCase().includes('antigravity')),
     kiro: authFiles.some(f => f.toLowerCase().includes('kiro')),
-    amazonq: authFiles.some(f => f.toLowerCase().includes('amazonq')),
     minimax: authFiles.some(f => f.toLowerCase().includes('minimax')),
     zhipu: authFiles.some(f => f.toLowerCase().includes('zhipu')),
   }
@@ -318,17 +316,7 @@ export function ProviderLogins() {
   const handleImport = async (provider: string) => {
     setLoading(`oauth-${provider}`)
     try {
-      if (provider === 'amazonq') {
-        const res = await mgmtFetch('/v0/management/amazonq-import', { method: 'POST' })
-        if (res.success) {
-          showToast(`Amazon Q CLI token imported: ${res.email || 'success'}`, 'success')
-          // Refresh auth files list
-          const authRes = await mgmtFetch('/v0/management/auth-files')
-          setAuthFileList(authRes.files || [])
-        } else {
-          showToast(res.message || 'Import failed', 'error')
-        }
-      }
+      // Import handlers for other providers can be added here
     } catch (e) {
       showToast(e instanceof Error ? e.message : String(e), 'error')
     } finally {

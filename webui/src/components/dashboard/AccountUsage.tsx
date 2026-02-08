@@ -35,7 +35,6 @@ const providerColors: Record<string, string> = {
     qwen: 'oklch(0.60 0.14 280)',
     antigravity: 'oklch(0.65 0.20 320)',
     kiro: 'oklch(0.58 0.17 200)',
-    amazonq: 'oklch(0.55 0.16 30)',
     minimax: 'oklch(0.60 0.18 60)',
     zhipu: 'oklch(0.55 0.15 180)',
 }
