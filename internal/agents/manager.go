@@ -101,7 +101,6 @@ func (m *Manager) registerDefaultHandlers() {
 		NewCursorHandler(),
 		NewOpenCodeHandler(),
 		NewFactoryDroidHandler(),
-		NewAmazonQCLIHandler(),
 	}
 
 	for _, h := range handlers {
