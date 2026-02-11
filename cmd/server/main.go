@@ -16,11 +16,13 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	configaccess "github.com/router-for-me/CLIProxyAPI/v6/internal/access/config_access"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/buildinfo"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/cmd"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/desktopctl"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/managementasset"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/store"
 	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/translator"
@@ -28,7 +30,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
-	configaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access/config"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
 )
@@ -72,6 +73,8 @@ func main() {
 	var codexLogin bool
 	var claudeLogin bool
 	var qwenLogin bool
+	var iflowLogin bool
+	var iflowCookie bool
 	var noBrowser bool
 	var oauthCallbackPort int
 	var antigravityLogin bool
@@ -83,6 +86,7 @@ func main() {
 	var antigravityImport bool
 	var minimaxLogin bool
 	var zhipuLogin bool
+	var kimiLogin bool
 	// var githubCopilotLogin bool // REMOVED - GitHub Copilot excluded
 	var detectAgents bool
 	var setupClaude bool
@@ -138,6 +142,8 @@ func main() {
 	flag.BoolVar(&codexLogin, "codex-login", false, "Login to Codex using OAuth")
 	flag.BoolVar(&claudeLogin, "claude-login", false, "Login to Claude using OAuth")
 	flag.BoolVar(&qwenLogin, "qwen-login", false, "Login to Qwen using OAuth")
+	flag.BoolVar(&iflowLogin, "iflow-login", false, "Login to iFlow using OAuth")
+	flag.BoolVar(&iflowCookie, "iflow-cookie", false, "Login to iFlow using Cookie")
 	flag.BoolVar(&noBrowser, "no-browser", false, "Don't open browser automatically for OAuth")
 	flag.BoolVar(&useIncognito, "incognito", false, "Open browser in incognito/private mode for OAuth (useful for multiple accounts)")
 	flag.BoolVar(&noIncognito, "no-incognito", false, "Force disable incognito mode (uses existing browser session)")
@@ -151,6 +157,7 @@ func main() {
 	flag.BoolVar(&antigravityImport, "antigravity-import", false, "Import Antigravity token from Antigravity IDE")
 	flag.BoolVar(&minimaxLogin, "minimax-login", false, "Add MiniMax API key")
 	flag.BoolVar(&zhipuLogin, "zhipu-login", false, "Add Zhipu AI API key")
+	flag.BoolVar(&kimiLogin, "kimi-login", false, "Login to Kimi using OAuth")
 	// GitHub Copilot login removed
 	flag.BoolVar(&detectAgents, "detect-agents", false, "Detect installed CLI agents")
 	flag.BoolVar(&setupClaude, "setup-claude", false, "Configure Claude Code to use ProxyPilot")
@@ -616,6 +623,7 @@ func main() {
 	} else {
 		cfg.AuthDir = resolvedAuthDir
 	}
+	managementasset.SetCurrentConfig(cfg)
 
 	// Create login options to be used in authentication flows.
 	options := &cmd.LoginOptions{
@@ -635,7 +643,7 @@ func main() {
 	}
 
 	// Register built-in access providers before constructing services.
-	configaccess.Register()
+	configaccess.Register(&cfg.SDKConfig)
 
 	// Handle different command modes based on the provided flags.
 
@@ -723,9 +731,6 @@ func main() {
 	} else if antigravityLogin {
 		// Handle Antigravity login
 		cmd.DoAntigravityLogin(cfg, options)
-	} else if false { // GitHub Copilot removed
-		// Handle GitHub Copilot login
-		// GitHub Copilot login removed
 	} else if codexLogin {
 		// Handle Codex login
 		cmd.DoCodexLogin(cfg, options)
@@ -764,6 +769,12 @@ func main() {
 		cmd.DoMiniMaxLogin(cfg, options)
 	} else if zhipuLogin {
 		cmd.DoZhipuLogin(cfg, options)
+	} else if iflowLogin {
+		cmd.DoIFlowLogin(cfg, options)
+	} else if iflowCookie {
+		cmd.DoIFlowCookieAuth(cfg, options)
+	} else if kimiLogin {
+		cmd.DoKimiLogin(cfg, options)
 	} else if detectAgents {
 		cmd.DoDetectAgents()
 	} else if setupClaude {
@@ -812,6 +823,7 @@ func main() {
 		}
 		// Use standalone mode (no keep-alive shutdown) when password was auto-generated
 		// Keep-alive shutdown is only needed when the tray app spawns the server as subprocess
+		managementasset.StartAutoUpdater(context.Background(), configFilePath)
 		if autoGenPassword {
 			cmd.StartServiceStandalone(cfg, configFilePath, password)
 		} else {

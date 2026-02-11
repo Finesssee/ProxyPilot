@@ -6,15 +6,29 @@ import (
 	"sort"
 	"strings"
 
-	sdkConfig "github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
+	internalconfig "github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	log "github.com/sirupsen/logrus"
 )
+
+// buildProvider constructs a Provider from the global registry using the provider config.
+func buildProvider(cfg *internalconfig.AccessProvider, _ *internalconfig.SDKConfig) (Provider, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("access: nil provider config")
+	}
+	registryMu.RLock()
+	p, ok := registry[cfg.Type]
+	registryMu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("access: provider type %q is not registered", cfg.Type)
+	}
+	return p, nil
+}
 
 // ReconcileProviders builds the desired provider list by reusing existing providers when possible
 // and creating or removing providers only when their configuration changed. It returns the final
 // ordered provider slice along with the identifiers of providers that were added, updated, or
 // removed compared to the previous configuration.
-func ReconcileProviders(oldCfg, newCfg *sdkConfig.SDKConfig, existing []Provider) (result []Provider, added, updated, removed []string, err error) {
+func ReconcileProviders(oldCfg, newCfg *internalconfig.SDKConfig, existing []Provider) (result []Provider, added, updated, removed []string, err error) {
 	if newCfg == nil {
 		return nil, nil, nil, nil, nil
 	}
@@ -34,7 +48,7 @@ func ReconcileProviders(oldCfg, newCfg *sdkConfig.SDKConfig, existing []Provider
 	finalIDs := make(map[string]struct{}, len(newEntries))
 
 	isInlineProvider := func(id string) bool {
-		return strings.EqualFold(id, sdkConfig.DefaultAccessProviderName)
+		return strings.EqualFold(id, internalconfig.DefaultAccessProviderName)
 	}
 	appendChange := func(list *[]string, id string) {
 		if isInlineProvider(id) {
@@ -49,7 +63,7 @@ func ReconcileProviders(oldCfg, newCfg *sdkConfig.SDKConfig, existing []Provider
 			continue
 		}
 
-		forceRebuild := strings.EqualFold(strings.TrimSpace(providerCfg.Type), sdkConfig.AccessProviderTypeConfigAPIKey)
+		forceRebuild := strings.EqualFold(strings.TrimSpace(providerCfg.Type), internalconfig.AccessProviderTypeConfigAPIKey)
 		if oldCfgProvider, ok := oldCfgMap[key]; ok {
 			isAliased := oldCfgProvider == providerCfg
 			if !forceRebuild && !isAliased && providerConfigEqual(oldCfgProvider, providerCfg) {
@@ -61,7 +75,7 @@ func ReconcileProviders(oldCfg, newCfg *sdkConfig.SDKConfig, existing []Provider
 			}
 		}
 
-		provider, buildErr := BuildProvider(providerCfg, newCfg)
+		provider, buildErr := buildProvider(providerCfg, newCfg)
 		if buildErr != nil {
 			return nil, nil, nil, nil, buildErr
 		}
@@ -79,7 +93,7 @@ func ReconcileProviders(oldCfg, newCfg *sdkConfig.SDKConfig, existing []Provider
 	}
 
 	if len(result) == 0 {
-		if inline := sdkConfig.MakeInlineAPIKeyProvider(newCfg.APIKeys); inline != nil {
+		if inline := internalconfig.MakeInlineAPIKeyProvider(newCfg.APIKeys); inline != nil {
 			key := providerIdentifier(inline)
 			if key != "" {
 				if oldCfgProvider, ok := oldCfgMap[key]; ok {
@@ -91,7 +105,7 @@ func ReconcileProviders(oldCfg, newCfg *sdkConfig.SDKConfig, existing []Provider
 						}
 					}
 				}
-				provider, buildErr := BuildProvider(inline, newCfg)
+				provider, buildErr := buildProvider(inline, newCfg)
 				if buildErr != nil {
 					return nil, nil, nil, nil, buildErr
 				}
@@ -134,7 +148,7 @@ func ReconcileProviders(oldCfg, newCfg *sdkConfig.SDKConfig, existing []Provider
 // ApplyAccessProviders reconciles the configured access providers against the
 // currently registered providers and updates the manager. It logs a concise
 // summary of the detected changes and returns whether any provider changed.
-func ApplyAccessProviders(manager *Manager, oldCfg, newCfg *sdkConfig.SDKConfig) (bool, error) {
+func ApplyAccessProviders(manager *Manager, oldCfg, newCfg *internalconfig.SDKConfig) (bool, error) {
 	if manager == nil || newCfg == nil {
 		return false, nil
 	}
@@ -158,8 +172,8 @@ func ApplyAccessProviders(manager *Manager, oldCfg, newCfg *sdkConfig.SDKConfig)
 	return false, nil
 }
 
-func accessProviderMap(cfg *sdkConfig.SDKConfig) map[string]*sdkConfig.AccessProvider {
-	result := make(map[string]*sdkConfig.AccessProvider)
+func accessProviderMap(cfg *internalconfig.SDKConfig) map[string]*internalconfig.AccessProvider {
+	result := make(map[string]*internalconfig.AccessProvider)
 	if cfg == nil {
 		return result
 	}
@@ -175,7 +189,7 @@ func accessProviderMap(cfg *sdkConfig.SDKConfig) map[string]*sdkConfig.AccessPro
 		result[key] = providerCfg
 	}
 	if len(result) == 0 && len(cfg.APIKeys) > 0 {
-		if provider := sdkConfig.MakeInlineAPIKeyProvider(cfg.APIKeys); provider != nil {
+		if provider := internalconfig.MakeInlineAPIKeyProvider(cfg.APIKeys); provider != nil {
 			if key := providerIdentifier(provider); key != "" {
 				result[key] = provider
 			}
@@ -184,8 +198,8 @@ func accessProviderMap(cfg *sdkConfig.SDKConfig) map[string]*sdkConfig.AccessPro
 	return result
 }
 
-func collectProviderEntries(cfg *sdkConfig.SDKConfig) []*sdkConfig.AccessProvider {
-	entries := make([]*sdkConfig.AccessProvider, 0, len(cfg.Access.Providers))
+func collectProviderEntries(cfg *internalconfig.SDKConfig) []*internalconfig.AccessProvider {
+	entries := make([]*internalconfig.AccessProvider, 0, len(cfg.Access.Providers))
 	for i := range cfg.Access.Providers {
 		providerCfg := &cfg.Access.Providers[i]
 		if providerCfg.Type == "" {
@@ -196,14 +210,14 @@ func collectProviderEntries(cfg *sdkConfig.SDKConfig) []*sdkConfig.AccessProvide
 		}
 	}
 	if len(entries) == 0 && len(cfg.APIKeys) > 0 {
-		if inline := sdkConfig.MakeInlineAPIKeyProvider(cfg.APIKeys); inline != nil {
+		if inline := internalconfig.MakeInlineAPIKeyProvider(cfg.APIKeys); inline != nil {
 			entries = append(entries, inline)
 		}
 	}
 	return entries
 }
 
-func providerIdentifier(provider *sdkConfig.AccessProvider) string {
+func providerIdentifier(provider *internalconfig.AccessProvider) string {
 	if provider == nil {
 		return ""
 	}
@@ -214,13 +228,13 @@ func providerIdentifier(provider *sdkConfig.AccessProvider) string {
 	if typ == "" {
 		return ""
 	}
-	if strings.EqualFold(typ, sdkConfig.AccessProviderTypeConfigAPIKey) {
-		return sdkConfig.DefaultAccessProviderName
+	if strings.EqualFold(typ, internalconfig.AccessProviderTypeConfigAPIKey) {
+		return internalconfig.DefaultAccessProviderName
 	}
 	return typ
 }
 
-func providerConfigEqual(a, b *sdkConfig.AccessProvider) bool {
+func providerConfigEqual(a, b *internalconfig.AccessProvider) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
 	}

@@ -221,25 +221,10 @@ nonstream-keepalive-interval: 0
 
 # Global OAuth model name aliases (per channel)
 # These aliases rename model IDs for both model listing and request routing.
-# Supported channels: gemini-cli, vertex, aistudio, antigravity, claude, codex, qwen, iflow.
+# Supported channels: gemini-cli, vertex, aistudio, antigravity, claude, codex, qwen, iflow, kimi.
 # NOTE: Aliases do not apply to gemini-api-key, codex-api-key, claude-api-key, openai-compatibility, vertex-api-key, or ampcode.
 # You can repeat the same name with different aliases to expose multiple client model names.
-oauth-model-alias:
-  antigravity:
-    - name: "rev19-uic3-1p"
-      alias: "gemini-2.5-computer-use-preview-10-2025"
-    - name: "gemini-3-pro-image"
-      alias: "gemini-3-pro-image-preview"
-    - name: "gemini-3-pro-high"
-      alias: "gemini-3-pro-preview"
-    - name: "gemini-3-flash"
-      alias: "gemini-3-flash-preview"
-    - name: "claude-sonnet-4-5"
-      alias: "gemini-claude-sonnet-4-5"
-    - name: "claude-sonnet-4-5-thinking"
-      alias: "gemini-claude-sonnet-4-5-thinking"
-    - name: "claude-opus-4-5-thinking"
-      alias: "gemini-claude-opus-4-5-thinking"
+# oauth-model-alias:
 #   gemini-cli:
 #     - name: "gemini-2.5-pro"          # original model name under this channel
 #       alias: "g2.5p"                  # client-visible alias
@@ -250,6 +235,9 @@ oauth-model-alias:
 #   aistudio:
 #     - name: "gemini-2.5-pro"
 #       alias: "g2.5p"
+#   antigravity:
+#     - name: "gemini-3-pro-high"
+#       alias: "gemini-3-pro-preview"
 #   claude:
 #     - name: "claude-sonnet-4-5-20250929"
 #       alias: "cs4.5"
@@ -262,6 +250,9 @@ oauth-model-alias:
 #   iflow:
 #     - name: "glm-4.7"
 #       alias: "glm-god"
+#   kimi:
+#     - name: "kimi-k2.5"
+#       alias: "k2.5"
 
 # OAuth provider excluded models
 # oauth-excluded-models:
@@ -284,6 +275,8 @@ oauth-model-alias:
 #     - "vision-model"
 #   iflow:
 #     - "tstars2.0"
+#   kimi:
+#     - "kimi-k2-thinking"
 
 # Optional payload configuration
 # payload:

@@ -17,7 +17,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
-	configaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access/config"
+	configaccess "github.com/router-for-me/CLIProxyAPI/v6/internal/access/config_access"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy"
 	log "github.com/sirupsen/logrus"
@@ -106,7 +106,7 @@ func (s *Server) Start(configPath, password string) error {
 
 	// Register SDK providers
 	sdkAuth.RegisterTokenStore(sdkAuth.NewFileTokenStore())
-	configaccess.Register()
+	configaccess.Register(&cfg.SDKConfig)
 
 	service, err := builder.Build()
 	if err != nil {

@@ -18,7 +18,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
-	configaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access/config"
+	configaccess "github.com/router-for-me/CLIProxyAPI/v6/internal/access/config_access"
 )
 
 const serviceName = "ProxyPilot"
@@ -59,7 +59,7 @@ func (s *proxyService) Execute(args []string, r <-chan svc.ChangeRequest, change
 	sdkAuth.RegisterTokenStore(sdkAuth.NewFileTokenStore())
 
 	// Register access providers
-	configaccess.Register()
+	configaccess.Register(&cfg.SDKConfig)
 
 	// Build and start service using builder pattern
 	builder := cliproxy.NewBuilder().

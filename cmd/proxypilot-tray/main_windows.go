@@ -34,7 +34,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/winutil"
-	configaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access/config"
+	configaccess "github.com/router-for-me/CLIProxyAPI/v6/internal/access/config_access"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
 	log "github.com/sirupsen/logrus"
 )
@@ -102,7 +102,7 @@ func run(repoRoot, configPath string) {
 	sdkAuth.RegisterTokenStore(sdkAuth.NewFileTokenStore())
 
 	// Register access providers
-	configaccess.Register()
+	configaccess.Register(&cfg.SDKConfig)
 
 	// Create embedded engine (will be used instead of desktopctl)
 	engine := NewEmbeddedEngine()
