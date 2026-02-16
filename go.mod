@@ -1,6 +1,6 @@
 module github.com/router-for-me/CLIProxyAPI/v6
 
-go 1.24.0
+go 1.26.0
 
 require (
 	github.com/ProtonMail/go-crypto v1.3.0
