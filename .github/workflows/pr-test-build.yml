@@ -21,3 +21,17 @@ jobs:
         run: |
           go build -o test-output ./cmd/server
           rm -f test-output
+      - name: Vet
+        run: go vet ./...
+      - name: Test with coverage
+        run: |
+          go test -coverprofile=coverage.out -covermode=atomic ./... 2>&1 | tee test-output.txt
+          # Extract total coverage percentage
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
+          echo "Total coverage: ${COVERAGE}%"
+          # Fail if coverage drops below 30%
+          THRESHOLD=30
+          if [ "$(echo "$COVERAGE < $THRESHOLD" | bc -l)" -eq 1 ]; then
+            echo "ERROR: Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
+            exit 1
+          fi
