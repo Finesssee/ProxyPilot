@@ -136,6 +136,7 @@ func main() {
 
 	// TUI flag
 	var launchTUI bool
+	var standalone bool
 
 	// Define command-line flags for different operation modes.
 	flag.BoolVar(&login, "login", false, "Login Google Account")
@@ -175,6 +176,8 @@ func main() {
 	flag.StringVar(&configPath, "config", DefaultConfigPath, "Configure File Path")
 	flag.StringVar(&vertexImport, "vertex-import", "", "Import Vertex service account key JSON file")
 	flag.StringVar(&password, "password", "", "")
+	flag.BoolVar(&launchTUI, "tui", false, "Start with terminal management UI")
+	flag.BoolVar(&standalone, "standalone", false, "In TUI mode, start an embedded local server")
 
 	flag.BoolVar(&showVersion, "version", false, "Show ProxyPilot version and exit")
 	flag.BoolVar(&showStatus, "status", false, "Show ProxyPilot status and exit")
@@ -807,7 +810,6 @@ func main() {
 			cmd.WaitForCloudDeploy()
 			return
 		}
-
 		// Start the main proxy service
 		// Auto-generate management password if not provided
 		// This enables browser-based webui access without requiring the -password flag

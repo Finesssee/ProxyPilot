@@ -91,6 +91,10 @@ type Config struct {
 	// ClaudeKey defines a list of Claude API key configurations as specified in the YAML configuration file.
 	ClaudeKey []ClaudeKey `yaml:"claude-api-key" json:"claude-api-key"`
 
+	// ClaudeHeaderDefaults configures default header values for Claude API requests.
+	// These are used as fallbacks when the client does not send its own headers.
+	ClaudeHeaderDefaults ClaudeHeaderDefaults `yaml:"claude-header-defaults" json:"claude-header-defaults"`
+
 	// OpenAICompatibility defines OpenAI API compatibility configurations for external providers.
 	OpenAICompatibility []OpenAICompatibility `yaml:"openai-compatibility" json:"openai-compatibility"`
 
@@ -167,6 +171,15 @@ func ValidateConfig(cfg *Config) (warnings []string, err error) {
 		return nil, fmt.Errorf("port must be between 1 and 65535, got %d", cfg.Port)
 	}
 	return nil, nil
+}
+
+// ClaudeHeaderDefaults configures default header values injected into Claude API requests
+// when the client does not send them. Update these when Claude Code releases a new version.
+type ClaudeHeaderDefaults struct {
+	UserAgent      string `yaml:"user-agent" json:"user-agent"`
+	PackageVersion string `yaml:"package-version" json:"package-version"`
+	RuntimeVersion string `yaml:"runtime-version" json:"runtime-version"`
+	Timeout        string `yaml:"timeout" json:"timeout"`
 }
 
 // TLSConfig holds HTTPS server settings.
@@ -432,6 +445,10 @@ type CloakConfig struct {
 	// SensitiveWords is a list of words to obfuscate with zero-width characters.
 	// This can help bypass certain content filters.
 	SensitiveWords []string `yaml:"sensitive-words,omitempty" json:"sensitive-words,omitempty"`
+
+	// CacheUserID controls whether Claude user_id values are cached per API key.
+	// When false, a fresh random user_id is generated for every request.
+	CacheUserID *bool `yaml:"cache-user-id,omitempty" json:"cache-user-id,omitempty"`
 }
 
 // ClaudeKey represents the configuration for a Claude API key,
@@ -498,6 +515,9 @@ type CodexKey struct {
 	// BaseURL is the base URL for the Codex API endpoint.
 	// If empty, the default Codex API URL will be used.
 	BaseURL string `yaml:"base-url" json:"base-url"`
+
+	// Websockets enables the Responses API websocket transport for this credential.
+	Websockets bool `yaml:"websockets,omitempty" json:"websockets,omitempty"`
 
 	// ProxyURL overrides the global proxy setting for this API key if provided.
 	ProxyURL string `yaml:"proxy-url" json:"proxy-url"`

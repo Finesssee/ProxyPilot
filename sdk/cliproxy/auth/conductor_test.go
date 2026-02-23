@@ -96,11 +96,11 @@ func (e *mockExecutor) Execute(ctx context.Context, auth *Auth, req cliproxyexec
 	return cliproxyexecutor.Response{Payload: []byte(`{"result":"ok"}`)}, nil
 }
 
-func (e *mockExecutor) ExecuteStream(ctx context.Context, auth *Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (<-chan cliproxyexecutor.StreamChunk, error) {
+func (e *mockExecutor) ExecuteStream(ctx context.Context, auth *Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error) {
 	ch := make(chan cliproxyexecutor.StreamChunk, 1)
 	ch <- cliproxyexecutor.StreamChunk{Payload: []byte(`{"stream":"ok"}`)}
 	close(ch)
-	return ch, nil
+	return &cliproxyexecutor.StreamResult{Chunks: ch}, nil
 }
 
 func (e *mockExecutor) Refresh(ctx context.Context, auth *Auth) (*Auth, error) {

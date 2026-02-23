@@ -766,7 +766,7 @@ func TestGeminiExecutor_ExecuteStream(t *testing.T) {
 
 			// Consume stream chunks
 			chunkCount := 0
-			for chunk := range stream {
+			for chunk := range stream.Chunks {
 				if chunk.Err != nil {
 					t.Errorf("Received error chunk: %v", chunk.Err)
 					continue

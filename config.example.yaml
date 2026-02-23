@@ -68,6 +68,10 @@ proxy-url: ""
 # When true, unprefixed model requests only use credentials without a prefix (except when prefix == model name).
 force-model-prefix: false
 
+# When true, forward filtered upstream response headers to downstream clients.
+# Default is false (disabled).
+passthrough-headers: false
+
 # Number of times to retry a request. Retries will occur if the HTTP response code is 403, 408, 500, 502, 503, or 504.
 request-retry: 3
 
@@ -155,6 +159,15 @@ nonstream-keepalive-interval: 0
 #       sensitive-words:             # optional: words to obfuscate with zero-width characters
 #         - "API"
 #         - "proxy"
+#       cache-user-id: true          # optional: default is false; set true to reuse cached user_id per API key instead of generating a random one each request
+
+# Default headers for Claude API requests. Update when Claude Code releases new versions.
+# These are used as fallbacks when the client does not send its own headers.
+# claude-header-defaults:
+#   user-agent: "claude-cli/2.1.44 (external, sdk-cli)"
+#   package-version: "0.74.0"
+#   runtime-version: "v24.3.0"
+#   timeout: "600"
 
 # OpenAI compatibility providers
 # openai-compatibility:
