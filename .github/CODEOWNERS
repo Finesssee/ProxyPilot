@@ -1,0 +1,22 @@
+# Default owner for the entire repository
+* @Finesssee
+
+# Core proxy logic
+/internal/runtime/executor/ @Finesssee
+/internal/translator/ @Finesssee
+/sdk/ @Finesssee
+
+# Authentication providers
+/internal/auth/ @Finesssee
+
+# API and middleware
+/internal/api/ @Finesssee
+
+# WebUI dashboard
+/webui/ @Finesssee
+
+# CI/CD and infrastructure
+/.github/ @Finesssee
+/Dockerfile @Finesssee
+/docker-compose.yml @Finesssee
+/.goreleaser.yml @Finesssee
