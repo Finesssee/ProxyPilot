@@ -112,14 +112,14 @@ func (a *KiroAuthenticator) createAuthRecord(tokenData *kiroauth.KiroTokenData, 
 	}
 
 	record := &coreauth.Auth{
-		ID:        fileName,
-		Provider:  "kiro",
-		FileName:  fileName,
-		Label:     label,
-		Status:    coreauth.StatusActive,
-		CreatedAt: now,
-		UpdatedAt: now,
-		Metadata:  metadata,
+		ID:         fileName,
+		Provider:   "kiro",
+		FileName:   fileName,
+		Label:      label,
+		Status:     coreauth.StatusActive,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Metadata:   metadata,
 		Attributes: attributes,
 		// NextRefreshAfter is aligned with RefreshLead (5min)
 		NextRefreshAfter: expiresAt.Add(-5 * time.Minute),

@@ -19,12 +19,12 @@ func createTestJWT(claims JWTClaims) string {
 
 func TestParseJWTToken_ValidToken(t *testing.T) {
 	tests := []struct {
-		name           string
-		claims         JWTClaims
-		wantEmail      string
-		wantAccountID  string
-		wantIssuer     string
-		wantSubject    string
+		name          string
+		claims        JWTClaims
+		wantEmail     string
+		wantAccountID string
+		wantIssuer    string
+		wantSubject   string
 	}{
 		{
 			name: "valid token with all fields",

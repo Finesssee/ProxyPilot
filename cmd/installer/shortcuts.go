@@ -36,27 +36,27 @@ var (
 
 // IShellLinkW virtual table.
 type IShellLinkWVtbl struct {
-	QueryInterface   uintptr
-	AddRef           uintptr
-	Release          uintptr
-	GetPath          uintptr
-	GetIDList        uintptr
-	SetIDList        uintptr
-	GetDescription   uintptr
-	SetDescription   uintptr
+	QueryInterface      uintptr
+	AddRef              uintptr
+	Release             uintptr
+	GetPath             uintptr
+	GetIDList           uintptr
+	SetIDList           uintptr
+	GetDescription      uintptr
+	SetDescription      uintptr
 	GetWorkingDirectory uintptr
 	SetWorkingDirectory uintptr
-	GetArguments     uintptr
-	SetArguments     uintptr
-	GetHotkey        uintptr
-	SetHotkey        uintptr
-	GetShowCmd       uintptr
-	SetShowCmd       uintptr
-	GetIconLocation  uintptr
-	SetIconLocation  uintptr
-	SetRelativePath  uintptr
-	Resolve          uintptr
-	SetPath          uintptr
+	GetArguments        uintptr
+	SetArguments        uintptr
+	GetHotkey           uintptr
+	SetHotkey           uintptr
+	GetShowCmd          uintptr
+	SetShowCmd          uintptr
+	GetIconLocation     uintptr
+	SetIconLocation     uintptr
+	SetRelativePath     uintptr
+	Resolve             uintptr
+	SetPath             uintptr
 }
 
 type IShellLinkW struct {
@@ -81,10 +81,10 @@ type IPersistFile struct {
 }
 
 var (
-	ole32           = syscall.NewLazyDLL("ole32.dll")
-	coInitializeEx  = ole32.NewProc("CoInitializeEx")
+	ole32            = syscall.NewLazyDLL("ole32.dll")
+	coInitializeEx   = ole32.NewProc("CoInitializeEx")
 	coCreateInstance = ole32.NewProc("CoCreateInstance")
-	coUninitialize  = ole32.NewProc("CoUninitialize")
+	coUninitialize   = ole32.NewProc("CoUninitialize")
 )
 
 const (

@@ -61,4 +61,3 @@ func TestCodexNonStreamWithSingleRetry_DetThinking(t *testing.T) {
 		t.Fatalf("expected response")
 	}
 }
-

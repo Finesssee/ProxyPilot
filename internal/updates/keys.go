@@ -8,9 +8,9 @@ import (
 // This key should be replaced with the actual release signing key before deployment.
 //
 // To generate a new GPG key pair for signing releases:
-//   1. gpg --full-generate-key (select RSA and RSA, 4096 bits)
-//   2. gpg --armor --export KEY_ID > release-signing-key.asc
-//   3. Replace the content of release-signing-key.asc below
+//  1. gpg --full-generate-key (select RSA and RSA, 4096 bits)
+//  2. gpg --armor --export KEY_ID > release-signing-key.asc
+//  3. Replace the content of release-signing-key.asc below
 //
 // The private key should be kept secure and used only in the CI/CD pipeline
 // to sign release binaries.

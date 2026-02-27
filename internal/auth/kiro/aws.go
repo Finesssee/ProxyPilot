@@ -89,7 +89,7 @@ const KiroIDETokenFile = ".aws/sso/cache/kiro-auth-token.json"
 
 // Default retry configuration for file reading
 const (
-	defaultTokenReadMaxAttempts = 10               // Maximum retry attempts
+	defaultTokenReadMaxAttempts = 10                    // Maximum retry attempts
 	defaultTokenReadBaseDelay   = 50 * time.Millisecond // Base delay between retries
 )
 
@@ -237,7 +237,7 @@ func ListKiroTokenFiles() ([]string, error) {
 	}
 
 	cacheDir := filepath.Join(homeDir, ".aws", "sso", "cache")
-	
+
 	// Check if directory exists
 	if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
 		return nil, nil // No token files

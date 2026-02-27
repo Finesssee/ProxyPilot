@@ -33,11 +33,11 @@ func tokenNeedsRefresh(expire string, leadTime time.Duration) bool {
 
 func TestToken_Parse_ValidToken(t *testing.T) {
 	tests := []struct {
-		name        string
-		tokenJSON   string
-		wantEmail   string
-		wantType    string
-		wantErr     bool
+		name      string
+		tokenJSON string
+		wantEmail string
+		wantType  string
+		wantErr   bool
 	}{
 		{
 			name: "valid token with all fields",
@@ -245,10 +245,10 @@ func TestToken_IsExpired_ExpiredToken(t *testing.T) {
 
 func TestToken_NeedsRefresh_WithinLeadTime(t *testing.T) {
 	tests := []struct {
-		name         string
-		expireTime   time.Time
-		leadTime     time.Duration
-		wantRefresh  bool
+		name        string
+		expireTime  time.Time
+		leadTime    time.Duration
+		wantRefresh bool
 	}{
 		{
 			name:        "token expiring in 5 minutes with 10 minute lead time",
@@ -290,10 +290,10 @@ func TestToken_NeedsRefresh_WithinLeadTime(t *testing.T) {
 
 func TestToken_NeedsRefresh_NotYet(t *testing.T) {
 	tests := []struct {
-		name         string
-		expireTime   time.Time
-		leadTime     time.Duration
-		wantRefresh  bool
+		name        string
+		expireTime  time.Time
+		leadTime    time.Duration
+		wantRefresh bool
 	}{
 		{
 			name:        "token expiring in 1 hour with 5 minute lead time",

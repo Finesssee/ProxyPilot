@@ -466,7 +466,7 @@ func forceDefaultProtocolHandler() {
 	if runtime.GOOS != "linux" {
 		return // Non-Linux platforms use different handler mechanisms
 	}
-	
+
 	// Set our handler as default using xdg-mime
 	cmd := exec.Command("xdg-mime", "default", "kiro-oauth-handler.desktop", "x-scheme-handler/kiro")
 	if err := cmd.Run(); err != nil {

@@ -18,9 +18,9 @@ func NewTranslatorHandler() *TranslatorHandler {
 
 // TranslationsMatrixResponse represents the response for the translations matrix endpoint.
 type TranslationsMatrixResponse struct {
-	Matrix  map[string][]string         `json:"matrix"`
-	Formats []string                    `json:"formats"`
-	Total   int                         `json:"total_translations"`
+	Matrix  map[string][]string          `json:"matrix"`
+	Formats []string                     `json:"formats"`
+	Total   int                          `json:"total_translations"`
 	Details []translator.TranslationInfo `json:"details,omitempty"`
 }
 
@@ -61,12 +61,12 @@ func (h *TranslatorHandler) GetTranslationsMatrix(c *gin.Context) {
 
 // CheckTranslationResponse represents the response for checking a specific translation.
 type CheckTranslationResponse struct {
-	Supported    bool                      `json:"supported"`
-	Fallback     bool                      `json:"fallback"`
-	From         string                    `json:"from"`
-	To           string                    `json:"to"`
+	Supported    bool                        `json:"supported"`
+	Fallback     bool                        `json:"fallback"`
+	From         string                      `json:"from"`
+	To           string                      `json:"to"`
 	Info         *translator.TranslationInfo `json:"info,omitempty"`
-	Alternatives []string                  `json:"alternatives,omitempty"`
+	Alternatives []string                    `json:"alternatives,omitempty"`
 }
 
 // CheckTranslation checks if a specific translation path is supported.

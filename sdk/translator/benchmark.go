@@ -251,10 +251,10 @@ type BenchmarkComparison struct {
 // CompareBenchmarks compares two benchmark results.
 func CompareBenchmarks(name1 string, result1 BenchmarkResult, name2 string, result2 BenchmarkResult) BenchmarkComparison {
 	comp := BenchmarkComparison{
-		Name1:      name1,
-		Name2:      name2,
-		AvgDiff:    result1.Avg - result2.Avg,
-		P95Diff:    result1.P95 - result2.P95,
+		Name1:   name1,
+		Name2:   name2,
+		AvgDiff: result1.Avg - result2.Avg,
+		P95Diff: result1.P95 - result2.P95,
 	}
 
 	if result2.Avg > 0 {
@@ -393,13 +393,13 @@ func BenchmarkWithContext(ctx context.Context, from, to Format, model string, pa
 
 // MemoryBenchmark measures memory allocation during translation.
 type MemoryBenchmark struct {
-	AllocsBefore  uint64        `json:"allocs_before"`
-	AllocsAfter   uint64        `json:"allocs_after"`
-	AllocsDiff    uint64        `json:"allocs_diff"`
-	BytesBefore   uint64        `json:"bytes_before"`
-	BytesAfter    uint64        `json:"bytes_after"`
-	BytesDiff     uint64        `json:"bytes_diff"`
-	Duration      time.Duration `json:"duration"`
+	AllocsBefore uint64        `json:"allocs_before"`
+	AllocsAfter  uint64        `json:"allocs_after"`
+	AllocsDiff   uint64        `json:"allocs_diff"`
+	BytesBefore  uint64        `json:"bytes_before"`
+	BytesAfter   uint64        `json:"bytes_after"`
+	BytesDiff    uint64        `json:"bytes_diff"`
+	Duration     time.Duration `json:"duration"`
 }
 
 // BenchmarkMemory measures memory usage of a translation.

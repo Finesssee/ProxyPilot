@@ -15,11 +15,11 @@ import (
 )
 
 type UpdateInfo struct {
-	Available    bool     `json:"available"`
-	Version      string   `json:"version"`
-	DownloadURL  string   `json:"download_url"`
-	ReleaseNotes string   `json:"release_notes,omitempty"`
-	Assets       []Asset  `json:"assets,omitempty"`
+	Available    bool    `json:"available"`
+	Version      string  `json:"version"`
+	DownloadURL  string  `json:"download_url"`
+	ReleaseNotes string  `json:"release_notes,omitempty"`
+	Assets       []Asset `json:"assets,omitempty"`
 }
 
 type Asset struct {
@@ -35,8 +35,8 @@ type DownloadProgress struct {
 }
 
 type DownloadResult struct {
-	FilePath    string `json:"file_path"`
-	Version     string `json:"version"`
+	FilePath      string `json:"file_path"`
+	Version       string `json:"version"`
 	SignaturePath string `json:"signature_path,omitempty"`
 }
 
@@ -226,9 +226,9 @@ func downloadFile(url, destPath string, expectedSize int64, progressCb func(Down
 	if progressCb != nil && totalSize > 0 {
 		// Wrap reader with progress tracking
 		pr := &progressReader{
-			reader:    resp.Body,
-			total:     totalSize,
-			callback:  progressCb,
+			reader:   resp.Body,
+			total:    totalSize,
+			callback: progressCb,
 		}
 		_, err = io.Copy(out, pr)
 	} else {

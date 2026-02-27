@@ -9,8 +9,9 @@ import (
 // into the underlying model id that this proxy understands.
 //
 // Examples:
-//   custom:CLIProxy-(local):-gemini-claude-opus-4-5-thinking-12 -> gemini-claude-opus-4-5-thinking
-//   custom:CLIProxy-(local):-gpt-5.2-(reasoning:-medium)-2      -> gpt-5.2(medium)
+//
+//	custom:CLIProxy-(local):-gemini-claude-opus-4-5-thinking-12 -> gemini-claude-opus-4-5-thinking
+//	custom:CLIProxy-(local):-gpt-5.2-(reasoning:-medium)-2      -> gpt-5.2(medium)
 func NormalizeDroidCustomModel(model string) string {
 	model = strings.TrimSpace(model)
 	if !strings.HasPrefix(strings.ToLower(model), "custom:") {
@@ -85,4 +86,3 @@ func stripTrailingDashDigits(s string) string {
 	}
 	return strings.TrimSpace(s[:lastDash])
 }
-

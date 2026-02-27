@@ -264,19 +264,57 @@ func TestConvertSystemRoleToDeveloper_AssistantRole(t *testing.T) {
 	}
 }
 
-func TestUserFieldDeletion(t *testing.T) {  
+func TestUserFieldDeletion(t *testing.T) {
 	inputJSON := []byte(`{  
 		"model": "gpt-5.2",  
 		"user": "test-user",  
 		"input": [{"role": "user", "content": "Hello"}]  
-	}`)  
-	  
-	output := ConvertOpenAIResponsesRequestToCodex("gpt-5.2", inputJSON, false)  
-	outputStr := string(output)  
-	  
-	// Verify user field is deleted  
-	userField := gjson.Get(outputStr, "user")  
+	}`)
+
+	output := ConvertOpenAIResponsesRequestToCodex("gpt-5.2", inputJSON, false)
+	outputStr := string(output)
+
+	// Verify user field is deleted
+	userField := gjson.Get(outputStr, "user")
 	if userField.Exists() {
 		t.Errorf("user field should be deleted, but it was found with value: %s", userField.Raw)
+	}
+}
+
+func TestContextManagementCompactionCompatibility(t *testing.T) {
+	inputJSON := []byte(`{
+		"model": "gpt-5.2",
+		"context_management": [
+			{
+				"type": "compaction",
+				"compact_threshold": 12000
+			}
+		],
+		"input": [{"role":"user","content":"hello"}]
+	}`)
+
+	output := ConvertOpenAIResponsesRequestToCodex("gpt-5.2", inputJSON, false)
+	outputStr := string(output)
+
+	if gjson.Get(outputStr, "context_management").Exists() {
+		t.Fatalf("context_management should be removed for Codex compatibility")
+	}
+	if gjson.Get(outputStr, "truncation").Exists() {
+		t.Fatalf("truncation should be removed for Codex compatibility")
+	}
+}
+
+func TestTruncationRemovedForCodexCompatibility(t *testing.T) {
+	inputJSON := []byte(`{
+		"model": "gpt-5.2",
+		"truncation": "disabled",
+		"input": [{"role":"user","content":"hello"}]
+	}`)
+
+	output := ConvertOpenAIResponsesRequestToCodex("gpt-5.2", inputJSON, false)
+	outputStr := string(output)
+
+	if gjson.Get(outputStr, "truncation").Exists() {
+		t.Fatalf("truncation should be removed for Codex compatibility")
 	}
 }

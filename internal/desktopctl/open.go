@@ -26,4 +26,3 @@ func OpenFolder(path string) error {
 		return exec.Command("xdg-open", path).Start()
 	}
 }
-

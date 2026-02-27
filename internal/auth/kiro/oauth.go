@@ -23,10 +23,10 @@ import (
 const (
 	// Kiro auth endpoint
 	kiroAuthEndpoint = "https://prod.us-east-1.auth.desktop.kiro.dev"
-	
+
 	// Default callback port
 	defaultCallbackPort = 9876
-	
+
 	// Auth timeout
 	authTimeout = 10 * time.Minute
 )

@@ -138,10 +138,10 @@ var (
 			Padding(0, 2)
 
 	menuSelectedStyle = lipgloss.NewStyle().
-			Foreground(colorOrange).
-			Background(colorGraphite).
-			Bold(true).
-			Padding(0, 2)
+				Foreground(colorOrange).
+				Background(colorGraphite).
+				Bold(true).
+				Padding(0, 2)
 
 	// Progress bar segments
 	barFull  = "█"
@@ -607,7 +607,7 @@ func (m Model) renderHeader() string {
 	// Top border with centered title
 	titleText := "▓▓ PROXYPILOT ▓▓"
 	subtitleText := "FLIGHT DECK v0.2"
-	
+
 	// Calculate centering
 	totalTitleLen := len(titleText) + 4 + len(subtitleText) + 4
 	leftPad := (width - totalTitleLen - 4) / 2
@@ -732,13 +732,13 @@ func (m Model) renderLoading() string {
 	}
 	prefix := lipgloss.NewStyle().Foreground(colorOrangeDim).Render(boxV)
 	suffix := lipgloss.NewStyle().Foreground(colorOrangeDim).Render(boxV)
-	
+
 	content := accentStyle.Render(" " + m.spinner.View() + " LOADING...")
 	padLen := width - lipgloss.Width(prefix) - lipgloss.Width(content) - lipgloss.Width(suffix) - 1
 	if padLen < 0 {
 		padLen = 0
 	}
-	
+
 	return prefix + content + strings.Repeat(" ", padLen) + suffix + "\n"
 }
 
@@ -749,13 +749,13 @@ func (m Model) renderError() string {
 	}
 	prefix := lipgloss.NewStyle().Foreground(colorOrangeDim).Render(boxV)
 	suffix := lipgloss.NewStyle().Foreground(colorOrangeDim).Render(boxV)
-	
+
 	errText := statusOffline.Render(" " + iconCross + " " + m.err.Error())
 	padLen := width - lipgloss.Width(prefix) - lipgloss.Width(errText) - lipgloss.Width(suffix) - 1
 	if padLen < 0 {
 		padLen = 0
 	}
-	
+
 	return prefix + errText + strings.Repeat(" ", padLen) + suffix + "\n"
 }
 
@@ -768,7 +768,7 @@ func (m Model) renderOffline() string {
 	suffix := lipgloss.NewStyle().Foreground(colorOrangeDim).Render(boxV)
 
 	var b strings.Builder
-	
+
 	// Helper to pad line to full width
 	padLine := func(content string) string {
 		contentWidth := lipgloss.Width(content)
@@ -781,7 +781,7 @@ func (m Model) renderOffline() string {
 
 	b.WriteString(padLine(""))
 	b.WriteString(padLine(""))
-	
+
 	// Centered offline box
 	boxContent := []string{
 		statusOffline.Render("  ╔════════════════════════════════════════════╗"),
@@ -793,11 +793,11 @@ func (m Model) renderOffline() string {
 		statusOffline.Render("  ║") + "                                            " + statusOffline.Render("║"),
 		statusOffline.Render("  ╚════════════════════════════════════════════╝"),
 	}
-	
+
 	for _, line := range boxContent {
 		b.WriteString(padLine(line))
 	}
-	
+
 	b.WriteString(padLine(""))
 
 	return b.String()
@@ -869,11 +869,11 @@ func (m Model) renderStatus() string {
 		if boxWidth < 16 {
 			boxWidth = 16
 		}
-		
+
 		// Double-line borders for industrial look
 		topBorder := "╔" + strings.Repeat("═", boxWidth) + "╗"
 		botBorder := "╚" + strings.Repeat("═", boxWidth) + "╝"
-		
+
 		// Icon and label line
 		iconLabel := accent.Render(icon) + " " + labelStyle.Render(label)
 		iconPad := boxWidth - lipgloss.Width(iconLabel) - 1
@@ -881,10 +881,10 @@ func (m Model) renderStatus() string {
 			iconPad = 0
 		}
 		iconLine := "║ " + iconLabel + strings.Repeat(" ", iconPad) + "║"
-		
+
 		// Separator
 		sepLine := "╟" + strings.Repeat("─", boxWidth) + "╢"
-		
+
 		// Value line (centered, larger)
 		valueStyled := accent.Bold(true).Render(value)
 		valuePad := (boxWidth - lipgloss.Width(valueStyled)) / 2
@@ -896,7 +896,7 @@ func (m Model) renderStatus() string {
 			valueRightPad = 0
 		}
 		valueLine := "║" + strings.Repeat(" ", valuePad) + valueStyled + strings.Repeat(" ", valueRightPad) + "║"
-		
+
 		return lipgloss.NewStyle().Foreground(colorOrangeDim).Render(topBorder) + "\n" +
 			lipgloss.NewStyle().Foreground(colorOrangeDim).Render(iconLine) + "\n" +
 			lipgloss.NewStyle().Foreground(colorSteel).Render(sepLine) + "\n" +
@@ -929,18 +929,18 @@ func (m Model) renderStatus() string {
 	infoTop := "  ╭─ Quick Info " + strings.Repeat("─", infoBoxWidth-14) + "╮"
 	b.WriteString(padLine(lipgloss.NewStyle().Foreground(colorSteel).Render(infoTop)))
 
-	endpoint := "  │  " + labelStyle.Render("API Endpoint: ") + 
+	endpoint := "  │  " + labelStyle.Render("API Endpoint: ") +
 		accentStyle.Render(fmt.Sprintf("http://127.0.0.1:%d/v1", m.status.Port))
 	endPad := infoBoxWidth - lipgloss.Width(endpoint) + 5
 	if endPad < 0 {
 		endPad = 0
 	}
-	b.WriteString(padLine(lipgloss.NewStyle().Foreground(colorSteel).Render("  │") + 
-		labelStyle.Render("  API Endpoint: ") + 
+	b.WriteString(padLine(lipgloss.NewStyle().Foreground(colorSteel).Render("  │") +
+		labelStyle.Render("  API Endpoint: ") +
 		accentStyle.Render(fmt.Sprintf("http://127.0.0.1:%d/v1", m.status.Port))))
 
-	b.WriteString(padLine(lipgloss.NewStyle().Foreground(colorSteel).Render("  │") + 
-		labelStyle.Render("  Compatible:   ") + 
+	b.WriteString(padLine(lipgloss.NewStyle().Foreground(colorSteel).Render("  │") +
+		labelStyle.Render("  Compatible:   ") +
 		valueStyle.Render("OpenAI • Anthropic • Gemini")))
 
 	infoBot := "  ╰" + strings.Repeat("─", infoBoxWidth) + "╯"
@@ -1091,7 +1091,7 @@ func (m Model) renderRateLimits() string {
 
 	// Stats in styled boxes
 	makeStatPill := func(icon, label string, value int, style lipgloss.Style) string {
-		return style.Render(icon) + " " + style.Render(label) + " " + 
+		return style.Render(icon) + " " + style.Render(label) + " " +
 			lipgloss.NewStyle().Foreground(colorWhite).Bold(true).Render(fmt.Sprintf("%d", value))
 	}
 
@@ -1184,13 +1184,13 @@ func (m Model) renderUsage() string {
 		}
 		top := "╔" + strings.Repeat("═", boxW) + "╗"
 		bot := "╚" + strings.Repeat("═", boxW) + "╝"
-		
+
 		labelPad := boxW - lipgloss.Width(label) - 1
 		if labelPad < 0 {
 			labelPad = 0
 		}
 		labelLine := "║ " + labelStyle.Render(label) + strings.Repeat(" ", labelPad) + "║"
-		
+
 		valuePad := (boxW - lipgloss.Width(value)) / 2
 		if valuePad < 0 {
 			valuePad = 0
@@ -1200,7 +1200,7 @@ func (m Model) renderUsage() string {
 			valueRightPad = 0
 		}
 		valueLine := "║" + strings.Repeat(" ", valuePad) + style.Bold(true).Render(value) + strings.Repeat(" ", valueRightPad) + "║"
-		
+
 		return lipgloss.NewStyle().Foreground(colorOrangeDim).Render(top) + "\n" +
 			lipgloss.NewStyle().Foreground(colorOrangeDim).Render(labelLine) + "\n" +
 			lipgloss.NewStyle().Foreground(colorOrangeDim).Render(valueLine) + "\n" +
@@ -1370,13 +1370,13 @@ func (m Model) renderShutdown() string {
 	var b strings.Builder
 	b.WriteString("\n")
 	b.WriteString(lipgloss.NewStyle().Foreground(colorOrangeDim).Render(
-		"  ┏" + strings.Repeat("━", 30) + "┓",
+		"  ┏"+strings.Repeat("━", 30)+"┓",
 	) + "\n")
 	b.WriteString(lipgloss.NewStyle().Foreground(colorOrangeDim).Render("  ┃") +
 		accentStyle.Render(" PROXYPILOT SHUTDOWN ") +
 		lipgloss.NewStyle().Foreground(colorOrangeDim).Render("       ┃") + "\n")
 	b.WriteString(lipgloss.NewStyle().Foreground(colorOrangeDim).Render(
-		"  ┗" + strings.Repeat("━", 30) + "┛",
+		"  ┗"+strings.Repeat("━", 30)+"┛",
 	) + "\n")
 	b.WriteString("\n")
 

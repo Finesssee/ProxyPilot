@@ -7,10 +7,10 @@ import (
 
 func TestNormalizeThinkingModel(t *testing.T) {
 	cases := []struct {
-		name       string
-		model      string
-		wantBase   string
-		wantMeta   map[string]any
+		name     string
+		model    string
+		wantBase string
+		wantMeta map[string]any
 	}{
 		{
 			name:     "no suffix",

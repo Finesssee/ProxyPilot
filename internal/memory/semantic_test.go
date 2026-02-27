@@ -395,13 +395,13 @@ func TestEmbedding_Normalize(t *testing.T) {
 
 func TestEmbedding_CosineSimilarity(t *testing.T) {
 	tests := []struct {
-		name       string
-		vecA       []float32
-		normA      float32
-		vecB       []float32
-		normB      float32
-		wantSim    float32
-		tolerance  float32
+		name      string
+		vecA      []float32
+		normA     float32
+		vecB      []float32
+		normB     float32
+		wantSim   float32
+		tolerance float32
 	}{
 		{
 			name:      "identical vectors",
@@ -626,11 +626,11 @@ func TestSemanticStore_ListNamespaces(t *testing.T) {
 
 func TestTokenizeSemanticQuery(t *testing.T) {
 	tests := []struct {
-		name   string
-		query  string
-		max    int
-		want   []string
-		wantN  int
+		name  string
+		query string
+		max   int
+		want  []string
+		wantN int
 	}{
 		{
 			name:  "basic tokenization",

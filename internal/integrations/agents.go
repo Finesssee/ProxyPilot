@@ -239,7 +239,7 @@ func detectClaudeCode(proxyURL string) Agent {
 	return Agent{
 		ID: "claude-code", Name: "Claude Code", Detected: detected, Configured: configured,
 		ConfigInstructions: "Configure ~/.claude/settings.json with ProxyPilot env vars",
-		EnvVars: map[string]string{"ANTHROPIC_BASE_URL": proxyURL}, CanAutoConfigure: true,
+		EnvVars:            map[string]string{"ANTHROPIC_BASE_URL": proxyURL}, CanAutoConfigure: true,
 	}
 }
 
@@ -260,7 +260,7 @@ func detectCodexCLI(proxyURL string) Agent {
 	return Agent{
 		ID: "codex", Name: "Codex CLI", Detected: detected, Configured: configured,
 		ConfigInstructions: "Configure ~/.codex/config.toml",
-		EnvVars: map[string]string{"OPENAI_BASE_URL": proxyURL + "/v1"}, CanAutoConfigure: true,
+		EnvVars:            map[string]string{"OPENAI_BASE_URL": proxyURL + "/v1"}, CanAutoConfigure: true,
 	}
 }
 
@@ -398,8 +398,8 @@ func configureOpenCode(proxyURL string) error {
 
 	// Add proxypilot provider (uses @ai-sdk/openai-compatible format)
 	providers["proxypilot"] = map[string]interface{}{
-		"name":    "ProxyPilot",
-		"npm":     "@ai-sdk/openai-compatible",
+		"name": "ProxyPilot",
+		"npm":  "@ai-sdk/openai-compatible",
 		"options": map[string]interface{}{
 			"baseURL": proxyURL + "/v1",
 			"name":    "proxypilot",
@@ -477,7 +477,7 @@ func detectGeminiCLI(proxyURL string) Agent {
 	return Agent{
 		ID: "gemini-cli", Name: "Gemini CLI", Detected: detected, Configured: configured,
 		ConfigInstructions: "Set GOOGLE_GEMINI_BASE_URL environment variable in shell profile",
-		EnvVars: map[string]string{"GOOGLE_GEMINI_BASE_URL": proxyURL}, CanAutoConfigure: true,
+		EnvVars:            map[string]string{"GOOGLE_GEMINI_BASE_URL": proxyURL}, CanAutoConfigure: true,
 	}
 }
 
@@ -544,7 +544,7 @@ func detectDroidCLI(proxyURL string) Agent {
 	return Agent{
 		ID: "droid", Name: "Droid CLI", Detected: detected, Configured: configured,
 		ConfigInstructions: "Configure ~/.factory/config.json",
-		EnvVars: map[string]string{}, CanAutoConfigure: true,
+		EnvVars:            map[string]string{}, CanAutoConfigure: true,
 	}
 }
 
@@ -892,10 +892,10 @@ func unconfigureCursor() error {
 func getIDEExtensionsDirs() []string {
 	home := getHomeDir()
 	dirs := []string{
-		filepath.Join(home, ".vscode", "extensions"),       // VS Code
-		filepath.Join(home, ".cursor", "extensions"),       // Cursor
-		filepath.Join(home, ".antigravity", "extensions"),  // Antigravity
-		filepath.Join(home, ".windsurf", "extensions"),     // Windsurf
+		filepath.Join(home, ".vscode", "extensions"),          // VS Code
+		filepath.Join(home, ".cursor", "extensions"),          // Cursor
+		filepath.Join(home, ".antigravity", "extensions"),     // Antigravity
+		filepath.Join(home, ".windsurf", "extensions"),        // Windsurf
 		filepath.Join(home, ".vscode-insiders", "extensions"), // VS Code Insiders
 	}
 	return dirs

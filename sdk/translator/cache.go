@@ -23,14 +23,14 @@ type cacheEntry struct {
 
 // TranslationCache provides LRU-based caching for translation results.
 type TranslationCache struct {
-	mu       sync.RWMutex
-	enabled  atomic.Bool
-	maxSize  int
-	ttl      time.Duration
-	cache    map[string]*cacheEntry
-	order    []string // LRU order: oldest first
-	hits     atomic.Int64
-	misses   atomic.Int64
+	mu      sync.RWMutex
+	enabled atomic.Bool
+	maxSize int
+	ttl     time.Duration
+	cache   map[string]*cacheEntry
+	order   []string // LRU order: oldest first
+	hits    atomic.Int64
+	misses  atomic.Int64
 }
 
 // NewTranslationCache creates a new translation cache with default settings.

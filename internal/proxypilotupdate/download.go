@@ -59,4 +59,3 @@ func DownloadToFile(ctx context.Context, url, destPath string) error {
 	_ = os.Remove(destPath)
 	return os.Rename(tmp, destPath)
 }
-

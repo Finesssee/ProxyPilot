@@ -15,4 +15,3 @@ func TestNormalizeDroidCustomModel_GPTReasoning(t *testing.T) {
 		t.Fatalf("NormalizeDroidCustomModel=%q", got)
 	}
 }
-

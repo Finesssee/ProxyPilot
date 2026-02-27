@@ -214,4 +214,3 @@ func TestAgenticHarnessMiddleware_SessionStorage(t *testing.T) {
 		t.Error("Expected harness mode header to be set")
 	}
 }
-

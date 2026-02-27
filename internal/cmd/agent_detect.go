@@ -206,7 +206,7 @@ func detectCursor() AgentInfo {
 	if home, err := os.UserHomeDir(); err == nil {
 		// Try different platform-specific paths
 		paths := []string{
-			filepath.Join(home, ".config", "Cursor", "User", "settings.json"),                   // Linux
+			filepath.Join(home, ".config", "Cursor", "User", "settings.json"),                        // Linux
 			filepath.Join(home, "Library", "Application Support", "Cursor", "User", "settings.json"), // macOS
 		}
 		// Windows via APPDATA
@@ -312,4 +312,3 @@ func detectRooCode() AgentInfo {
 
 	return info
 }
-

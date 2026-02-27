@@ -11,9 +11,9 @@ import (
 
 const (
 	// Registry key paths.
-	autostartKeyPath   = `Software\Microsoft\Windows\CurrentVersion\Run`
-	uninstallKeyPath   = `Software\Microsoft\Windows\CurrentVersion\Uninstall\` + appName
-	uninstallKeyBase   = `Software\Microsoft\Windows\CurrentVersion\Uninstall`
+	autostartKeyPath = `Software\Microsoft\Windows\CurrentVersion\Run`
+	uninstallKeyPath = `Software\Microsoft\Windows\CurrentVersion\Uninstall\` + appName
+	uninstallKeyBase = `Software\Microsoft\Windows\CurrentVersion\Uninstall`
 
 	// Application metadata.
 	appPublisher = "ProxyPilot"
@@ -92,12 +92,12 @@ func RegisterUninstall(config *InstallConfig) error {
 
 	// Set the required values.
 	values := map[string]string{
-		"DisplayName":     appName,
-		"DisplayVersion":  appVersion,
-		"Publisher":       appPublisher,
-		"InstallLocation": config.InstallDir,
-		"DisplayIcon":     iconPath,
-		"UninstallString": `"` + exePath + `" --uninstall`,
+		"DisplayName":          appName,
+		"DisplayVersion":       appVersion,
+		"Publisher":            appPublisher,
+		"InstallLocation":      config.InstallDir,
+		"DisplayIcon":          iconPath,
+		"UninstallString":      `"` + exePath + `" --uninstall`,
 		"QuietUninstallString": `"` + exePath + `" --uninstall --quiet`,
 	}
 

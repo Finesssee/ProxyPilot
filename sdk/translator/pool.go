@@ -15,20 +15,20 @@ type BufferPool struct {
 
 // PoolStats contains statistics about buffer pool usage.
 type PoolStats struct {
-	Allocated int64 `json:"allocated"`
-	Reused    int64 `json:"reused"`
+	Allocated int64   `json:"allocated"`
+	Reused    int64   `json:"reused"`
 	ReuseRate float64 `json:"reuse_rate"`
 }
 
 // predefined bucket sizes for the pool (powers of 2)
 var defaultBucketSizes = []int{
-	64,     // 64 bytes
-	256,    // 256 bytes
-	1024,   // 1 KB
-	4096,   // 4 KB
-	16384,  // 16 KB
-	65536,  // 64 KB
-	262144, // 256 KB
+	64,      // 64 bytes
+	256,     // 256 bytes
+	1024,    // 1 KB
+	4096,    // 4 KB
+	16384,   // 16 KB
+	65536,   // 64 KB
+	262144,  // 256 KB
 	1048576, // 1 MB
 }
 

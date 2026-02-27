@@ -32,11 +32,11 @@ type AgentState struct {
 
 // Change represents a single configuration change made to an agent
 type Change struct {
-	Path     string `json:"path"`               // JSON path or config key (e.g., "env.ANTHROPIC_BASE_URL")
-	Original any    `json:"original"`           // Original value (nil if key didn't exist)
-	Applied  any    `json:"applied"`            // Value applied by ProxyPilot
-	Type     string `json:"type,omitempty"`     // Type of change: "json", "toml", "env", "shell"
-	File     string `json:"file,omitempty"`     // Specific file if different from ConfigPath
+	Path     string `json:"path"`           // JSON path or config key (e.g., "env.ANTHROPIC_BASE_URL")
+	Original any    `json:"original"`       // Original value (nil if key didn't exist)
+	Applied  any    `json:"applied"`        // Value applied by ProxyPilot
+	Type     string `json:"type,omitempty"` // Type of change: "json", "toml", "env", "shell"
+	File     string `json:"file,omitempty"` // Specific file if different from ConfigPath
 }
 
 // StateManager handles loading, saving, and manipulating ProxyPilot state

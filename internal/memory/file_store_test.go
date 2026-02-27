@@ -107,11 +107,11 @@ func TestFileStore_Append_CreatesFile(t *testing.T) {
 
 func TestFileStore_Append_MultipleEvents(t *testing.T) {
 	tests := []struct {
-		name       string
-		session    string
-		eventSets  [][]Event
-		wantTotal  int
-		wantErr    bool
+		name      string
+		session   string
+		eventSets [][]Event
+		wantTotal int
+		wantErr   bool
 	}{
 		{
 			name:    "append multiple events in single call",
@@ -276,11 +276,11 @@ func TestFileStore_Append_RedactsSecrets(t *testing.T) {
 
 func TestFileStore_Search_ExactMatch(t *testing.T) {
 	tests := []struct {
-		name       string
-		events     []Event
-		query      string
-		wantCount  int
-		wantMatch  string
+		name      string
+		events    []Event
+		query     string
+		wantCount int
+		wantMatch string
 	}{
 		{
 			name: "finds exact keyword match",

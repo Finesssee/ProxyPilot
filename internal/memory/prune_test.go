@@ -10,32 +10,32 @@ import (
 
 func TestPrune_ByTokenCount(t *testing.T) {
 	tests := []struct {
-		name                  string
-		sessionCount          int
-		eventsPerSession      int
-		maxBytesPerSession    int64
-		wantSessionsTrimmed   int
+		name                string
+		sessionCount        int
+		eventsPerSession    int
+		maxBytesPerSession  int64
+		wantSessionsTrimmed int
 	}{
 		{
-			name:                  "trims large sessions",
-			sessionCount:          2,
-			eventsPerSession:      100,
-			maxBytesPerSession:    500,
-			wantSessionsTrimmed:   2,
+			name:                "trims large sessions",
+			sessionCount:        2,
+			eventsPerSession:    100,
+			maxBytesPerSession:  500,
+			wantSessionsTrimmed: 2,
 		},
 		{
-			name:                  "no trimming needed for small sessions",
-			sessionCount:          2,
-			eventsPerSession:      2,
-			maxBytesPerSession:    100000,
-			wantSessionsTrimmed:   0,
+			name:                "no trimming needed for small sessions",
+			sessionCount:        2,
+			eventsPerSession:    2,
+			maxBytesPerSession:  100000,
+			wantSessionsTrimmed: 0,
 		},
 		{
-			name:                  "zero maxBytes skips trimming",
-			sessionCount:          2,
-			eventsPerSession:      100,
-			maxBytesPerSession:    0,
-			wantSessionsTrimmed:   0,
+			name:                "zero maxBytes skips trimming",
+			sessionCount:        2,
+			eventsPerSession:    100,
+			maxBytesPerSession:  0,
+			wantSessionsTrimmed: 0,
 		},
 	}
 
@@ -80,52 +80,52 @@ func TestPrune_ByTokenCount(t *testing.T) {
 
 func TestPrune_PreservesRecent(t *testing.T) {
 	tests := []struct {
-		name              string
-		sessionAges       []int // days ago
-		maxAgeDays        int
-		maxSessions       int
-		wantRemoved       int
-		wantKept          []string
+		name        string
+		sessionAges []int // days ago
+		maxAgeDays  int
+		maxSessions int
+		wantRemoved int
+		wantKept    []string
 	}{
 		{
-			name:              "preserves recent sessions by age",
-			sessionAges:       []int{1, 5, 10, 20, 40}, // days ago
-			maxAgeDays:        30,
-			maxSessions:       0,
-			wantRemoved:       1, // only 40 days old is removed
-			wantKept:          []string{"session-0", "session-1", "session-2", "session-3"},
+			name:        "preserves recent sessions by age",
+			sessionAges: []int{1, 5, 10, 20, 40}, // days ago
+			maxAgeDays:  30,
+			maxSessions: 0,
+			wantRemoved: 1, // only 40 days old is removed
+			wantKept:    []string{"session-0", "session-1", "session-2", "session-3"},
 		},
 		{
-			name:              "preserves by max sessions count",
-			sessionAges:       []int{1, 2, 3, 4, 5},
-			maxAgeDays:        0,
-			maxSessions:       3,
-			wantRemoved:       2, // keeps 3 most recent
-			wantKept:          []string{"session-0", "session-1", "session-2"},
+			name:        "preserves by max sessions count",
+			sessionAges: []int{1, 2, 3, 4, 5},
+			maxAgeDays:  0,
+			maxSessions: 3,
+			wantRemoved: 2, // keeps 3 most recent
+			wantKept:    []string{"session-0", "session-1", "session-2"},
 		},
 		{
-			name:              "combines age and count limits",
-			sessionAges:       []int{1, 5, 35, 40},
-			maxAgeDays:        30,
-			maxSessions:       2,
-			wantRemoved:       2, // 35 and 40 days old are removed
-			wantKept:          []string{"session-0", "session-1"},
+			name:        "combines age and count limits",
+			sessionAges: []int{1, 5, 35, 40},
+			maxAgeDays:  30,
+			maxSessions: 2,
+			wantRemoved: 2, // 35 and 40 days old are removed
+			wantKept:    []string{"session-0", "session-1"},
 		},
 		{
-			name:              "no pruning when all within limits",
-			sessionAges:       []int{1, 2, 3},
-			maxAgeDays:        30,
-			maxSessions:       10,
-			wantRemoved:       0,
-			wantKept:          []string{"session-0", "session-1", "session-2"},
+			name:        "no pruning when all within limits",
+			sessionAges: []int{1, 2, 3},
+			maxAgeDays:  30,
+			maxSessions: 10,
+			wantRemoved: 0,
+			wantKept:    []string{"session-0", "session-1", "session-2"},
 		},
 		{
-			name:              "removes all old sessions",
-			sessionAges:       []int{100, 200, 300},
-			maxAgeDays:        30,
-			maxSessions:       0,
-			wantRemoved:       3,
-			wantKept:          []string{},
+			name:        "removes all old sessions",
+			sessionAges: []int{100, 200, 300},
+			maxAgeDays:  30,
+			maxSessions: 0,
+			wantRemoved: 3,
+			wantKept:    []string{},
 		},
 	}
 
@@ -184,44 +184,44 @@ func TestPrune_PreservesRecent(t *testing.T) {
 
 func TestPrune_SemanticNamespaces(t *testing.T) {
 	tests := []struct {
-		name                string
-		namespaceCount      int
-		recordsPerNs        int
-		maxAgeDays          int
-		maxNamespaces       int
-		maxBytesPerNs       int64
-		wantRemoved         int
-		wantTrimmed         int
+		name           string
+		namespaceCount int
+		recordsPerNs   int
+		maxAgeDays     int
+		maxNamespaces  int
+		maxBytesPerNs  int64
+		wantRemoved    int
+		wantTrimmed    int
 	}{
 		{
-			name:                "removes old namespaces",
-			namespaceCount:      3,
-			recordsPerNs:        5,
-			maxAgeDays:          30,
-			maxNamespaces:       0,
-			maxBytesPerNs:       0,
-			wantRemoved:         0, // all are recent
-			wantTrimmed:         0,
+			name:           "removes old namespaces",
+			namespaceCount: 3,
+			recordsPerNs:   5,
+			maxAgeDays:     30,
+			maxNamespaces:  0,
+			maxBytesPerNs:  0,
+			wantRemoved:    0, // all are recent
+			wantTrimmed:    0,
 		},
 		{
-			name:                "limits namespace count",
-			namespaceCount:      5,
-			recordsPerNs:        5,
-			maxAgeDays:          0,
-			maxNamespaces:       3,
-			maxBytesPerNs:       0,
-			wantRemoved:         2,
-			wantTrimmed:         0,
+			name:           "limits namespace count",
+			namespaceCount: 5,
+			recordsPerNs:   5,
+			maxAgeDays:     0,
+			maxNamespaces:  3,
+			maxBytesPerNs:  0,
+			wantRemoved:    2,
+			wantTrimmed:    0,
 		},
 		{
-			name:                "trims large namespaces",
-			namespaceCount:      2,
-			recordsPerNs:        500,
-			maxAgeDays:          0,
-			maxNamespaces:       0,
-			maxBytesPerNs:       2000,
-			wantRemoved:         0,
-			wantTrimmed:         2,
+			name:           "trims large namespaces",
+			namespaceCount: 2,
+			recordsPerNs:   500,
+			maxAgeDays:     0,
+			maxNamespaces:  0,
+			maxBytesPerNs:  2000,
+			wantRemoved:    0,
+			wantTrimmed:    2,
 		},
 	}
 

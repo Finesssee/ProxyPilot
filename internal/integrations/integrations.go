@@ -58,7 +58,7 @@ func (m *Manager) ListStatus() []IntegrationStatus {
 		meta := i.Meta()
 		installed, _ := i.Detect()
 		configured, _ := i.IsConfigured(m.proxyURL)
-		
+
 		meta.Installed = installed
 		meta.Configured = configured
 		statuses = append(statuses, meta)

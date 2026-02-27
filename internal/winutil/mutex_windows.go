@@ -9,11 +9,11 @@ import (
 )
 
 var (
-	kernel32        = syscall.NewLazyDLL("kernel32.dll")
-	createMutexW    = kernel32.NewProc("CreateMutexW")
-	releaseMutex    = kernel32.NewProc("ReleaseMutex")
-	closeHandle     = kernel32.NewProc("CloseHandle")
-	getLastError    = kernel32.NewProc("GetLastError")
+	kernel32     = syscall.NewLazyDLL("kernel32.dll")
+	createMutexW = kernel32.NewProc("CreateMutexW")
+	releaseMutex = kernel32.NewProc("ReleaseMutex")
+	closeHandle  = kernel32.NewProc("CloseHandle")
+	getLastError = kernel32.NewProc("GetLastError")
 )
 
 const (

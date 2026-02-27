@@ -35,9 +35,9 @@ type AccessConfig = internalconfig.AccessConfig
 type AccessProvider = internalconfig.AccessProvider
 
 const (
-	DefaultPanelGitHubRepository    = internalconfig.DefaultPanelGitHubRepository
-	AccessProviderTypeConfigAPIKey  = internalconfig.AccessProviderTypeConfigAPIKey
-	DefaultAccessProviderName       = internalconfig.DefaultAccessProviderName
+	DefaultPanelGitHubRepository   = internalconfig.DefaultPanelGitHubRepository
+	AccessProviderTypeConfigAPIKey = internalconfig.AccessProviderTypeConfigAPIKey
+	DefaultAccessProviderName      = internalconfig.DefaultAccessProviderName
 )
 
 func MakeInlineAPIKeyProvider(keys []string) *AccessProvider {

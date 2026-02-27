@@ -23,8 +23,12 @@ func TestGenerateMarkdownDocs_WithTranslations(t *testing.T) {
 	reg.Register(FormatOpenAI, FormatClaude, func(model string, data []byte, stream bool) []byte {
 		return data
 	}, ResponseTransform{
-		Stream:    func(ctx context.Context, model string, origReq, convReq, resp []byte, param *any) []string { return []string{string(resp)} },
-		NonStream: func(ctx context.Context, model string, origReq, convReq, resp []byte, param *any) string { return string(resp) },
+		Stream: func(ctx context.Context, model string, origReq, convReq, resp []byte, param *any) []string {
+			return []string{string(resp)}
+		},
+		NonStream: func(ctx context.Context, model string, origReq, convReq, resp []byte, param *any) string {
+			return string(resp)
+		},
 	})
 
 	docs := reg.GenerateMarkdownDocs()
@@ -80,7 +84,9 @@ func TestGenerateMermaidDiagram_WithTranslations(t *testing.T) {
 	reg.Register(FormatOpenAI, FormatClaude, func(model string, data []byte, stream bool) []byte {
 		return data
 	}, ResponseTransform{
-		Stream: func(ctx context.Context, model string, origReq, convReq, resp []byte, param *any) []string { return []string{string(resp)} },
+		Stream: func(ctx context.Context, model string, origReq, convReq, resp []byte, param *any) []string {
+			return []string{string(resp)}
+		},
 	})
 
 	diagram := reg.GenerateMermaidDiagram()
@@ -210,8 +216,12 @@ func TestGenerateMermaidDiagram_EdgeLabels(t *testing.T) {
 	reg.Register(FormatOpenAI, FormatClaude, func(model string, data []byte, stream bool) []byte {
 		return data
 	}, ResponseTransform{
-		Stream:    func(ctx context.Context, model string, origReq, convReq, resp []byte, param *any) []string { return []string{string(resp)} },
-		NonStream: func(ctx context.Context, model string, origReq, convReq, resp []byte, param *any) string { return string(resp) },
+		Stream: func(ctx context.Context, model string, origReq, convReq, resp []byte, param *any) []string {
+			return []string{string(resp)}
+		},
+		NonStream: func(ctx context.Context, model string, origReq, convReq, resp []byte, param *any) string {
+			return string(resp)
+		},
 	})
 
 	diagram := reg.GenerateMermaidDiagram()

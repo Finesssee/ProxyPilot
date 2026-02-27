@@ -13,40 +13,40 @@ import (
 
 // RollbackInfo contains metadata about a backup that can be restored.
 type RollbackInfo struct {
-	Version     string    `json:"version"`
-	BackupPath  string    `json:"backup_path"`
-	BackupDate  time.Time `json:"backup_date"`
-	CurrentExe  string    `json:"current_exe"`
+	Version    string    `json:"version"`
+	BackupPath string    `json:"backup_path"`
+	BackupDate time.Time `json:"backup_date"`
+	CurrentExe string    `json:"current_exe"`
 }
 
 // RollbackResult contains the result of a rollback operation.
 type RollbackResult struct {
-	Success        bool   `json:"success"`
-	Message        string `json:"message"`
+	Success         bool   `json:"success"`
+	Message         string `json:"message"`
 	RestoredVersion string `json:"restored_version,omitempty"`
-	NeedsRestart   bool   `json:"needs_restart"`
+	NeedsRestart    bool   `json:"needs_restart"`
 }
 
 // HealthCheckResult contains the result of a startup health check.
 type HealthCheckResult struct {
-	Healthy       bool   `json:"healthy"`
-	StartupCount  int    `json:"startup_count"`
-	LastStartup   time.Time `json:"last_startup"`
-	ShouldRollback bool  `json:"should_rollback"`
+	Healthy        bool      `json:"healthy"`
+	StartupCount   int       `json:"startup_count"`
+	LastStartup    time.Time `json:"last_startup"`
+	ShouldRollback bool      `json:"should_rollback"`
 }
 
 const (
 	rollbackMetaFile  = "rollback.json"
 	healthCheckFile   = "health.json"
-	maxFailedStartups = 3 // Auto-rollback after this many rapid failures
+	maxFailedStartups = 3                // Auto-rollback after this many rapid failures
 	startupWindow     = 30 * time.Second // Consider startups within this window as "rapid"
 )
 
 // healthState tracks startup health for auto-rollback detection.
 type healthState struct {
-	Version       string      `json:"version"`
-	StartupTimes  []time.Time `json:"startup_times"`
-	LastHealthy   time.Time   `json:"last_healthy"`
+	Version      string      `json:"version"`
+	StartupTimes []time.Time `json:"startup_times"`
+	LastHealthy  time.Time   `json:"last_healthy"`
 }
 
 // getDataDir returns the data directory for storing rollback metadata.

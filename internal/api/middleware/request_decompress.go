@@ -65,4 +65,3 @@ func RequestDecompressionMiddleware() gin.HandlerFunc {
 		c.Next()
 	}
 }
-

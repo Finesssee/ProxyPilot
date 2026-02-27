@@ -279,9 +279,9 @@ func TestCodexToken_ExpireEdgeCases(t *testing.T) {
 // TestCodexToken_RefreshThresholdEdgeCases tests edge cases for refresh threshold.
 func TestCodexToken_RefreshThresholdEdgeCases(t *testing.T) {
 	tests := []struct {
-		name          string
-		expireTime    string
-		threshold     time.Duration
+		name            string
+		expireTime      string
+		threshold       time.Duration
 		wantNeedRefresh bool
 	}{
 		{

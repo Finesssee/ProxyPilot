@@ -96,4 +96,3 @@ func (r *Release) FindPreferredAsset() (name, url string) {
 	}
 	return "", ""
 }
-

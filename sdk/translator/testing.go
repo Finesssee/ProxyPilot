@@ -12,15 +12,15 @@ import (
 
 // TestCase represents a single translation test case.
 type TestCase struct {
-	Name           string  // Descriptive name for the test case
-	Input          []byte  // Input payload
-	ExpectedOutput []byte  // Expected output payload (optional, for exact matching)
-	FromFormat     Format  // Source format
-	ToFormat       Format  // Target format
-	Model          string  // Model name to use for translation
-	Stream         bool    // Whether this is a streaming request
-	ShouldFail     bool    // Whether the translation should fail
-	SkipValidation bool    // Skip schema validation of output
+	Name           string   // Descriptive name for the test case
+	Input          []byte   // Input payload
+	ExpectedOutput []byte   // Expected output payload (optional, for exact matching)
+	FromFormat     Format   // Source format
+	ToFormat       Format   // Target format
+	Model          string   // Model name to use for translation
+	Stream         bool     // Whether this is a streaming request
+	ShouldFail     bool     // Whether the translation should fail
+	SkipValidation bool     // Skip schema validation of output
 	ValidateFields []string // Fields to validate in output (if ExpectedOutput is nil)
 }
 

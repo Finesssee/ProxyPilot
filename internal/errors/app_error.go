@@ -46,4 +46,3 @@ func New(statusCode int, code, message string, err error) *AppError {
 		Err:            err,
 	}
 }
-

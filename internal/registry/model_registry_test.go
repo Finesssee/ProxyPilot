@@ -224,13 +224,13 @@ func TestModelRegistry_RegisterClient_UpdateClient(t *testing.T) {
 
 func TestModelRegistry_RegisterClient_AddModels(t *testing.T) {
 	tests := []struct {
-		name                string
-		registrations       []struct {
+		name          string
+		registrations []struct {
 			clientID string
 			provider string
 			models   []*ModelInfo
 		}
-		wantTotalModels     int
+		wantTotalModels       int
 		wantModelClientCounts map[string]int
 	}{
 		{
@@ -251,7 +251,7 @@ func TestModelRegistry_RegisterClient_AddModels(t *testing.T) {
 					models:   []*ModelInfo{{ID: "gpt-4", OwnedBy: "openai"}},
 				},
 			},
-			wantTotalModels:     1,
+			wantTotalModels:       1,
 			wantModelClientCounts: map[string]int{"gpt-4": 2},
 		},
 		{
@@ -272,7 +272,7 @@ func TestModelRegistry_RegisterClient_AddModels(t *testing.T) {
 					models:   []*ModelInfo{{ID: "claude-3-opus", OwnedBy: "anthropic"}},
 				},
 			},
-			wantTotalModels:     2,
+			wantTotalModels:       2,
 			wantModelClientCounts: map[string]int{"gpt-4": 1, "claude-3-opus": 1},
 		},
 		{
@@ -301,9 +301,9 @@ func TestModelRegistry_RegisterClient_AddModels(t *testing.T) {
 			},
 			wantTotalModels: 3,
 			wantModelClientCounts: map[string]int{
-				"gpt-4":        2,
+				"gpt-4":         2,
 				"gpt-3.5-turbo": 1,
-				"gpt-4-turbo":  1,
+				"gpt-4-turbo":   1,
 			},
 		},
 	}
@@ -338,8 +338,8 @@ func TestModelRegistry_RegisterClient_AddModels(t *testing.T) {
 
 func TestModelRegistry_UnregisterClient(t *testing.T) {
 	tests := []struct {
-		name                 string
-		setupRegistrations   []struct {
+		name               string
+		setupRegistrations []struct {
 			clientID string
 			provider string
 			models   []*ModelInfo
@@ -562,12 +562,12 @@ func TestModelRegistry_GetAvailableModels_OpenAI(t *testing.T) {
 			name: "get openai format models",
 			setupModels: []*ModelInfo{
 				{
-					ID:              "gpt-4",
-					OwnedBy:         "openai",
-					Type:            "openai",
-					Created:         1699999999,
-					DisplayName:     "GPT-4",
-					ContextLength:   8192,
+					ID:                  "gpt-4",
+					OwnedBy:             "openai",
+					Type:                "openai",
+					Created:             1699999999,
+					DisplayName:         "GPT-4",
+					ContextLength:       8192,
 					MaxCompletionTokens: 4096,
 				},
 			},
@@ -617,10 +617,10 @@ func TestModelRegistry_GetAvailableModels_OpenAI(t *testing.T) {
 
 func TestModelRegistry_GetAvailableModels_Claude(t *testing.T) {
 	tests := []struct {
-		name               string
-		setupModels        []*ModelInfo
-		wantModelCount     int
-		wantThinkingField  bool
+		name              string
+		setupModels       []*ModelInfo
+		wantModelCount    int
+		wantThinkingField bool
 	}{
 		{
 			name: "get claude format models without thinking",
@@ -679,10 +679,10 @@ func TestModelRegistry_GetAvailableModels_Claude(t *testing.T) {
 
 func TestModelRegistry_GetModelCount(t *testing.T) {
 	tests := []struct {
-		name        string
-		setupFunc   func(r *ModelRegistry)
-		modelID     string
-		wantCount   int
+		name      string
+		setupFunc func(r *ModelRegistry)
+		modelID   string
+		wantCount int
 	}{
 		{
 			name: "single client for model",
@@ -854,9 +854,9 @@ func TestModelRegistry_GetModelProviders(t *testing.T) {
 
 func TestModelRegistry_ConcurrentAccess(t *testing.T) {
 	tests := []struct {
-		name           string
-		numGoroutines  int
-		numOperations  int
+		name          string
+		numGoroutines int
+		numOperations int
 	}{
 		{
 			name:          "low concurrency",
@@ -1003,12 +1003,12 @@ func TestModelRegistry_ConcurrentAccess_MixedOperations(t *testing.T) {
 
 func TestModelRegistry_SuspendAndResumeClientModel(t *testing.T) {
 	tests := []struct {
-		name              string
-		setupFunc         func(r *ModelRegistry)
-		suspendClientID   string
-		suspendModelID    string
-		suspendReason     string
-		resumeAfterCheck  bool
+		name                  string
+		setupFunc             func(r *ModelRegistry)
+		suspendClientID       string
+		suspendModelID        string
+		suspendReason         string
+		resumeAfterCheck      bool
 		wantCountAfterSuspend int
 		wantCountAfterResume  int
 	}{

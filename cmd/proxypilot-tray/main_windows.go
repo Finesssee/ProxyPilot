@@ -22,6 +22,7 @@ import (
 
 	"github.com/getlantern/systray"
 	"github.com/jchv/go-webview2"
+	configaccess "github.com/router-for-me/CLIProxyAPI/v6/internal/access/config_access"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/api/middleware"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/cmd"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
@@ -34,7 +35,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/winutil"
-	configaccess "github.com/router-for-me/CLIProxyAPI/v6/internal/access/config_access"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
 	log "github.com/sirupsen/logrus"
 )
@@ -231,7 +231,7 @@ func run(repoRoot, configPath string) {
 		// Update UI based on status
 		refresh := func() {
 			st := engine.Status()
-			
+
 			// Get account count
 			accountCount := 0
 			if store := sdkAuth.GetTokenStore(); store != nil {
@@ -239,7 +239,7 @@ func run(repoRoot, configPath string) {
 					accountCount = len(auths)
 				}
 			}
-			
+
 			if st.Running {
 				port := st.Port
 				if port <= 0 {
@@ -998,10 +998,10 @@ func captureRateLimits(engine *EmbeddedEngine) string {
 	defer resp.Body.Close()
 
 	var summary struct {
-		Total        int    `json:"total"`
-		Available    int    `json:"available"`
-		CoolingDown  int    `json:"cooling_down"`
-		Disabled     int    `json:"disabled"`
+		Total          int    `json:"total"`
+		Available      int    `json:"available"`
+		CoolingDown    int    `json:"cooling_down"`
+		Disabled       int    `json:"disabled"`
 		NextRecoveryIn string `json:"next_recovery_in,omitempty"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&summary); err != nil {
@@ -1066,7 +1066,7 @@ func exportAccountsDialog() {
 	// Use a default filename in the user's home directory
 	home, _ := os.UserHomeDir()
 	defaultPath := filepath.Join(home, "proxypilot-accounts.json")
-	
+
 	// Run export command
 	output := runCLI("-export-accounts", defaultPath)
 	if output != "" {
@@ -1079,7 +1079,7 @@ func importAccountsDialog() {
 	// Check for default export location
 	home, _ := os.UserHomeDir()
 	defaultPath := filepath.Join(home, "proxypilot-accounts.json")
-	
+
 	// Check if default file exists
 	if _, err := os.Stat(defaultPath); err == nil {
 		output := runCLI("-import-accounts", defaultPath, "-force")
@@ -1097,14 +1097,14 @@ func runCLI(args ...string) string {
 		return ""
 	}
 	dir := filepath.Dir(exe)
-	
+
 	// Try common CLI binary names
 	candidates := []string{
 		filepath.Join(dir, "ProxyPilot.exe"),
 		filepath.Join(dir, "proxypilot.exe"),
 		filepath.Join(dir, "server.exe"),
 	}
-	
+
 	var cliPath string
 	for _, c := range candidates {
 		if _, err := os.Stat(c); err == nil {
@@ -1115,7 +1115,7 @@ func runCLI(args ...string) string {
 	if cliPath == "" {
 		return ""
 	}
-	
+
 	cmd := exec.Command(cliPath, args...)
 	cmd.Env = os.Environ()
 	// Hide console window on Windows

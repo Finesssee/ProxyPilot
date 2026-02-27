@@ -117,10 +117,10 @@ type StatisticsSnapshot struct {
 
 	APIs map[string]APISnapshot `json:"apis"`
 
-	RequestsByDay   map[string]int64 `json:"requests_by_day"`
-	RequestsByHour  map[string]int64 `json:"requests_by_hour"`
-	TokensByDay     map[string]int64 `json:"tokens_by_day"`
-	TokensByHour    map[string]int64 `json:"tokens_by_hour"`
+	RequestsByDay     map[string]int64 `json:"requests_by_day"`
+	RequestsByHour    map[string]int64 `json:"requests_by_hour"`
+	TokensByDay       map[string]int64 `json:"tokens_by_day"`
+	TokensByHour      map[string]int64 `json:"tokens_by_hour"`
 	InputTokensByDay  map[string]int64 `json:"input_tokens_by_day"`
 	OutputTokensByDay map[string]int64 `json:"output_tokens_by_day"`
 }
@@ -492,11 +492,11 @@ type UsageStats struct {
 
 // ModelUsage represents usage stats for a single model.
 type ModelUsage struct {
-	Model         string `json:"model"`
-	Requests      int64  `json:"requests"`
-	Tokens        int64  `json:"tokens"`
-	InputTokens   int64  `json:"input_tokens"`
-	OutputTokens  int64  `json:"output_tokens"`
+	Model        string `json:"model"`
+	Requests     int64  `json:"requests"`
+	Tokens       int64  `json:"tokens"`
+	InputTokens  int64  `json:"input_tokens"`
+	OutputTokens int64  `json:"output_tokens"`
 }
 
 // ComputeUsageStats computes processed usage statistics from a snapshot.

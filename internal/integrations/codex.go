@@ -48,7 +48,7 @@ func (i *CodexIntegration) Configure(proxyURL string) error {
 		return err
 	}
 	configPath := filepath.Join(configDir, "config.toml")
-	
+
 	// Create or append
 	// This is a naive implementation; ideally we parse TOML
 	var content string
@@ -62,9 +62,9 @@ func (i *CodexIntegration) Configure(proxyURL string) error {
 	// For simplicity, we'll append/overwrite safely if it's simple
 	// But robust TOML editing is hard without a library.
 	// Let's assume standard format: base_url = "..."
-	
+
 	newLine := fmt.Sprintf(`base_url = "%s/v1"`, proxyURL)
-	
+
 	if strings.Contains(content, "base_url =") {
 		lines := strings.Split(content, "\n")
 		for idx, line := range lines {

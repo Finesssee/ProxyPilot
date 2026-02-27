@@ -142,4 +142,3 @@ func extractLastUserInputTextFromResponses(rawJSON []byte) string {
 	}
 	return ""
 }
-

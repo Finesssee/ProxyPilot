@@ -90,4 +90,3 @@ func (h *Handler) ResetAuthCooldown(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"updated": updated})
 }
-

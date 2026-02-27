@@ -787,10 +787,10 @@ func TestGeminiExecutor_Execute_RequestBody(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		request     cliproxyexecutor.Request
-		opts        cliproxyexecutor.Options
-		checkBody   func(t *testing.T, body []byte)
+		name      string
+		request   cliproxyexecutor.Request
+		opts      cliproxyexecutor.Options
+		checkBody func(t *testing.T, body []byte)
 	}{
 		{
 			name: "request body contains model field",

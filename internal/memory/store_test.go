@@ -266,11 +266,11 @@ func TestEvent_Fields(t *testing.T) {
 
 func TestEvent_MetaField(t *testing.T) {
 	tests := []struct {
-		name     string
-		meta     map[string]string
-		key      string
-		wantVal  string
-		wantOk   bool
+		name    string
+		meta    map[string]string
+		key     string
+		wantVal string
+		wantOk  bool
 	}{
 		{
 			name:    "existing key",

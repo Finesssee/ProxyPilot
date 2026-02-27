@@ -130,13 +130,13 @@ func IsTranslationSupported(from, to Format) bool {
 
 // TranslationInfo contains metadata about a translation path.
 type TranslationInfo struct {
-	From           Format `json:"from"`
-	To             Format `json:"to"`
-	HasRequest     bool   `json:"has_request"`
-	HasResponse    bool   `json:"has_response"`
-	HasStream      bool   `json:"has_stream"`
-	HasNonStream   bool   `json:"has_non_stream"`
-	HasTokenCount  bool   `json:"has_token_count"`
+	From          Format `json:"from"`
+	To            Format `json:"to"`
+	HasRequest    bool   `json:"has_request"`
+	HasResponse   bool   `json:"has_response"`
+	HasStream     bool   `json:"has_stream"`
+	HasNonStream  bool   `json:"has_non_stream"`
+	HasTokenCount bool   `json:"has_token_count"`
 }
 
 // GetTranslationInfo returns detailed information about a specific translation path.

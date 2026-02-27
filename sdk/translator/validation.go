@@ -8,11 +8,11 @@ import (
 
 // Schema validation errors.
 var (
-	ErrInvalidSchema     = fmt.Errorf("invalid schema")
-	ErrMissingField      = fmt.Errorf("missing required field")
-	ErrInvalidFieldType  = fmt.Errorf("invalid field type")
-	ErrEmptyPayload      = fmt.Errorf("empty payload")
-	ErrInvalidJSON       = fmt.Errorf("invalid JSON")
+	ErrInvalidSchema    = fmt.Errorf("invalid schema")
+	ErrMissingField     = fmt.Errorf("missing required field")
+	ErrInvalidFieldType = fmt.Errorf("invalid field type")
+	ErrEmptyPayload     = fmt.Errorf("empty payload")
+	ErrInvalidJSON      = fmt.Errorf("invalid JSON")
 )
 
 // ValidationResult contains the result of a schema validation.
@@ -355,14 +355,14 @@ func ValidateSchema(format Format, payload []byte) error {
 
 // RoundtripResult contains the result of a roundtrip validation.
 type RoundtripResult struct {
-	Preserved       bool
-	OriginalModel   string
-	RoundtripModel  string
-	OriginalMsgCnt  int
-	RoundtripMsgCnt int
-	OriginalToolCnt int
+	Preserved        bool
+	OriginalModel    string
+	RoundtripModel   string
+	OriginalMsgCnt   int
+	RoundtripMsgCnt  int
+	OriginalToolCnt  int
 	RoundtripToolCnt int
-	Differences     []string
+	Differences      []string
 }
 
 // TestRoundtrip translates a payload from format A to format B and back to A,

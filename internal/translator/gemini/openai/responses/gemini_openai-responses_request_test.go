@@ -24,4 +24,3 @@ func TestConvertOpenAIResponsesRequestToGemini_LeavesNonJSONToolOutputAsString(t
 		t.Fatalf("expected tool output to remain a string, got type=%v value=%s", got.Type, got.Raw)
 	}
 }
-

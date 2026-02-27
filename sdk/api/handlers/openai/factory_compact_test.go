@@ -21,7 +21,7 @@ func TestMaybeCompactFactoryInput_Messages_CompactSummary(t *testing.T) {
 	c.Request.Header.Set("User-Agent", "droid-cli")
 
 	compacted := maybeCompactFactoryInput(c, []byte(rawJSON))
-	
+
 	text := gjson.GetBytes(compacted, "messages.0.content").String()
 	if !strings.Contains(text, "...[ProxyPilot truncated large history]...") {
 		t.Errorf("Expected compacted text, got length %d", len(text))
@@ -43,7 +43,7 @@ func TestMaybeCompactFactoryInput_Input_CompactSummary(t *testing.T) {
 	c.Request.Header.Set("User-Agent", "droid-cli")
 
 	compacted := maybeCompactFactoryInput(c, []byte(rawJSON))
-	
+
 	text := gjson.GetBytes(compacted, "input.0.content.0.text").String()
 	if !strings.Contains(text, "...[ProxyPilot truncated large history]...") {
 		t.Errorf("Expected compacted text, got length %d", len(text))
@@ -65,7 +65,7 @@ func TestMaybeCompactFactoryInput_Messages_ArrayContent(t *testing.T) {
 	c.Request.Header.Set("User-Agent", "droid-cli")
 
 	compacted := maybeCompactFactoryInput(c, []byte(rawJSON))
-	
+
 	text := gjson.GetBytes(compacted, "messages.0.content.0.text").String()
 	if !strings.Contains(text, "...[ProxyPilot truncated large history]...") {
 		t.Errorf("Expected compacted text, got length %d", len(text))

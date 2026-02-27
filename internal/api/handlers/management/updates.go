@@ -10,11 +10,11 @@ import (
 
 // updateState tracks the current update operation state.
 type updateState struct {
-	mu           sync.RWMutex
-	downloading  bool
-	progress     updates.DownloadProgress
+	mu             sync.RWMutex
+	downloading    bool
+	progress       updates.DownloadProgress
 	downloadResult *updates.DownloadResult
-	lastError    string
+	lastError      string
 }
 
 var currentUpdate = &updateState{}

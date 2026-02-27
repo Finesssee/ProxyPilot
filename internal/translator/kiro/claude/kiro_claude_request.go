@@ -17,7 +17,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-
 // Kiro API request structs - field order determines JSON key order
 
 // KiroPayload is the top-level request structure for Kiro API
@@ -33,7 +32,6 @@ type KiroInferenceConfig struct {
 	Temperature float64 `json:"temperature,omitempty"`
 	TopP        float64 `json:"topP,omitempty"`
 }
-
 
 // KiroConversationState holds the conversation context
 type KiroConversationState struct {
@@ -373,7 +371,6 @@ func hasThinkingTagInBody(body []byte) bool {
 	bodyStr := string(body)
 	return strings.Contains(bodyStr, "<thinking_mode>") || strings.Contains(bodyStr, "<max_thinking_length>")
 }
-
 
 // IsThinkingEnabledFromHeader checks if thinking mode is enabled via Anthropic-Beta header.
 // Claude CLI uses "Anthropic-Beta: interleaved-thinking-2025-05-14" to enable thinking.

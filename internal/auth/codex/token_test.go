@@ -194,10 +194,10 @@ func TestCodexTokenStorage_IsExpired(t *testing.T) {
 
 func TestCodexTokenStorage_NeedsRefresh(t *testing.T) {
 	tests := []struct {
-		name         string
-		expireTime   string
+		name          string
+		expireTime    string
 		refreshBefore time.Duration // How long before expiry to trigger refresh
-		wantResult   bool
+		wantResult    bool
 	}{
 		{
 			name:          "token expires in 30 minutes, refresh at 5 min before",

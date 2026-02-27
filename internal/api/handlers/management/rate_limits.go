@@ -9,15 +9,15 @@ import (
 
 // RateLimitEntry represents the rate limit status for a single credential.
 type RateLimitEntry struct {
-	AuthID        string    `json:"auth_id"`
-	Provider      string    `json:"provider"`
-	Label         string    `json:"label,omitempty"`
-	Email         string    `json:"email,omitempty"`
-	QuotaExceeded bool      `json:"quota_exceeded"`
-	QuotaReason   string    `json:"quota_reason,omitempty"`
-	RecoverAt     time.Time `json:"recover_at,omitempty"`
-	RecoverIn     string    `json:"recover_in,omitempty"`
-	BackoffLevel  int       `json:"backoff_level,omitempty"`
+	AuthID        string                `json:"auth_id"`
+	Provider      string                `json:"provider"`
+	Label         string                `json:"label,omitempty"`
+	Email         string                `json:"email,omitempty"`
+	QuotaExceeded bool                  `json:"quota_exceeded"`
+	QuotaReason   string                `json:"quota_reason,omitempty"`
+	RecoverAt     time.Time             `json:"recover_at,omitempty"`
+	RecoverIn     string                `json:"recover_in,omitempty"`
+	BackoffLevel  int                   `json:"backoff_level,omitempty"`
 	ModelLimits   []ModelRateLimitEntry `json:"model_limits,omitempty"`
 }
 
@@ -33,10 +33,10 @@ type ModelRateLimitEntry struct {
 
 // RateLimitsResponse contains overall rate limit status.
 type RateLimitsResponse struct {
-	TotalCredentials     int              `json:"total_credentials"`
-	CoolingDown          int              `json:"cooling_down"`
-	Available            int              `json:"available"`
-	Credentials          []RateLimitEntry `json:"credentials"`
+	TotalCredentials int              `json:"total_credentials"`
+	CoolingDown      int              `json:"cooling_down"`
+	Available        int              `json:"available"`
+	Credentials      []RateLimitEntry `json:"credentials"`
 }
 
 // GetRateLimits returns the rate limit status for all credentials.

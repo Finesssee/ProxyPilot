@@ -16,10 +16,10 @@ import (
 
 // DefenderExclusionStatus represents the current state of Windows Defender exclusions.
 type DefenderExclusionStatus struct {
-	ExeExcluded     bool
-	DirExcluded     bool
-	PortExcluded    bool
-	Error           error
+	ExeExcluded  bool
+	DirExcluded  bool
+	PortExcluded bool
+	Error        error
 }
 
 // CheckDefenderExclusions checks if ProxyPilot paths are excluded from Windows Defender.

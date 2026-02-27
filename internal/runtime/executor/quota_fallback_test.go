@@ -39,4 +39,3 @@ func TestQuotaPreviewFallbackOrder(t *testing.T) {
 		t.Fatalf("expected nil fallback for gemini-3-pro-preview, got %v", got)
 	}
 }
-
