@@ -1112,9 +1112,9 @@ func TestManager_SetRetryConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := NewManager(nil, nil, nil)
-			m.SetRetryConfig(tt.retry, tt.maxRetryInterval)
+			m.SetRetryConfig(tt.retry, tt.maxRetryInterval, 0)
 
-			gotRetry, gotInterval := m.retrySettings()
+			gotRetry, _, gotInterval := m.retrySettings()
 
 			if gotRetry != tt.wantRetry {
 				t.Errorf("retrySettings() retry = %d, want %d", gotRetry, tt.wantRetry)
