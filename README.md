@@ -71,12 +71,6 @@
 
 ## Installation
 
-### Download Pre-built Release (Recommended)
-
-1. Go to the [**Releases**](https://github.com/Finesssee/ProxyPilot/releases) page
-2. Download the latest binary for your platform
-3. Run `./proxypilot`
-
 ### Build from Source
 
 ```bash
@@ -357,12 +351,6 @@ Special thanks to these teams for sharing their work and insights.
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
-
----
-
-## Support
-
-- **Report Issues**: [GitHub Issues](https://github.com/Finesssee/ProxyPilot/issues)
 
 ---
 
