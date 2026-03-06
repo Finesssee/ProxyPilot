@@ -95,7 +95,7 @@ go build -o proxypilot ./cmd/server
 1. Copy config: `cp config.example.yaml config.yaml`
 2. Run: `./proxypilot`
 3. Server starts on `http://localhost:8317`
-4. Open dashboard: `http://localhost:8317/proxypilot.html`
+4. Open dashboard: `http://localhost:8317/management.html`
 
 ### Authentication
 
