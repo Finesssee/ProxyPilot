@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	defaultLatestReleaseURL = "https://api.github.com/repos/router-for-me/CLIProxyAPI/releases/latest"
+	defaultLatestReleaseURL = "https://api.github.com/repos/Finesssee/ProxyPilot/releases/latest"
 	defaultUserAgent        = "ProxyPilot"
 )
 
