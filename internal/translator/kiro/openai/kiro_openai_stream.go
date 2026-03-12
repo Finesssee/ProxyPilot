@@ -15,6 +15,7 @@ import (
 type OpenAIStreamState struct {
 	ChunkIndex        int
 	ToolCallIndex     int
+	ContentBlockTools map[int]int
 	HasSentFirstChunk bool
 	Model             string
 	ResponseID        string
@@ -26,6 +27,7 @@ func NewOpenAIStreamState(model string) *OpenAIStreamState {
 	return &OpenAIStreamState{
 		ChunkIndex:        0,
 		ToolCallIndex:     0,
+		ContentBlockTools: make(map[int]int),
 		HasSentFirstChunk: false,
 		Model:             model,
 		ResponseID:        "chatcmpl-" + uuid.New().String()[:24],
@@ -60,9 +62,9 @@ func BuildOpenAISSETextDelta(state *OpenAIStreamState, textDelta string) string 
 }
 
 // BuildOpenAISSEToolCallStart creates an SSE event for tool call start
-func BuildOpenAISSEToolCallStart(state *OpenAIStreamState, toolUseID, toolName string) string {
+func BuildOpenAISSEToolCallStart(state *OpenAIStreamState, toolUseID, toolName string, toolIndex int) string {
 	toolCall := map[string]interface{}{
-		"index": state.ToolCallIndex,
+		"index": toolIndex,
 		"id":    toolUseID,
 		"type":  "function",
 		"function": map[string]interface{}{

@@ -48,6 +48,21 @@ var responseIDCounter uint64
 // funcCallIDCounter provides a process-wide unique counter for function call identifiers.
 var funcCallIDCounter uint64
 
+func snapshotGeminiFunctionCalls(callIDs map[int]string, names map[int]string) map[string]string {
+	snapshot := make(map[string]string)
+	for idx, callID := range callIDs {
+		if callID == "" {
+			continue
+		}
+		name := names[idx]
+		if name == "" {
+			continue
+		}
+		snapshot[callID] = name
+	}
+	return snapshot
+}
+
 func pickRequestJSON(originalRequestRawJSON, requestRawJSON []byte) []byte {
 	if len(originalRequestRawJSON) > 0 && gjson.ValidBytes(originalRequestRawJSON) {
 		return originalRequestRawJSON
@@ -528,6 +543,7 @@ func ConvertGeminiResponseToOpenAIResponses(_ context.Context, modelName string,
 		if gjson.Get(outputsWrapper, "arr.#").Int() > 0 {
 			completed, _ = sjson.SetRaw(completed, "response.output", gjson.Get(outputsWrapper, "arr").Raw)
 		}
+		rememberGeminiFunctionCalls(st.ResponseID, snapshotGeminiFunctionCalls(st.FuncCallIDs, st.FuncNames))
 
 		// usage mapping
 		if um := root.Get("usageMetadata"); um.Exists() {
@@ -677,6 +693,7 @@ func ConvertGeminiResponseToOpenAIResponsesNonStream(_ context.Context, _ string
 	}
 
 	if parts := root.Get("candidates.0.content.parts"); parts.Exists() && parts.IsArray() {
+		functionCallsToCache := make(map[string]string)
 		parts.ForEach(func(_, p gjson.Result) bool {
 			if p.Get("thought").Bool() {
 				if t := p.Get("text"); t.Exists() {
@@ -696,6 +713,9 @@ func ConvertGeminiResponseToOpenAIResponsesNonStream(_ context.Context, _ string
 				name := fc.Get("name").String()
 				args := fc.Get("args")
 				callID := fmt.Sprintf("call_%x_%d", time.Now().UnixNano(), atomic.AddUint64(&funcCallIDCounter, 1))
+				if name != "" {
+					functionCallsToCache[callID] = name
+				}
 				itemJSON := `{"id":"","type":"function_call","status":"completed","arguments":"","call_id":"","name":""}`
 				itemJSON, _ = sjson.Set(itemJSON, "id", fmt.Sprintf("fc_%s", callID))
 				itemJSON, _ = sjson.Set(itemJSON, "call_id", callID)
@@ -710,6 +730,7 @@ func ConvertGeminiResponseToOpenAIResponsesNonStream(_ context.Context, _ string
 			}
 			return true
 		})
+		rememberGeminiFunctionCalls(id, functionCallsToCache)
 	}
 
 	// Reasoning output item

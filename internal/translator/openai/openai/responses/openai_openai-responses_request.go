@@ -67,9 +67,6 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 			case "message", "":
 				// Handle regular message conversion
 				role := item.Get("role").String()
-				if role == "developer" {
-					role = "user"
-				}
 				message := `{"role":"","content":[]}`
 				message, _ = sjson.Set(message, "role", role)
 

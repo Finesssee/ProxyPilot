@@ -2,6 +2,7 @@ package openai
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -357,6 +358,105 @@ func TestToolResultsFollowedByAssistant(t *testing.T) {
 	if totalToolResults != 2 {
 		t.Errorf("Expected 2 tool results total, got %d", totalToolResults)
 	}
+}
+
+func TestBuildKiroPayloadFromOpenAI_RespectsToolChoice(t *testing.T) {
+	tests := []struct {
+		name               string
+		toolChoice         string
+		wantTools          int
+		wantToolNames      []string
+		wantPromptContains string
+	}{
+		{
+			name:       "none omits tools",
+			toolChoice: `"none"`,
+			wantTools:  0,
+		},
+		{
+			name:       "auto keeps tools",
+			toolChoice: `"auto"`,
+			wantTools:  2,
+			wantToolNames: []string{
+				"Read",
+				"Write",
+			},
+		},
+		{
+			name:               "required keeps tools and injects hint",
+			toolChoice:         `"required"`,
+			wantTools:          2,
+			wantToolNames:      []string{"Read", "Write"},
+			wantPromptContains: "You MUST use at least one of the available tools",
+		},
+		{
+			name:               "specific function keeps only selected tool and injects hint",
+			toolChoice:         `{"type":"function","function":{"name":"Write"}}`,
+			wantTools:          1,
+			wantToolNames:      []string{"Write"},
+			wantPromptContains: "You MUST use the tool named 'Write'",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			input := []byte(`{
+				"model": "kiro-claude-opus-4-5-agentic",
+				"tool_choice": ` + tc.toolChoice + `,
+				"tools": [
+					{
+						"type": "function",
+						"function": {
+							"name": "Read",
+							"description": "Read a file",
+							"parameters": {"type":"object"}
+						}
+					},
+					{
+						"type": "function",
+						"function": {
+							"name": "Write",
+							"description": "Write a file",
+							"parameters": {"type":"object"}
+						}
+					}
+				],
+				"messages": [
+					{"role": "user", "content": "Help me"}
+				]
+			}`)
+
+			result, _ := BuildKiroPayloadFromOpenAI(input, "kiro-model", "", "CLI", false, false, nil, nil)
+
+			var payload KiroPayload
+			if err := json.Unmarshal(result, &payload); err != nil {
+				t.Fatalf("failed to unmarshal payload: %v", err)
+			}
+
+			var tools []KiroToolWrapper
+			ctx := payload.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext
+			if ctx != nil {
+				tools = ctx.Tools
+			}
+			if len(tools) != tc.wantTools {
+				t.Fatalf("expected %d tools, got %d payload=%s", tc.wantTools, len(tools), string(result))
+			}
+			for i, wantName := range tc.wantToolNames {
+				if got := tools[i].ToolSpecification.Name; got != wantName {
+					t.Fatalf("expected tool %d to be %q, got %q", i, wantName, got)
+				}
+			}
+			if tc.wantPromptContains != "" && payload.ConversationState.CurrentMessage.UserInputMessage.Content != "" {
+				if content := payload.ConversationState.CurrentMessage.UserInputMessage.Content; !contains(content, tc.wantPromptContains) {
+					t.Fatalf("expected current message content to contain %q, got %q", tc.wantPromptContains, content)
+				}
+			}
+		})
+	}
+}
+
+func contains(s, substr string) bool {
+	return strings.Contains(s, substr)
 }
 
 // TestAssistantEndsConversation verifies handling when assistant is the last message

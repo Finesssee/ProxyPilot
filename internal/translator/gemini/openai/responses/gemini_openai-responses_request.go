@@ -10,6 +10,33 @@ import (
 
 const geminiResponsesThoughtSignature = "skip_thought_signature_validator"
 
+func buildGeminiResponsesTranslationError(message string) []byte {
+	body := `{"error":{"message":"","type":"translation_error"}}`
+	body, _ = sjson.Set(body, "error.message", message)
+	return []byte(body)
+}
+
+func collectFunctionCallNames(input gjson.Result) map[string]string {
+	names := make(map[string]string)
+	if !input.Exists() || !input.IsArray() {
+		return names
+	}
+
+	input.ForEach(func(_, item gjson.Result) bool {
+		if item.Get("type").String() != "function_call" {
+			return true
+		}
+		callID := item.Get("call_id").String()
+		name := item.Get("name").String()
+		if callID != "" && name != "" {
+			names[callID] = name
+		}
+		return true
+	})
+
+	return names
+}
+
 func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte, stream bool) []byte {
 	rawJSON := inputRawJSON
 
@@ -21,6 +48,9 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 	out := `{"contents":[]}`
 
 	root := gjson.ParseBytes(rawJSON)
+	input := root.Get("input")
+	callNames := collectFunctionCallNames(input)
+	previousResponseID := root.Get("previous_response_id").String()
 
 	// Extract system instruction from OpenAI "instructions" field
 	if instructions := root.Get("instructions"); instructions.Exists() {
@@ -30,7 +60,7 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 	}
 
 	// Convert input messages to Gemini contents format
-	if input := root.Get("input"); input.Exists() && input.IsArray() {
+	if input.Exists() && input.IsArray() {
 		items := input.Array()
 
 		// Normalize consecutive function calls and outputs so each call is immediately followed by its response
@@ -321,21 +351,12 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 
 				functionContent := `{"role":"function","parts":[]}`
 				functionResponse := `{"functionResponse":{"name":"","response":{}}}`
-
-				// We need to extract the function name from the previous function_call
-				// For now, we'll use a placeholder or extract from context if available
-				functionName := "unknown" // This should ideally be matched with the corresponding function_call
-
-				// Find the corresponding function call name by matching call_id
-				// We need to look back through the input array to find the matching call
-				if inputArray := root.Get("input"); inputArray.Exists() && inputArray.IsArray() {
-					inputArray.ForEach(func(_, prevItem gjson.Result) bool {
-						if prevItem.Get("type").String() == "function_call" && prevItem.Get("call_id").String() == callID {
-							functionName = prevItem.Get("name").String()
-							return false // Stop iteration
-						}
-						return true
-					})
+				functionName := callNames[callID]
+				if functionName == "" && previousResponseID != "" {
+					functionName = lookupGeminiFunctionCallName(previousResponseID, callID)
+				}
+				if functionName == "" {
+					return buildGeminiResponsesTranslationError("unable to resolve function_call_output name for call_id " + callID)
 				}
 
 				functionResponse, _ = sjson.Set(functionResponse, "functionResponse.name", functionName)

@@ -28,6 +28,32 @@ type convertGeminiResponseToOpenAIChatParams struct {
 // functionCallIDCounter provides a process-wide unique counter for function call identifiers.
 var functionCallIDCounter uint64
 
+func normalizeGeminiFinishReason(finishReason string) string {
+	return strings.ToLower(strings.TrimSpace(finishReason))
+}
+
+func mapGeminiFinishReasonToOpenAI(finishReason string) string {
+	switch strings.ToUpper(strings.TrimSpace(finishReason)) {
+	case "":
+		return ""
+	case "STOP", "STOP_SEQUENCE", "FINISH_REASON_UNSPECIFIED":
+		return "stop"
+	case "MAX_TOKENS", "MAX_OUTPUT_TOKENS":
+		return "length"
+	case "SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "RECITATION", "IMAGE_SAFETY":
+		return "content_filter"
+	}
+
+	upper := strings.ToUpper(strings.TrimSpace(finishReason))
+	if strings.Contains(upper, "FUNCTION") || strings.Contains(upper, "TOOL") {
+		return "tool_calls"
+	}
+	if strings.Contains(upper, "SAFETY") || strings.Contains(upper, "BLOCK") || strings.Contains(upper, "FILTER") {
+		return "content_filter"
+	}
+	return "stop"
+}
+
 // ConvertGeminiResponseToOpenAI translates a single chunk of a streaming response from the
 // Gemini API format to the OpenAI Chat Completions streaming format.
 // It processes various Gemini event types and transforms them into OpenAI-compatible JSON responses.
@@ -129,16 +155,8 @@ func ConvertGeminiResponseToOpenAI(_ context.Context, _ string, originalRequestR
 			candidateIndex := int(candidate.Get("index").Int())
 			template, _ = sjson.Set(template, "choices.0.index", candidateIndex)
 
-			finishReason := ""
-			if stopReasonResult := gjson.GetBytes(rawJSON, "stop_reason"); stopReasonResult.Exists() {
-				finishReason = stopReasonResult.String()
-			}
-			if finishReason == "" {
-				if finishReasonResult := gjson.GetBytes(rawJSON, "candidates.0.finishReason"); finishReasonResult.Exists() {
-					finishReason = finishReasonResult.String()
-				}
-			}
-			finishReason = strings.ToLower(finishReason)
+			nativeFinishReason := normalizeGeminiFinishReason(candidate.Get("finishReason").String())
+			mappedFinishReason := mapGeminiFinishReasonToOpenAI(candidate.Get("finishReason").String())
 
 			partsResult := candidate.Get("content.parts")
 			hasFunctionCall := false
@@ -229,12 +247,13 @@ func ConvertGeminiResponseToOpenAI(_ context.Context, _ string, originalRequestR
 
 			if hasFunctionCall {
 				template, _ = sjson.Set(template, "choices.0.finish_reason", "tool_calls")
-				template, _ = sjson.Set(template, "choices.0.native_finish_reason", "tool_calls")
-			} else if finishReason != "" {
-				// Only pass through specific finish reasons
-				if finishReason == "max_tokens" || finishReason == "stop" {
-					template, _ = sjson.Set(template, "choices.0.finish_reason", finishReason)
-					template, _ = sjson.Set(template, "choices.0.native_finish_reason", finishReason)
+				if nativeFinishReason != "" {
+					template, _ = sjson.Set(template, "choices.0.native_finish_reason", nativeFinishReason)
+				}
+			} else if mappedFinishReason != "" {
+				template, _ = sjson.Set(template, "choices.0.finish_reason", mappedFinishReason)
+				if nativeFinishReason != "" {
+					template, _ = sjson.Set(template, "choices.0.native_finish_reason", nativeFinishReason)
 				}
 			}
 
@@ -323,8 +342,14 @@ func ConvertGeminiResponseToOpenAINonStream(_ context.Context, _ string, origina
 
 			// Set finish reason.
 			if finishReasonResult := candidate.Get("finishReason"); finishReasonResult.Exists() {
-				choiceTemplate, _ = sjson.Set(choiceTemplate, "finish_reason", strings.ToLower(finishReasonResult.String()))
-				choiceTemplate, _ = sjson.Set(choiceTemplate, "native_finish_reason", strings.ToLower(finishReasonResult.String()))
+				nativeFinishReason := normalizeGeminiFinishReason(finishReasonResult.String())
+				mappedFinishReason := mapGeminiFinishReasonToOpenAI(finishReasonResult.String())
+				if mappedFinishReason != "" {
+					choiceTemplate, _ = sjson.Set(choiceTemplate, "finish_reason", mappedFinishReason)
+				}
+				if nativeFinishReason != "" {
+					choiceTemplate, _ = sjson.Set(choiceTemplate, "native_finish_reason", nativeFinishReason)
+				}
 			}
 
 			partsResult := candidate.Get("content.parts")
@@ -394,7 +419,9 @@ func ConvertGeminiResponseToOpenAINonStream(_ context.Context, _ string, origina
 
 			if hasFunctionCall {
 				choiceTemplate, _ = sjson.Set(choiceTemplate, "finish_reason", "tool_calls")
-				choiceTemplate, _ = sjson.Set(choiceTemplate, "native_finish_reason", "tool_calls")
+				if finishReasonResult := candidate.Get("finishReason"); finishReasonResult.Exists() {
+					choiceTemplate, _ = sjson.Set(choiceTemplate, "native_finish_reason", normalizeGeminiFinishReason(finishReasonResult.String()))
+				}
 			}
 
 			// Append the constructed choice to the main choices array.

@@ -98,7 +98,10 @@ func ConvertKiroStreamToOpenAI(ctx context.Context, model string, originalReques
 			// Tool use block starting
 			toolUseID := eventJSON.Get("content_block.id").String()
 			toolName := eventJSON.Get("content_block.name").String()
-			chunk := BuildOpenAISSEToolCallStart(state, toolUseID, toolName)
+			toolIndex := state.ToolCallIndex
+			blockIndex := int(eventJSON.Get("index").Int())
+			state.ContentBlockTools[blockIndex] = toolIndex
+			chunk := BuildOpenAISSEToolCallStart(state, toolUseID, toolName, toolIndex)
 			results = append(results, chunk)
 			state.ToolCallIndex++
 		}
@@ -123,9 +126,12 @@ func ConvertKiroStreamToOpenAI(ctx context.Context, model string, originalReques
 			// Tool call arguments delta
 			partialJSON := eventJSON.Get("delta.partial_json").String()
 			if partialJSON != "" {
-				// Get the tool index from content block index
 				blockIndex := int(eventJSON.Get("index").Int())
-				chunk := BuildOpenAISSEToolCallArgumentsDelta(state, partialJSON, blockIndex-1) // Adjust for 0-based tool index
+				toolIndex, ok := state.ContentBlockTools[blockIndex]
+				if !ok {
+					toolIndex = blockIndex
+				}
+				chunk := BuildOpenAISSEToolCallArgumentsDelta(state, partialJSON, toolIndex)
 				results = append(results, chunk)
 			}
 		}

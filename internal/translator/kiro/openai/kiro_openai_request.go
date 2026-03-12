@@ -179,6 +179,7 @@ func BuildKiroPayloadFromOpenAI(openaiBody []byte, modelID, profileArn, origin s
 	if !isChatOnly {
 		tools = gjson.GetBytes(openaiBody, "tools")
 	}
+	toolChoiceMode, toolChoiceName := parseOpenAIToolChoice(openaiBody)
 
 	// Extract system prompt from messages
 	systemPrompt := extractSystemPromptFromOpenAI(messages)
@@ -203,7 +204,7 @@ func BuildKiroPayloadFromOpenAI(openaiBody []byte, modelID, profileArn, origin s
 
 	// Handle tool_choice parameter - Kiro doesn't support it natively, so we inject system prompt hints
 	// OpenAI tool_choice values: "none", "auto", "required", or {"type":"function","function":{"name":"..."}}
-	toolChoiceHint := extractToolChoiceHint(openaiBody)
+	toolChoiceHint := extractToolChoiceHint(toolChoiceMode, toolChoiceName)
 	if toolChoiceHint != "" {
 		if systemPrompt != "" {
 			systemPrompt += "\n"
@@ -228,7 +229,7 @@ func BuildKiroPayloadFromOpenAI(openaiBody []byte, modelID, profileArn, origin s
 	thinkingEnabled := checkThinkingModeFromOpenAIWithHeaders(openaiBody, headers)
 
 	// Convert OpenAI tools to Kiro format
-	kiroTools := convertOpenAIToolsToKiro(tools)
+	kiroTools := convertOpenAIToolsToKiro(tools, toolChoiceMode, toolChoiceName)
 
 	// Thinking mode implementation:
 	// Kiro API supports official thinking/reasoning mode via <thinking_mode> tag.
@@ -392,9 +393,9 @@ func ensureKiroInputSchema(parameters interface{}) interface{} {
 }
 
 // convertOpenAIToolsToKiro converts OpenAI tools to Kiro format
-func convertOpenAIToolsToKiro(tools gjson.Result) []KiroToolWrapper {
+func convertOpenAIToolsToKiro(tools gjson.Result, toolChoiceMode, selectedToolName string) []KiroToolWrapper {
 	var kiroTools []KiroToolWrapper
-	if !tools.IsArray() {
+	if toolChoiceMode == "none" || !tools.IsArray() {
 		return kiroTools
 	}
 
@@ -410,6 +411,9 @@ func convertOpenAIToolsToKiro(tools gjson.Result) []KiroToolWrapper {
 		}
 
 		name := fn.Get("name").String()
+		if toolChoiceMode == "function" && selectedToolName != "" && name != selectedToolName {
+			continue
+		}
 		description := fn.Get("description").String()
 		parametersResult := fn.Get("parameters")
 		var parameters interface{}
@@ -788,37 +792,49 @@ func hasThinkingTagInBody(body []byte) bool {
 // - "auto": Model decides (default, no hint needed)
 // - "required": Must use at least one tool
 // - {"type":"function","function":{"name":"..."}} : Must use specific tool
-func extractToolChoiceHint(openaiBody []byte) string {
+func parseOpenAIToolChoice(openaiBody []byte) (mode string, toolName string) {
 	toolChoice := gjson.GetBytes(openaiBody, "tool_choice")
 	if !toolChoice.Exists() {
-		return ""
+		return "", ""
 	}
 
 	// Handle string values
 	if toolChoice.Type == gjson.String {
 		switch toolChoice.String() {
 		case "none":
-			// Note: When tool_choice is "none", we should ideally not pass tools at all
-			// But since we can't modify tool passing here, we add a strong hint
-			return "[INSTRUCTION: Do NOT use any tools. Respond with text only.]"
+			return "none", ""
 		case "required":
-			return "[INSTRUCTION: You MUST use at least one of the available tools to respond. Do not respond with text only - always make a tool call.]"
+			return "required", ""
 		case "auto":
-			// Default behavior, no hint needed
-			return ""
+			return "auto", ""
 		}
 	}
 
 	// Handle object value: {"type":"function","function":{"name":"..."}}
 	if toolChoice.IsObject() {
 		if toolChoice.Get("type").String() == "function" {
-			toolName := toolChoice.Get("function.name").String()
+			toolName = toolChoice.Get("function.name").String()
+			if toolName == "" {
+				toolName = toolChoice.Get("name").String()
+			}
 			if toolName != "" {
-				return fmt.Sprintf("[INSTRUCTION: You MUST use the tool named '%s' to respond. Do not use any other tool or respond with text only.]", toolName)
+				return "function", toolName
 			}
 		}
 	}
 
+	return "", ""
+}
+
+func extractToolChoiceHint(mode, toolName string) string {
+	switch mode {
+	case "required":
+		return "[INSTRUCTION: You MUST use at least one of the available tools to respond. Do not respond with text only - always make a tool call.]"
+	case "function":
+		if toolName != "" {
+			return fmt.Sprintf("[INSTRUCTION: You MUST use the tool named '%s' to respond. Do not use any other tool or respond with text only.]", toolName)
+		}
+	}
 	return ""
 }
 
