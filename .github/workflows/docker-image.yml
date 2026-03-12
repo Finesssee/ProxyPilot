@@ -1,9 +1,7 @@
 name: docker-image
 
 on:
-  push:
-    tags:
-      - v*
+  workflow_dispatch:
 
 env:
   APP_NAME: ProxyPilot
