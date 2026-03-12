@@ -24,6 +24,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/managementasset"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/store"
 	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/translator"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/tui"
@@ -825,9 +826,10 @@ func main() {
 				log.Warnf("failed to get management password: %v (webui may require manual authentication)", err)
 			}
 		}
-		// Use standalone mode (no keep-alive shutdown) when password was auto-generated
-		// Keep-alive shutdown is only needed when the tray app spawns the server as subprocess
+		// Use standalone mode (no keep-alive shutdown) when password was auto-generated.
+		// Keep-alive shutdown is only needed when the tray app spawns the server as subprocess.
 		managementasset.StartAutoUpdater(context.Background(), configFilePath)
+		registry.StartModelsUpdater(context.Background())
 		if autoGenPassword {
 			cmd.StartServiceStandalone(cfg, configFilePath, password)
 		} else {

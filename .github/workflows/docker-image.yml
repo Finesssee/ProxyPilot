@@ -28,6 +28,9 @@ jobs:
       - name: Checkout
         if: steps.check-secrets.outputs.skip != 'true'
         uses: actions/checkout@v4
+      - name: Refresh models catalog
+        if: steps.check-secrets.outputs.skip != 'true'
+        run: curl -fsSL https://raw.githubusercontent.com/router-for-me/models/refs/heads/main/models.json -o internal/registry/models/models.json
       - name: Set up QEMU
         if: steps.check-secrets.outputs.skip != 'true'
         uses: docker/setup-qemu-action@v3
