@@ -103,24 +103,24 @@
       "id": 17,
       "name": "Auth packages code review",
       "description": "Codex review of internal/auth/* packages",
-      "passes": false
+      "passes": true
     },
     {
       "id": 18,
       "name": "Translator packages code review",
       "description": "Codex review of internal/translator/* packages",
-      "passes": false
+      "passes": true
     },
     {
       "id": 19,
       "name": "API handlers code review",
       "description": "Codex review of internal/api/handlers/* packages",
-      "passes": false
+      "passes": true
     }
   ],
   "summary": {
     "total": 19,
-    "passing": 16,
-    "failing": 3
+    "passing": 19,
+    "failing": 0
   }
 }
