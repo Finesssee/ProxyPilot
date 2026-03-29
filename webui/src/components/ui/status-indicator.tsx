@@ -179,4 +179,4 @@ const StatusBadge = React.forwardRef<
 })
 StatusBadge.displayName = "StatusBadge"
 
-export { StatusIndicator, StatusBadge, statusColors, type StatusIndicatorProps, type StatusBadgeProps }
+export { StatusIndicator, StatusBadge, type StatusIndicatorProps, type StatusBadgeProps }

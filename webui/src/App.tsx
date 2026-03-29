@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
+import { Activity, BarChart3, Database, GitBranch, Key, ScrollText, Terminal } from 'lucide-react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from 'sonner'
-import { ProxyProvider, useProxyContext } from '@/hooks/useProxyContext'
+import { ProxyProvider } from '@/hooks/ProxyProvider'
+import { useProxyContext } from '@/hooks/useProxyContext'
 import {
   EngineControl,
   ProviderLogins,
@@ -21,9 +23,19 @@ import {
 import { Header } from '@/components/layout/Header'
 import { StatusBar } from '@/components/layout/StatusBar'
 import { UpdateBanner } from '@/components/layout/UpdateBanner'
-import { IconRail, navigationItems } from '@/components/ui/icon-rail'
+import { IconRail } from '@/components/ui/icon-rail'
 
 type ViewId = 'command' | 'providers' | 'routing' | 'memory' | 'logs' | 'requests' | 'analytics'
+
+const navigationItems = [
+  { id: 'command', icon: Terminal, label: 'Command', color: 'var(--accent-primary)', shortcut: 'Ctrl+1' },
+  { id: 'providers', icon: Key, label: 'Providers', color: 'var(--accent-glow)', shortcut: 'Ctrl+2' },
+  { id: 'routing', icon: GitBranch, label: 'Routing', color: 'var(--status-processing)', shortcut: 'Ctrl+3' },
+  { id: 'memory', icon: Database, label: 'Memory', color: 'var(--accent-secondary)', shortcut: 'Ctrl+4' },
+  { id: 'logs', icon: ScrollText, label: 'Logs', color: 'var(--text-secondary)', shortcut: 'Ctrl+5' },
+  { id: 'requests', icon: Activity, label: 'Monitor', color: 'var(--accent-glow)', shortcut: 'Ctrl+6' },
+  { id: 'analytics', icon: BarChart3, label: 'Analytics', color: 'var(--accent-primary)', shortcut: 'Ctrl+7' },
+]
 
 function DashboardContent() {
   const { status, isDesktop, mgmtKey } = useProxyContext()
@@ -68,7 +80,7 @@ function DashboardContent() {
             {!isDesktop && !mgmtKey && (
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-300">
                 Management key missing. Start ProxyPilot from the tray app to inject a local key,
-                or set `MANAGEMENT_PASSWORD` before loading this page.
+                or set the management password environment variable before loading this page.
               </div>
             )}
           </div>

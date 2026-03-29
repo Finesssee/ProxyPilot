@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useProxyContext, EngineOfflineError } from '@/hooks/useProxyContext'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,13 @@ interface ModelMapping {
   from: string
   to: string
   provider: string
+}
+
+interface ModelMappingsResponse {
+  mappings?: ModelMapping[]
+  model?: string
+  to?: string
+  provider?: string
 }
 
 const PROVIDERS = ['anthropic', 'google', 'openai', 'azure', 'bedrock', 'vertex', 'other'] as const
@@ -45,16 +52,16 @@ export function ModelMappings() {
 
   const isRunning = status?.running ?? false
 
-  const fetchModelMappings = async () => {
+  const fetchModelMappings = useCallback(async () => {
     try {
-      const data = await mgmtFetch('/v0/management/model-mappings')
+      const data = await mgmtFetch('/v0/management/model-mappings') as ModelMappingsResponse
       setModelMappings(data.mappings || [])
     } catch (e) {
       if (!(e instanceof EngineOfflineError)) {
         console.error('Failed to fetch model mappings:', e)
       }
     }
-  }
+  }, [mgmtFetch])
 
   const addModelMapping = async () => {
     if (!newMapping.from.trim() || !newMapping.to.trim()) {
@@ -116,24 +123,33 @@ export function ModelMappings() {
       return
     }
     try {
-      const data = await mgmtFetch(`/v0/management/model-mappings/test?model=${encodeURIComponent(mappingTestInput.trim())}`)
+      const data = await mgmtFetch(
+        `/v0/management/model-mappings/test?model=${encodeURIComponent(mappingTestInput.trim())}`,
+      ) as ModelMappingsResponse
       setMappingTestResult({
         model: data.model || data.to || mappingTestInput,
         provider: data.provider,
         matched: data.model !== mappingTestInput || !!data.provider
       })
-    } catch (e) {
+    } catch {
       setMappingTestResult({ matched: false })
     }
   }
 
   useEffect(() => {
     if (mgmtKey && isRunning) {
-      fetchModelMappings()
+      const timer = setTimeout(() => {
+        void fetchModelMappings()
+      }, 0)
+      return () => clearTimeout(timer)
     } else if (!isRunning) {
-      setModelMappings([])
+      const timer = setTimeout(() => {
+        setModelMappings([])
+      }, 0)
+      return () => clearTimeout(timer)
     }
-  }, [mgmtKey, isRunning])
+    return undefined
+  }, [fetchModelMappings, isRunning, mgmtKey])
 
   if (!mgmtKey) {
     return null

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useProxyContext } from '@/hooks/useProxyContext'
 import { Loader2, Users, Zap, Activity, RefreshCw, Clock } from 'lucide-react'
@@ -203,7 +203,7 @@ export function AccountUsage() {
 
     const isRunning = status?.running ?? false
 
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         if (!isRunning) {
             setAccounts([])
             setLoading(false)
@@ -220,13 +220,20 @@ export function AccountUsage() {
         } finally {
             setLoading(false)
         }
-    }
+    }, [isRunning, mgmtFetch])
 
     useEffect(() => {
-        fetchData()
-        const interval = setInterval(fetchData, 30000)
-        return () => clearInterval(interval)
-    }, [isRunning])
+        const timer = setTimeout(() => {
+            void fetchData()
+        }, 0)
+        const interval = setInterval(() => {
+            void fetchData()
+        }, 30000)
+        return () => {
+            clearTimeout(timer)
+            clearInterval(interval)
+        }
+    }, [fetchData])
 
     // Calculate max tokens for relative bar sizing
     const maxTotalTokens = Math.max(

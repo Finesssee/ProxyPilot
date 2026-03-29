@@ -16,6 +16,10 @@ interface Agent {
     config_path?: string
 }
 
+interface AgentsResponse {
+    agents?: Agent[]
+}
+
 export function AgentSetup() {
     const { mgmtFetch, showToast, status, isMgmtLoading, pp_detect_agents, pp_configure_agent, pp_unconfigure_agent, isDesktop } = useProxyContext()
     const [agents, setAgents] = useState<Agent[]>([])
@@ -31,9 +35,9 @@ export function AgentSetup() {
         try {
             let data: Agent[] = []
             if (isDesktop && pp_detect_agents) {
-                data = await pp_detect_agents()
+                data = await pp_detect_agents() as Agent[]
             } else {
-                const res = await mgmtFetch('/v0/management/agents')
+                const res = await mgmtFetch('/v0/management/agents') as AgentsResponse
                 data = res.agents || []
             }
             setAgents(data)
@@ -47,11 +51,18 @@ export function AgentSetup() {
 
     useEffect(() => {
         if (isRunning) {
-            fetchAgents()
+            const timer = setTimeout(() => {
+                void fetchAgents()
+            }, 0)
+            return () => clearTimeout(timer)
         } else {
-            setAgents([])
+            const timer = setTimeout(() => {
+                setAgents([])
+            }, 0)
+            return () => clearTimeout(timer)
         }
-    }, [isRunning, fetchAgents])
+        return undefined
+    }, [fetchAgents, isRunning])
 
     const copyToClipboard = (text: string, label: string) => {
         navigator.clipboard.writeText(text)

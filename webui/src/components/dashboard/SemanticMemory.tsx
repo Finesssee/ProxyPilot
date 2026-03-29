@@ -31,6 +31,14 @@ interface SemanticItem {
   text?: string
 }
 
+interface SemanticNamespacesResponse {
+  namespaces?: SemanticNamespace[]
+}
+
+interface SemanticItemsResponse {
+  items?: SemanticItem[]
+}
+
 export function SemanticMemory() {
   const { mgmtKey, mgmtFetch, showToast, status, isMgmtLoading } = useProxyContext()
 
@@ -55,7 +63,7 @@ export function SemanticMemory() {
 
   const loadSemanticNamespaces = useCallback(async () => {
     try {
-      const res = await mgmtFetch('/v0/management/semantic/namespaces')
+      const res = await mgmtFetch('/v0/management/semantic/namespaces') as SemanticNamespacesResponse
       const namespaces = res.namespaces || []
       setSemanticNamespaces(namespaces)
       if (!semanticNamespace && namespaces.length > 0) {
@@ -76,7 +84,7 @@ export function SemanticMemory() {
     try {
       const res = await mgmtFetch(
         `/v0/management/semantic/items?namespace=${encodeURIComponent(semanticNamespace)}&limit=${encodeURIComponent(semanticLimit)}`
-      )
+      ) as SemanticItemsResponse
       const items: SemanticItem[] = res.items || []
       if (!Array.isArray(items) || items.length === 0) {
         setSemanticItems('No items.')
@@ -100,14 +108,21 @@ export function SemanticMemory() {
   // Load initial data when mgmtKey is available
   useEffect(() => {
     if (mgmtKey && isRunning) {
-      loadSemanticHealth()
-      loadSemanticNamespaces()
+      const timer = setTimeout(() => {
+        void loadSemanticHealth()
+        void loadSemanticNamespaces()
+      }, 0)
+      return () => clearTimeout(timer)
     } else if (!isRunning) {
-      setSemanticHealth(null)
-      setSemanticNamespaces([])
-      setSemanticItems('')
+      const timer = setTimeout(() => {
+        setSemanticHealth(null)
+        setSemanticNamespaces([])
+        setSemanticItems('')
+      }, 0)
+      return () => clearTimeout(timer)
     }
-  }, [mgmtKey, isRunning, loadSemanticHealth, loadSemanticNamespaces])
+    return undefined
+  }, [isRunning, loadSemanticHealth, loadSemanticNamespaces, mgmtKey])
 
   if (!mgmtKey) {
     return null

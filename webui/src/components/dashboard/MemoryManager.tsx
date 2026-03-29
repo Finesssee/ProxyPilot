@@ -51,6 +51,18 @@ interface ParsedEvent {
   text: string;
 }
 
+interface MemoryEventRecord {
+  ts?: string;
+  kind?: string;
+  role?: string;
+  text?: string;
+}
+
+interface MemoryAnchorRecord {
+  ts?: string;
+  summary?: string;
+}
+
 const downloadBlob = (blob: Blob, filename: string) => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -240,11 +252,11 @@ export function MemoryManager() {
         setMemoryEvents([])
         return
       }
-      const parsed: ParsedEvent[] = events.map((e: any) => ({
-        ts: e.ts || '',
-        kind: e.kind || '',
-        role: e.role || '',
-        text: (e.text || '').toString(),
+      const parsed: ParsedEvent[] = events.map((event: MemoryEventRecord) => ({
+        ts: event.ts || '',
+        kind: event.kind || '',
+        role: event.role || '',
+        text: (event.text || '').toString(),
       }))
       setMemoryEvents(parsed)
     } catch (e) {
@@ -267,9 +279,9 @@ export function MemoryManager() {
         setMemoryAnchors([])
         return
       }
-      const parsed: ParsedAnchor[] = anchors.map((a: any) => ({
-        ts: a.ts || '',
-        summary: (a.summary || '').toString(),
+      const parsed: ParsedAnchor[] = anchors.map((anchor: MemoryAnchorRecord) => ({
+        ts: anchor.ts || '',
+        summary: (anchor.summary || '').toString(),
       }))
       setMemoryAnchors(parsed)
     } catch (e) {

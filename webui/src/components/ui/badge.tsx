@@ -98,4 +98,4 @@ function BadgeWithDot({
 	);
 }
 
-export { Badge, BadgeWithDot, badgeVariants };
+export { Badge, BadgeWithDot };

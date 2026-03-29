@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useProxyContext } from '@/hooks/useProxyContext'
 import { Loader2, BarChart3, Activity, Zap, DollarSign, PieChart, TrendingDown, Sparkles } from 'lucide-react'
@@ -30,19 +30,39 @@ interface UsageData {
     daily: DailyUsage[]
 }
 
+interface UsageSource extends Partial<UsageData> {
+    totalRequests?: number
+    successCount?: number
+    failureCount?: number
+    totalInputTokens?: number
+    totalOutputTokens?: number
+    estimatedCostSaved?: number
+    actualCost?: number
+    directApiCost?: number
+    savingsPercent?: number
+    byModel?: Record<string, number>
+    byProvider?: Record<string, number>
+    costByModel?: Record<string, number>
+    costByProvider?: Record<string, number>
+}
+
+interface UsageResponse extends UsageSource {
+    usage?: UsageSource
+}
+
 export function UsageStats() {
     const { mgmtFetch } = useProxyContext()
     const [data, setData] = useState<UsageData | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
 
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         try {
-            let result: any
+            let result: UsageResponse | null = null
             if (window.pp_get_usage) {
-                result = await window.pp_get_usage()
+                result = await window.pp_get_usage() as UsageResponse
             } else if (mgmtFetch) {
-                result = await mgmtFetch('/v0/management/usage')
+                result = await mgmtFetch('/v0/management/usage') as UsageResponse
             } else {
                 throw new Error('No method available to fetch usage data')
             }
@@ -76,13 +96,20 @@ export function UsageStats() {
         } finally {
             setLoading(false)
         }
-    }
+    }, [mgmtFetch])
 
     useEffect(() => {
-        fetchData()
-        const interval = setInterval(fetchData, 30000) // Refresh every 30s
-        return () => clearInterval(interval)
-    }, [])
+        const timer = setTimeout(() => {
+            void fetchData()
+        }, 0)
+        const interval = setInterval(() => {
+            void fetchData()
+        }, 30000)
+        return () => {
+            clearTimeout(timer)
+            clearInterval(interval)
+        }
+    }, [fetchData])
 
     if (loading && !data) {
         return (
@@ -115,7 +142,7 @@ export function UsageStats() {
 
     const maxDailyRequests = Math.max(...data.daily.map((d) => d.requests), 1)
     const providerEntries = Object.entries(data.by_provider).sort((a, b) => b[1] - a[1])
-    const totalProviderRequests = providerEntries.reduce((acc, [_, count]) => acc + count, 0)
+    const totalProviderRequests = providerEntries.reduce((acc, [, count]) => acc + count, 0)
 
     return (
         <div className="space-y-6">

@@ -8,8 +8,13 @@ interface Integration {
   id: string
   name?: string
   detected: boolean
+  installed?: boolean
   binary_path?: string
   config_path?: string
+}
+
+interface IntegrationsResponse {
+  integrations?: Integration[]
 }
 
 export function Integrations() {
@@ -25,11 +30,11 @@ export function Integrations() {
     setLoading(true)
     setScanKey(prev => prev + 1)
     try {
-      const data = await mgmtFetch('/v0/management/integrations/status')
+      const data = await mgmtFetch('/v0/management/integrations/status') as IntegrationsResponse
       // Map 'installed' from API to 'detected' for UI
-      const mapped = (data.integrations || []).map((i: any) => ({
-        ...i,
-        detected: i.installed ?? i.detected ?? false,
+      const mapped = (data.integrations || []).map((integration) => ({
+        ...integration,
+        detected: integration.installed ?? integration.detected ?? false,
       }))
       setIntegrations(mapped)
     } catch (e) {
@@ -56,10 +61,17 @@ export function Integrations() {
 
   useEffect(() => {
     if (mgmtKey && isRunning) {
-      fetchIntegrations()
+      const timer = setTimeout(() => {
+        void fetchIntegrations()
+      }, 0)
+      return () => clearTimeout(timer)
     } else if (!isRunning) {
-      setIntegrations([])
+      const timer = setTimeout(() => {
+        setIntegrations([])
+      }, 0)
+      return () => clearTimeout(timer)
     }
+    return undefined
   }, [mgmtKey, isRunning, fetchIntegrations])
 
   const truncatePath = (path: string, maxLen: number = 35) => {

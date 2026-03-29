@@ -541,10 +541,23 @@ func isRuntimeOnlyAuth(auth *coreauth.Auth) bool {
 	return strings.EqualFold(strings.TrimSpace(auth.Attributes["runtime_only"]), "true")
 }
 
+func isUnsafeAuthFileName(name string) bool {
+	if strings.TrimSpace(name) == "" {
+		return true
+	}
+	if strings.ContainsAny(name, "/\\") {
+		return true
+	}
+	if filepath.VolumeName(name) != "" {
+		return true
+	}
+	return false
+}
+
 // Download single auth file by name
 func (h *Handler) DownloadAuthFile(c *gin.Context) {
-	name := c.Query("name")
-	if name == "" || strings.Contains(name, string(os.PathSeparator)) {
+	name := strings.TrimSpace(c.Query("name"))
+	if isUnsafeAuthFileName(name) {
 		c.JSON(400, gin.H{"error": "invalid name"})
 		return
 	}
@@ -626,8 +639,8 @@ func (h *Handler) UploadAuthFile(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no files uploaded"})
 		return
 	}
-	name := c.Query("name")
-	if name == "" || strings.Contains(name, string(os.PathSeparator)) {
+	name := strings.TrimSpace(c.Query("name"))
+	if isUnsafeAuthFileName(name) {
 		c.JSON(400, gin.H{"error": "invalid name"})
 		return
 	}
@@ -787,104 +800,6 @@ func (h *Handler) writeAuthFile(ctx context.Context, name string, data []byte) e
 	return h.commitUploadedAuthFile(ctx, dst, data)
 }
 
-func (h *Handler) commitUploadedAuthFile(ctx context.Context, path string, data []byte) error {
-	if _, err := h.buildAuthFromFileData(path, data); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("failed to prepare auth dir: %w", err)
-	}
-	previousData, errRead := os.ReadFile(path)
-	hadPrevious := errRead == nil
-	if errRead != nil && !os.IsNotExist(errRead) {
-		return fmt.Errorf("failed to read existing auth file: %w", errRead)
-	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
-	}
-	if err := h.registerAuthFromFile(ctx, path, data); err != nil {
-		if hadPrevious {
-			_ = os.WriteFile(path, previousData, 0o600)
-		} else {
-			_ = os.Remove(path)
-		}
-		return err
-	}
-	return nil
-}
-
-func (h *Handler) buildAuthFromFileData(path string, data []byte) (*coreauth.Auth, error) {
-	if strings.TrimSpace(path) == "" {
-		return nil, fmt.Errorf("auth path is empty")
-	}
-	if data == nil {
-		var err error
-		data, err = os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read auth file: %w", err)
-		}
-	}
-	metadata := make(map[string]any)
-	if err := json.Unmarshal(data, &metadata); err != nil {
-		return nil, fmt.Errorf("invalid auth file: %w", err)
-	}
-	provider, _ := metadata["type"].(string)
-	if provider == "" {
-		provider = "unknown"
-	}
-	label := provider
-	if email, ok := metadata["email"].(string); ok && email != "" {
-		label = email
-	}
-	lastRefresh, hasLastRefresh := extractLastRefreshTimestamp(metadata)
-
-	authID := h.authIDForPath(path)
-	if authID == "" {
-		authID = path
-	}
-	attr := map[string]string{
-		"path":   path,
-		"source": path,
-	}
-	auth := &coreauth.Auth{
-		ID:         authID,
-		Provider:   provider,
-		FileName:   filepath.Base(path),
-		Label:      label,
-		Status:     coreauth.StatusActive,
-		Attributes: attr,
-		Metadata:   metadata,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
-	}
-	if prefix, ok := authStringMetadata(metadata["prefix"]); ok {
-		auth.Prefix = prefix
-		auth.Attributes["prefix"] = prefix
-	}
-	if proxyURL, ok := authStringMetadata(metadata["proxy_url"]); ok {
-		auth.ProxyURL = proxyURL
-		auth.Attributes["proxy_url"] = proxyURL
-	}
-	if priority, ok := authIntMetadata(metadata["priority"]); ok {
-		auth.Priority = priority
-		auth.Attributes["priority"] = strconv.Itoa(priority)
-	}
-	if hasLastRefresh {
-		auth.LastRefreshedAt = lastRefresh
-	}
-	if h != nil && h.authManager != nil {
-		if existing, ok := h.authManager.GetByID(authID); ok {
-			auth.CreatedAt = existing.CreatedAt
-			if !hasLastRefresh {
-				auth.LastRefreshedAt = existing.LastRefreshedAt
-			}
-			auth.NextRefreshAfter = existing.NextRefreshAfter
-			auth.Runtime = existing.Runtime
-		}
-	}
-	return auth, nil
-}
-
 func requestedAuthFileNamesForDelete(c *gin.Context) ([]string, error) {
 	if c == nil {
 		return nil, nil
@@ -948,7 +863,7 @@ func uniqueAuthFileNames(names []string) []string {
 
 func (h *Handler) deleteAuthFileByName(ctx context.Context, name string) (string, int, error) {
 	name = strings.TrimSpace(name)
-	if name == "" || strings.Contains(name, string(os.PathSeparator)) {
+	if isUnsafeAuthFileName(name) {
 		return "", http.StatusBadRequest, fmt.Errorf("invalid name")
 	}
 
@@ -1048,19 +963,112 @@ func (h *Handler) registerAuthFromFile(ctx context.Context, path string, data []
 	if h.authManager == nil {
 		return nil
 	}
-	auth, err := h.buildAuthFromFileData(path, data)
+	auth, hasLastRefresh, err := h.buildAuthFromFileData(path, data)
 	if err != nil {
 		return err
 	}
-	return h.upsertAuthRecord(ctx, auth)
+	return h.registerManagedAuth(ctx, auth, hasLastRefresh)
 }
 
-func (h *Handler) upsertAuthRecord(ctx context.Context, auth *coreauth.Auth) error {
-	if h == nil || h.authManager == nil || auth == nil {
+func (h *Handler) commitUploadedAuthFile(ctx context.Context, path string, data []byte) error {
+	if _, _, err := h.buildAuthFromFileData(path, data); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("failed to prepare auth dir: %w", err)
+	}
+	previousData, errRead := os.ReadFile(path)
+	hadPrevious := errRead == nil
+	if errRead != nil && !os.IsNotExist(errRead) {
+		return fmt.Errorf("failed to read existing auth file: %w", errRead)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("failed to write file: %w", err)
+	}
+	if err := h.registerAuthFromFile(ctx, path, data); err != nil {
+		if hadPrevious {
+			_ = os.WriteFile(path, previousData, 0o600)
+		} else {
+			_ = os.Remove(path)
+		}
+		return err
+	}
+	return nil
+}
+
+func (h *Handler) buildAuthFromFileData(path string, data []byte) (*coreauth.Auth, bool, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, false, fmt.Errorf("auth path is empty")
+	}
+	if data == nil {
+		var err error
+		data, err = os.ReadFile(path)
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to read auth file: %w", err)
+		}
+	}
+	metadata := make(map[string]any)
+	if err := json.Unmarshal(data, &metadata); err != nil {
+		return nil, false, fmt.Errorf("invalid auth file: %w", err)
+	}
+	provider, _ := metadata["type"].(string)
+	if provider == "" {
+		provider = "unknown"
+	}
+	label := provider
+	if email, ok := metadata["email"].(string); ok && email != "" {
+		label = email
+	}
+	lastRefresh, hasLastRefresh := extractLastRefreshTimestamp(metadata)
+
+	authID := h.authIDForPath(path)
+	if authID == "" {
+		authID = path
+	}
+	attr := map[string]string{
+		"path":   path,
+		"source": path,
+	}
+	auth := &coreauth.Auth{
+		ID:         authID,
+		Provider:   provider,
+		FileName:   filepath.Base(path),
+		Label:      label,
+		Status:     coreauth.StatusActive,
+		Attributes: attr,
+		Metadata:   metadata,
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
+	}
+	if prefix, ok := authStringMetadata(metadata["prefix"]); ok {
+		auth.Prefix = prefix
+		auth.Attributes["prefix"] = prefix
+	}
+	if proxyURL, ok := authStringMetadata(metadata["proxy_url"]); ok {
+		auth.ProxyURL = proxyURL
+		auth.Attributes["proxy_url"] = proxyURL
+	}
+	if priority, ok := authIntMetadata(metadata["priority"]); ok {
+		auth.Priority = priority
+		auth.Attributes["priority"] = strconv.Itoa(priority)
+	}
+	if hasLastRefresh {
+		auth.LastRefreshedAt = lastRefresh
+	}
+	return auth, hasLastRefresh, nil
+}
+
+func (h *Handler) registerManagedAuth(ctx context.Context, auth *coreauth.Auth, hasLastRefresh bool) error {
+	if h.authManager == nil {
 		return nil
 	}
 	if existing, ok := h.authManager.GetByID(auth.ID); ok {
 		auth.CreatedAt = existing.CreatedAt
+		if !hasLastRefresh {
+			auth.LastRefreshedAt = existing.LastRefreshedAt
+		}
+		auth.NextRefreshAfter = existing.NextRefreshAfter
+		auth.Runtime = existing.Runtime
 		_, err := h.authManager.Update(ctx, auth)
 		return err
 	}
@@ -1222,7 +1230,6 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 		if targetAuth.Attributes == nil {
 			targetAuth.Attributes = make(map[string]string)
 		}
-
 		if req.Priority != nil {
 			targetAuth.Priority = *req.Priority
 			if *req.Priority == 0 {

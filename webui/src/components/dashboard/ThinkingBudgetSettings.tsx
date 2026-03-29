@@ -75,9 +75,13 @@ export function ThinkingBudgetSettings() {
 
     useEffect(() => {
         if (isRunning) {
-            fetchData()
+            const timer = setTimeout(() => {
+                void fetchData()
+            }, 0)
+            return () => clearTimeout(timer)
         }
-    }, [isRunning, fetchData])
+        return undefined
+    }, [fetchData, isRunning])
 
     const handleModeChange = (mode: string) => {
         setSelectedMode(mode)

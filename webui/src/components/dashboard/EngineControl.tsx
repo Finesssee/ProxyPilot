@@ -49,7 +49,10 @@ export function EngineControl() {
 			return () => clearInterval(interval);
 		}
 		startTimeRef.current = null;
-		setUptime(0);
+		const timer = setTimeout(() => {
+			setUptime(0);
+		}, 0);
+		return () => clearTimeout(timer);
 	}, [isRunning]);
 
 	const handleCopyUrl = async () => {

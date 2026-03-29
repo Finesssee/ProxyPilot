@@ -192,7 +192,7 @@ export function UpdateBanner() {
         ) : (
           <>
             {/* Download button - only in desktop mode with mgmt API */}
-            {isDesktop && mgmtFetch && (
+            {isDesktop && (
               <Button
                 size="sm"
                 onClick={handleDownload}

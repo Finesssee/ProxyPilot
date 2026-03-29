@@ -48,6 +48,21 @@ interface HistoryStats {
     direct_api_cost: number
     savings: number
     savings_percent: number
+    by_model?: Record<string, number>
+    by_provider?: Record<string, number>
+}
+
+interface LiveRequestsResponse {
+    requests?: RequestLogEntry[]
+}
+
+interface RequestHistoryResponse {
+    entries?: RequestLogEntry[]
+    total?: number
+}
+
+interface RequestHistoryStatsResponse {
+    stats?: HistoryStats | null
 }
 
 type ViewMode = 'live' | 'history'
@@ -83,9 +98,9 @@ export function RequestMonitor() {
         try {
             let data: RequestLogEntry[] = []
             if (window.pp_get_requests) {
-                data = await window.pp_get_requests()
+                data = await window.pp_get_requests() as RequestLogEntry[]
             } else {
-                const res = await mgmtFetch('/v0/management/requests')
+                const res = await mgmtFetch('/v0/management/requests') as LiveRequestsResponse
                 data = res.requests || []
             }
             setRequests([...data].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()))
@@ -123,12 +138,12 @@ export function RequestMonitor() {
                 params.set('errors_only', 'true')
             }
 
-            const res = await mgmtFetch(`/v0/management/request-history?${params.toString()}`)
+            const res = await mgmtFetch(`/v0/management/request-history?${params.toString()}`) as RequestHistoryResponse
             setRequests(res.entries || [])
             setTotalCount(res.total || 0)
 
             // Also fetch stats
-            const statsRes = await mgmtFetch('/v0/management/request-history/stats')
+            const statsRes = await mgmtFetch('/v0/management/request-history/stats') as RequestHistoryStatsResponse
             setHistoryStats(statsRes.stats || null)
 
             // Extract unique models and providers from stats
@@ -212,12 +227,15 @@ export function RequestMonitor() {
     }
 
     useEffect(() => {
-        if (viewMode === 'live') {
-            fetchLiveRequests()
-        } else {
-            fetchHistory()
-        }
+        const timer = setTimeout(() => {
+            if (viewMode === 'live') {
+                void fetchLiveRequests()
+            } else {
+                void fetchHistory()
+            }
+        }, 0)
         return () => {
+            clearTimeout(timer)
             if (liveIntervalRef.current) {
                 clearInterval(liveIntervalRef.current)
             }
@@ -226,7 +244,10 @@ export function RequestMonitor() {
 
     // Reset page when filters change
     useEffect(() => {
-        setPage(1)
+        const timer = setTimeout(() => {
+            setPage(1)
+        }, 0)
+        return () => clearTimeout(timer)
     }, [filterModel, filterProvider, filterStatus, filterStartDate, filterEndDate])
 
     const getStatusColor = (code: number) => {

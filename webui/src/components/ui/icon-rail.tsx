@@ -1,4 +1,4 @@
-import { Terminal, Key, GitBranch, Database, ScrollText, Activity, BarChart3, type LucideIcon } from 'lucide-react'
+import { type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface IconRailItem {
@@ -14,16 +14,6 @@ interface IconRailProps {
   activeId: string
   onSelect: (id: string) => void
 }
-
-export const navigationItems: IconRailItem[] = [
-  { id: 'command', icon: Terminal, label: 'Command', color: 'var(--accent-primary)', shortcut: 'Ctrl+1' },
-  { id: 'providers', icon: Key, label: 'Providers', color: 'var(--accent-glow)', shortcut: 'Ctrl+2' },
-  { id: 'routing', icon: GitBranch, label: 'Routing', color: 'var(--status-processing)', shortcut: 'Ctrl+3' },
-  { id: 'memory', icon: Database, label: 'Memory', color: 'var(--accent-secondary)', shortcut: 'Ctrl+4' },
-  { id: 'logs', icon: ScrollText, label: 'Logs', color: 'var(--text-secondary)', shortcut: 'Ctrl+5' },
-  { id: 'requests', icon: Activity, label: 'Monitor', color: 'var(--accent-glow)', shortcut: 'Ctrl+6' },
-  { id: 'analytics', icon: BarChart3, label: 'Analytics', color: 'var(--accent-primary)', shortcut: 'Ctrl+7' },
-]
 
 export function IconRail({ items, activeId, onSelect }: IconRailProps) {
   return (

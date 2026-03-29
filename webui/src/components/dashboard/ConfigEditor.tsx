@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useProxyContext, EngineOfflineError } from '@/hooks/useProxyContext'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -10,7 +10,7 @@ export function ConfigEditor() {
     const [isSaving, setIsSaving] = useState(false)
     const isRunning = status?.running ?? false
 
-    const fetchConfig = async () => {
+    const fetchConfig = useCallback(async () => {
         try {
             const data = await mgmtFetch('/v0/management/config.yaml')
             setConfigYaml(typeof data === 'string' ? data : JSON.stringify(data, null, 2))
@@ -19,7 +19,7 @@ export function ConfigEditor() {
                 showToast(e instanceof Error ? e.message : String(e), 'error')
             }
         }
-    }
+    }, [mgmtFetch, showToast])
 
     const saveConfig = async () => {
         setIsSaving(true)
@@ -39,9 +39,13 @@ export function ConfigEditor() {
 
     useEffect(() => {
         if (isRunning) {
-            fetchConfig()
+            const timer = setTimeout(() => {
+                void fetchConfig()
+            }, 0)
+            return () => clearTimeout(timer)
         }
-    }, [isRunning])
+        return undefined
+    }, [fetchConfig, isRunning])
 
     return (
         <Card className="backdrop-blur-sm bg-card/60 border-border/50 shadow-xl overflow-hidden">
