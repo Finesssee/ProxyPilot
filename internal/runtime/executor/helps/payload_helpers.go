@@ -321,7 +321,7 @@ func matchModelPattern(pattern, model string) bool {
 // applyPayloadConfig applies payload configuration rules without a root path prefix.
 // This is a convenience wrapper for executors that don't need nested path handling.
 func applyPayloadConfig(cfg *config.Config, model string, payload []byte) []byte {
-	return applyPayloadConfigWithRoot(cfg, model, "", "", payload, nil, "")
+	return ApplyPayloadConfigWithRoot(cfg, model, "", "", payload, nil, "")
 }
 
 // ApplyReasoningEffortMetadata applies reasoning effort metadata to the request payload.
