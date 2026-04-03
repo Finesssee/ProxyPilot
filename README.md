@@ -92,10 +92,11 @@ go build -o proxypilot ./cmd/server
 
 ### First Launch
 
-1. Copy config: `cp config.example.yaml config.yaml`
-2. Run: `./proxypilot`
-3. Server starts on `http://localhost:8317`
-4. Open dashboard: `http://localhost:8317/management.html`
+1. Packaged installs create `config.yaml` automatically on first start when `config.example.yaml` is bundled next to the executable.
+2. If you're running from source, copy config: `cp config.example.yaml config.yaml`
+3. Run: `./proxypilot`
+4. Server starts on `http://localhost:8317`
+5. Open dashboard: `http://localhost:8317/management.html`
 
 ### Authentication
 
