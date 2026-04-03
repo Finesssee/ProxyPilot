@@ -55,6 +55,7 @@ GEMINI.md
 
 # Tooling metadata
 .vscode/*
+.worktrees/
 .codex/*
 .claude/*
 .gemini/*

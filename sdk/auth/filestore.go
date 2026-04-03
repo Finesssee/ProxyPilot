@@ -265,6 +265,7 @@ func (s *FileTokenStore) readAuthFile(path, baseDir string) (*cliproxyauth.Auth,
 		auth.Attributes["email"] = email
 	}
 	hydratePersistentAuthFields(auth, metadata)
+	cliproxyauth.ApplyCustomHeadersFromMetadata(auth)
 	return auth, nil
 }
 
