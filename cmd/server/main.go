@@ -26,6 +26,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/managementasset"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/startupconfig"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/store"
 	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/translator"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/tui"
@@ -550,12 +551,18 @@ func main() {
 		configFilePath = configPath
 		cfg, err = config.LoadConfigOptional(configPath, isCloudDeploy)
 	} else {
-		wd, err = os.Getwd()
-		if err != nil {
-			log.Errorf("failed to get working directory: %v", err)
-			return
+		exePath, errExe := os.Executable()
+		if errExe != nil {
+			log.WithError(errExe).Debug("failed to resolve executable path for default config lookup")
 		}
-		configFilePath = filepath.Join(wd, "config.yaml")
+		resolution := startupconfig.ResolveConfigPath("", wd, exePath)
+		if created, errPrepare := startupconfig.EnsureDefaultConfig(resolution); errPrepare != nil {
+			log.Errorf("failed to prepare default config: %v", errPrepare)
+			return
+		} else if created {
+			log.Infof("default config initialized from template: %s", resolution.ConfigPath)
+		}
+		configFilePath = resolution.ConfigPath
 		cfg, err = config.LoadConfigOptional(configFilePath, isCloudDeploy)
 	}
 	if err != nil {
