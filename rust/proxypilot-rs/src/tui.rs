@@ -47,7 +47,7 @@ async fn run_loop(
 
     loop {
         if app.last_poll.elapsed() >= Duration::from_secs(2) {
-            app.refresh_health().await;
+            app.poll_runtime_observability().await;
         }
 
         terminal.draw(|frame| render(frame, &app))?;
@@ -57,7 +57,7 @@ async fn run_loop(
         {
             match key.code {
                 KeyCode::Char('q') => break,
-                KeyCode::Char('r') => app.refresh_health().await,
+                KeyCode::Char('r') => app.refresh_operator_state().await,
                 KeyCode::Up => app.move_selection_up(),
                 KeyCode::Down => app.move_selection_down(),
                 KeyCode::Char('a') => app.activate_selected_account(),
@@ -104,13 +104,13 @@ impl TuiApp {
             active_account: "none".to_string(),
             account_count: 0,
             models: Vec::new(),
-            feedback: "Use arrows to select an account, `a` to activate, `f` to refresh selected, `R` to refresh active, `d` to delete, `c` to clear.".to_string(),
+            feedback: "Ready.".to_string(),
             feedback_color: Color::DarkGray,
             last_poll: Instant::now() - Duration::from_secs(3),
         }
     }
 
-    async fn refresh_health(&mut self) {
+    async fn poll_runtime_observability(&mut self) -> bool {
         self.last_poll = Instant::now();
         self.refresh_accounts();
 
@@ -118,7 +118,6 @@ impl TuiApp {
             Ok(response) if response.status() == StatusCode::OK => {
                 self.health_status = "local proxy reachable".to_string();
                 self.health_color = Color::Green;
-                self.refresh_models().await;
             }
             Ok(response) => {
                 self.health_status = format!("proxy responded with {}", response.status());
@@ -133,6 +132,14 @@ impl TuiApp {
         }
 
         self.refresh_runtime_stats().await;
+        self.runtime_stats.is_some()
+    }
+
+    async fn refresh_operator_state(&mut self) {
+        let proxy_reachable = self.poll_runtime_observability().await;
+        if proxy_reachable {
+            self.refresh_models().await;
+        }
     }
 
     async fn refresh_runtime_stats(&mut self) {
@@ -366,7 +373,7 @@ impl TuiApp {
                 self.feedback = format!("Refreshed account `{}`.", account_name);
                 self.feedback_color = Color::Green;
                 self.refresh_accounts();
-                self.refresh_health().await;
+                self.poll_runtime_observability().await;
             }
             Err(err) => {
                 self.feedback = format!("Failed to refresh account `{}`: {err}", account_name);
@@ -382,11 +389,11 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
         .margin(1)
         .constraints([
             Constraint::Length(4),
-            Constraint::Length(9),
-            Constraint::Length(10),
-            Constraint::Length(12),
+            Constraint::Min(6),
             Constraint::Min(7),
-            Constraint::Length(3),
+            Constraint::Min(4),
+            Constraint::Min(7),
+            Constraint::Length(6),
         ])
         .split(frame.area());
 
@@ -525,11 +532,12 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
             app.feedback.as_str(),
             Style::default().fg(app.feedback_color),
         )]),
-        Line::from(account_selection_hint(
+        Line::from(footer_status_hint(
             app.accounts.get(app.selected_account_idx),
+            app.runtime_stats.is_some(),
         )),
-        Line::from(runtime_action_hint(app.runtime_stats.is_some())),
-        Line::from(footer_help_text()),
+        Line::from(footer_help_text_primary()),
+        Line::from(footer_help_text_secondary()),
     ])
     .block(Block::default().borders(Borders::ALL).title("Keys"))
     .wrap(Wrap { trim: false });
@@ -641,8 +649,12 @@ fn refresh_status_summary(status: &crate::auth_runtime::RefreshStatusSnapshot) -
     parts.join(" ")
 }
 
-fn footer_help_text() -> String {
-    "q quit  |  r reload/poll  |  arrows move  |  a activate  |  f refresh selected  |  R refresh active  |  d delete  |  c clear feedback".to_string()
+fn footer_help_text_primary() -> &'static str {
+    "q quit  |  r reload/poll  |  arrows move  |  a activate  |  f refresh selected"
+}
+
+fn footer_help_text_secondary() -> &'static str {
+    "R refresh active  |  d delete  |  c clear feedback"
 }
 
 fn runtime_action_hint(runtime_available: bool) -> &'static str {
@@ -662,6 +674,14 @@ fn account_selection_hint(selected: Option<&AccountRow>) -> String {
         ),
         None => "Selected account: none".to_string(),
     }
+}
+
+fn footer_status_hint(selected: Option<&AccountRow>, runtime_available: bool) -> String {
+    format!(
+        "{}  |  {}",
+        account_selection_hint(selected),
+        runtime_action_hint(runtime_available)
+    )
 }
 
 fn runtime_refresh_target(
@@ -768,15 +788,16 @@ mod tests {
 
     #[test]
     fn footer_help_text_matches_milestone_actions() {
-        let help = footer_help_text();
+        let help_primary = footer_help_text_primary();
+        let help_secondary = footer_help_text_secondary();
 
-        assert!(help.contains("q quit"));
-        assert!(help.contains("r reload"));
-        assert!(help.contains("a activate"));
-        assert!(help.contains("f refresh selected"));
-        assert!(help.contains("R refresh active"));
-        assert!(help.contains("d delete"));
-        assert!(help.contains("c clear feedback"));
+        assert!(help_primary.contains("q quit"));
+        assert!(help_primary.contains("r reload"));
+        assert!(help_primary.contains("a activate"));
+        assert!(help_primary.contains("f refresh selected"));
+        assert!(help_secondary.contains("R refresh active"));
+        assert!(help_secondary.contains("d delete"));
+        assert!(help_secondary.contains("c clear feedback"));
     }
 
     #[test]
@@ -839,5 +860,118 @@ mod tests {
 
         assert!(message.contains("do not report a live active account"));
         assert!(message.contains("disk-selected"));
+    }
+
+    #[tokio::test]
+    async fn passive_polling_does_not_touch_models_endpoint() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+
+        use axum::{Json, Router, routing::get};
+        use serde_json::json;
+        use tokio::net::TcpListener;
+
+        let health_hits = Arc::new(AtomicUsize::new(0));
+        let stats_hits = Arc::new(AtomicUsize::new(0));
+        let models_hits = Arc::new(AtomicUsize::new(0));
+
+        let health_hits_for_handler = health_hits.clone();
+        let stats_hits_for_handler = stats_hits.clone();
+        let models_hits_for_handler = models_hits.clone();
+
+        let app = Router::new()
+            .route(
+                "/healthz",
+                get(move || {
+                    let health_hits_for_handler = health_hits_for_handler.clone();
+                    async move {
+                        health_hits_for_handler.fetch_add(1, Ordering::SeqCst);
+                        StatusCode::OK
+                    }
+                }),
+            )
+            .route(
+                "/v0/runtime/stats",
+                get(move || {
+                    let stats_hits_for_handler = stats_hits_for_handler.clone();
+                    async move {
+                        stats_hits_for_handler.fetch_add(1, Ordering::SeqCst);
+                        Json(sample_runtime_stats())
+                    }
+                }),
+            )
+            .route(
+                "/v1/models",
+                get(move || {
+                    let models_hits_for_handler = models_hits_for_handler.clone();
+                    async move {
+                        models_hits_for_handler.fetch_add(1, Ordering::SeqCst);
+                        Json(json!({
+                            "data": [{"id": "model-1"}]
+                        }))
+                    }
+                }),
+            );
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let bind = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: bind.to_string(),
+            },
+            ..AppConfig::default()
+        };
+        let mut app = TuiApp::new(config, Path::new("/tmp/proxypilot-tui-test.toml"));
+        app.models = vec!["existing-model".to_string()];
+
+        app.poll_runtime_observability().await;
+
+        assert_eq!(health_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(stats_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(models_hits.load(Ordering::SeqCst), 0);
+        assert_eq!(app.models, vec!["existing-model".to_string()]);
+
+        server.abort();
+    }
+
+    #[test]
+    fn footer_layout_snapshot_keeps_all_guidance_visible() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let mut app = TuiApp::new(
+            AppConfig::default(),
+            Path::new("/tmp/proxypilot-tui-test.toml"),
+        );
+        app.feedback = "Feedback line".to_string();
+        app.feedback_color = Color::Green;
+
+        let backend = TestBackend::new(120, 36);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+
+        let snapshot = terminal
+            .backend()
+            .buffer()
+            .content()
+            .chunks(terminal.backend().buffer().area.width as usize)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(snapshot.contains("Feedback line"));
+        assert!(snapshot.contains("Selected account: none"));
+        assert!(snapshot.contains("runtime live") || snapshot.contains("runtime unavailable"));
+        assert!(snapshot.contains("q quit"));
+        assert!(snapshot.contains("R refresh active"));
+        assert!(snapshot.contains("c clear feedback"));
+        assert!(!snapshot.contains("Use arrows to select an account"));
     }
 }
