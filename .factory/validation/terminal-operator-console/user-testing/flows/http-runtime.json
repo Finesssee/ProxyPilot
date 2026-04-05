@@ -1,0 +1,133 @@
+{
+  "assertions": [
+    {
+      "details": "Observed status=ok, provider=codex, listen=127.0.0.1:18318, upstream=http://127.0.0.1:18319 on the reachable fixture and the same local health response with upstream=http://127.0.0.1:18339.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-001-healthz-reachable.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-001-healthz-unreachable.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/fixture-config-fallback.toml",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/fixture-config-unreachable.toml"
+      ],
+      "id": "VAL-HTTP-001",
+      "status": "pass",
+      "summary": "Health checks returned 200 with local proxy identity fields both with the mock upstream and with an unreachable local upstream port."
+    },
+    {
+      "details": "The stats call returned HTTP 200 with a JSON payload and the mock log remained empty (request_count=0), confirming the operator surface is read-only and local.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-002-runtime-stats.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-002-mock-log.json"
+      ],
+      "id": "VAL-HTTP-002",
+      "status": "pass",
+      "summary": "The local /v0/runtime/stats surface returned 200 without auth and did not create any upstream mock traffic."
+    },
+    {
+      "details": "Before and after mutating the state file on disk, /v0/runtime/stats continued to report active_account_name=runtime-valid and auth_health.state=valid for the running process while exposing bind_address, upstream_base_url, account_count, auth_health, request_counters, and last_refresh.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-003-stats-before-disk-mutation.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-003-stats-after-disk-mutation.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-003-state-before.toml",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-003-state-mutated.toml"
+      ],
+      "id": "VAL-HTTP-003",
+      "status": "pass",
+      "summary": "The runtime stats payload exposed the expected stable schema and stayed pinned to runtime-memory state after the disk state file was mutated externally."
+    },
+    {
+      "details": "Observed auth_health.state values: fallback-key -> static with source=config_fallback_key and no active_account_name; static saved account -> static with source=active_account; valid fixture -> valid; expiring fixture -> expiring_soon; expired fixture -> expired; malformed expiry fixture -> unknown with metadata_state=malformed.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-004-fallback-key.json",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-004-static-saved.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-004-valid.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-004-expiring.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-004-expired.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-004-malformed.txt"
+      ],
+      "id": "VAL-HTTP-004",
+      "status": "pass",
+      "summary": "Representative fixtures produced explicit auth-health states for fallback static, saved static, valid, expiring_soon, expired, and malformed unknown cases."
+    },
+    {
+      "details": "Initial stats showed all request counters at 0 and last_refresh.kind=unknown with null timestamps; after two successful requests the counters rose; after restarting the proxy with the same fixture they reset to zero again.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-002-runtime-stats.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-006-stats-after-success.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-005-stats-after-restart.txt"
+      ],
+      "id": "VAL-HTTP-005",
+      "status": "pass",
+      "summary": "Fresh runtime counters started at zero, last-refresh metadata was null-like before any attempt, and a restart cleared in-memory stats after traffic."
+    },
+    {
+      "details": "Starting from zero, one GET /v1/models and one POST /v1/chat/completions produced total_proxied_requests=2 and successful_upstream_responses=2, with two corresponding mock upstream calls.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-006-models-success.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-006-chat-success.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-006-stats-after-success.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-006-mock-log.json"
+      ],
+      "id": "VAL-HTTP-006",
+      "status": "pass",
+      "summary": "Successful supported proxy requests incremented both total_proxied_requests and successful_upstream_responses."
+    },
+    {
+      "details": "With an expired refreshable account, the next proxied request returned 502, auth_refresh_attempts/auth_refresh_failures incremented, last_refresh.kind became failure, and the local upstream mock saw zero calls. This confirms the pre-forward refresh attempt, but successful local stubbed refresh remains blocked because the available config surface has no OAuth token endpoint override.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-007-stats-before.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-007-proactive-refresh-attempt.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-007-stats-after.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-007-mock-log.json",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/fixture-config-expired.toml"
+      ],
+      "id": "VAL-HTTP-007",
+      "status": "blocked",
+      "summary": "A proactive refresh attempt was observable before forwarding, but the success path could not be validated because the runtime cannot be redirected from the user surface to a local OAuth token stub."
+    },
+    {
+      "details": "The local mock forced one upstream 401 and the proxy recorded upstream_401_count=1 with a single proxied request, but the refresh attempt failed with a 502 response and the mock saw no /oauth/token call. A successful refresh-and-retry path therefore remains blocked under the current user-surface configuration.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-008-009-stats-before.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-008-009-401-refresh-attempt.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-008-009-stats-after.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-008-009-mock-log.json",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/fixture-config-401-retry.toml"
+      ],
+      "id": "VAL-HTTP-008",
+      "status": "blocked",
+      "summary": "The 401-triggered refresh path is visible, but the success retry case cannot be validated locally because the runtime cannot point refresh traffic at a local OAuth token stub from the user surface."
+    },
+    {
+      "details": "The client received HTTP 502 with a local JSON error after the mock upstream returned 401, while /v0/runtime/stats showed total_proxied_requests=1, upstream_401_count=1, auth_refresh_attempts=1, auth_refresh_failures=1, and last_refresh.kind=failure with a failure timestamp/message.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-008-009-401-refresh-attempt.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-008-009-stats-after.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-008-009-mock-log.json"
+      ],
+      "id": "VAL-HTTP-009",
+      "status": "pass",
+      "summary": "A 401-triggered refresh failure remained visible to the operator surface and did not masquerade as success."
+    },
+    {
+      "details": "POST /v1/files returned HTTP 404 with an error naming /v1/files and the supported routes list; successful_upstream_responses and total_proxied_requests stayed unchanged across the before/after stats captures.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-010-stats-before.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-010-unsupported-route.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-runtime/val-http-010-stats-after.txt"
+      ],
+      "id": "VAL-HTTP-010",
+      "status": "pass",
+      "summary": "Unsupported /v1/* routes returned a clear 404 JSON error and did not change success counters."
+    }
+  ],
+  "blockers": [
+    "VAL-HTTP-007 and VAL-HTTP-008 remain blocked for success-path validation because proxypilot-rs exposes no user-surface config knob to redirect refresh token exchange from the hardwired OAuth endpoint to a local stub."
+  ],
+  "frictions": [],
+  "groupId": "http-runtime",
+  "overallSummary": "Validated 10 HTTP runtime assertions: 8 passed and 2 were blocked (refresh-success paths VAL-HTTP-007 and VAL-HTTP-008).",
+  "surface": "curl",
+  "toolsUsed": [
+    "curl"
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "groupId": "cli-shell",
+  "surface": "shell",
+  "toolsUsed": [
+    "shell"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-CLI-001",
+      "status": "pass",
+      "summary": "init wrote an example config at the requested fixture path and a second run without --force refused to overwrite it with a clear error.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-001-init-success.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-001-init-refused-overwrite.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-001-config.toml"
+      ],
+      "details": "Used isolated fixture config /home/fsos/code-lean/ai-tools/ProxyPilot/.factory/validation/terminal-operator-console/user-testing/fixtures/cli-shell/20260405T121714Z/proxypilot-rs.toml. Successful init printed the written path. Re-running init returned exit code 1 with \"config already exists ... (pass --force to overwrite)\". The captured config file includes server.bind=127.0.0.1:8318, state.path=proxypilot-rs.state.toml, and codex.upstream_base_url=https://api.openai.com."
+    },
+    {
+      "id": "VAL-CLI-002",
+      "status": "pass",
+      "summary": "Add, list, activate, and remove commands kept saved active-account state coherent, including promotion back to the remaining account and explicit empty-state output after removing the final account.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-002-add-primary.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-002-add-backup.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-002-list-after-add.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-002-activate-backup.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-002-list-after-activate.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-002-remove-backup.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-002-list-after-remove-backup.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-002-remove-primary.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-002-list-after-remove-primary.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-002-state-after-activate-backup.toml",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-002-state-after-remove-backup.toml",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-002-state-after-remove-primary.toml"
+      ],
+      "details": "primary became active when first added; list output marked it with `*`. After activating backup, list output switched the marker to backup and the saved state snapshot shows active_account=\"backup\". Removing backup reported \"local active account is now `primary`\" and the next state snapshot shows active_account=\"primary\". Removing primary reported \"no local active account remains\" and follow-up list output showed \"No local Rust accounts saved yet.\" with an empty accounts snapshot."
+    },
+    {
+      "id": "VAL-CLI-003",
+      "status": "blocked",
+      "summary": "Negative refresh paths behaved clearly for static and missing accounts, but the required refresh-success path could not be exercised within the isolated fixture because refresh-codex is hardwired to the live OpenAI OAuth refresh endpoint.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-003-state-with-static-and-refreshable.toml",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-003-list-pre-refresh.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-003-refresh-static-fails.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-003-refresh-missing-fails.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-003-list-after-failures.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-003-state-after-failures.toml",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-shell/20260405T121714Z/VAL-CLI-003-refresh-success-blocked.txt"
+      ],
+      "details": "Imported a refreshable local fixture account and added a static account inside the assigned fixture state. Refreshing the static account failed cleanly with \"account `static-local` is static and has no refresh token\"; refreshing a missing account failed with \"no saved Codex account named missing-local\". Follow-up list/state evidence shows saved state remained unchanged after both failures. The assertion remains blocked because the CLI refresh path uses the built-in OpenAI OAuth refresh endpoint and the supported config surface does not expose a way to redirect refresh-codex to a local mock endpoint without live credentials."
+    }
+  ],
+  "frictions": [],
+  "blockers": [
+    "VAL-CLI-003 success-path refresh is not isolatable in this shell fixture: refresh-codex uses the built-in live OpenAI OAuth refresh endpoint, and the allowed CLI/config surface provides no local mock override. Live device-login/private credentials were explicitly disallowed, so the refresh-success portion of the assertion was recorded as blocked with evidence."
+  ],
+  "overallSummary": "Validated 3 CLI shell assertions for terminal-operator-console: VAL-CLI-001 pass, VAL-CLI-002 pass, VAL-CLI-003 blocked due to non-mockable live refresh dependency. Report and evidence were written under the requested flow-report and mission evidence paths."
+}

@@ -1,0 +1,188 @@
+{
+  "groupId": "tui-console",
+  "surface": "tuistory",
+  "toolsUsed": [
+    "tuistory",
+    "shell",
+    "curl"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-TUI-001",
+      "status": "pass",
+      "summary": "The TUI opened as a readable Codex operator console with overview, runtime, runtime-stats, models, accounts, selected-account, feedback, and key-help regions visible.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-initial.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-initial.png"
+      ],
+      "details": "Launching `cargo run --manifest-path rust/Cargo.toml -p proxypilot-rs -- tui --config .../config-live.toml` rendered the Codex Operator Console immediately. The initial surface showed readable runtime health, live runtime stats, a disk-backed account list, selected-account details, and footer/help text rather than a blank or cryptic screen."
+    },
+    {
+      "id": "VAL-TUI-002",
+      "status": "pass",
+      "summary": "The footer/help text matched the shipped key bindings, and each listed action was exercised through the TUI during validation.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-initial.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-after-activate-alpha.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-after-delete-beta.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-after-clear-feedback.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/auth-trouble-after-q-snapshot.txt"
+      ],
+      "details": "Visible help text listed `q`, `r`, arrows, `a`, `f`, `R`, `d`, and `c`. Those bindings were exercised across the live, runtime-down, and auth-trouble sessions: reload/poll updated state, arrows changed selection, activate/delete changed local state, selected refresh and active refresh produced targeted feedback, clear removed feedback, and `q` exited the TUI process back to the launcher shell."
+    },
+    {
+      "id": "VAL-TUI-003",
+      "status": "pass",
+      "summary": "With no proxy running on the configured port, the TUI explicitly showed runtime unavailability while keeping the local disk-backed account list and selected-account details visible.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/runtime-down-clean-initial.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/runtime-down-clean-initial.png"
+      ],
+      "details": "Using the isolated runtime-down fixture on 127.0.0.1:18430 without starting a proxy produced `Health: proxy not running yet` and `Runtime unavailable` copy, while still rendering six saved accounts and full selected-account details from the local fixture state file."
+    },
+    {
+      "id": "VAL-TUI-004",
+      "status": "pass",
+      "summary": "Pressing `r` refreshed both disk-backed state and runtime-observed data without restarting the TUI.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-initial.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/cli-activate-beta.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-after-cli-activate-reload.txt"
+      ],
+      "details": "After changing the saved active account externally through the CLI and generating runtime traffic through `/v1/models`, pressing `r` in the live TUI updated the disk active account from `alpha` to `beta`, loaded the model list, and refreshed runtime counters to `total=1 success=1` while still truthfully showing the runtime active account as `alpha`."
+    },
+    {
+      "id": "VAL-TUI-005",
+      "status": "pass",
+      "summary": "The activate action updated active markers, selected-account details, and feedback coherently.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-before-activate.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-after-activate-alpha.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-after-activate-alpha.png"
+      ],
+      "details": "Before pressing `a`, the selected row was `alpha` while the disk active marker was on `beta`. After `a`, the footer reported `Activated account \\`alpha\\`.` and the active marker moved to `alpha` without corrupting selection or the selected-account panel."
+    },
+    {
+      "id": "VAL-TUI-006",
+      "status": "pass",
+      "summary": "The delete action removed the selected account, kept selection in bounds, and updated visible account state coherently.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-after-clear-feedback.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-after-delete-beta.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-after-delete-beta.png"
+      ],
+      "details": "With `beta` selected, pressing `d` removed that row, reduced the saved-account count from two to one, moved selection to the remaining `alpha` row, and showed `Deleted account \\`beta\\`.` in the footer without leaving stale details on screen."
+    },
+    {
+      "id": "VAL-TUI-007",
+      "status": "pass",
+      "summary": "Selected-account refresh targeted the selected row and named that account clearly in feedback.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-select-beta.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-after-refresh-selected-beta.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/runtime-down-clean-after-refresh-selected-soon.txt"
+      ],
+      "details": "On the live fixture, `beta` was selected while `alpha` remained active; pressing `f` produced `Failed to refresh account \\`beta\\`: account \\`beta\\` is static and has no refresh token`. In the runtime-down fixture, selecting `soon` and pressing `f` produced feedback naming `soon`, confirming the action targets the selected row rather than the active row."
+    },
+    {
+      "id": "VAL-TUI-008",
+      "status": "pass",
+      "summary": "Active-account refresh-now targeted the active account even when another row was selected.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-select-beta.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-after-refresh-active-alpha.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/runtime-down-clean-select-valid-while-active-soon.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/runtime-down-clean-after-refresh-active-runtime-down.txt"
+      ],
+      "details": "In the live fixture, `beta` was selected while `alpha` was the active disk/runtime account; pressing `R` produced feedback naming `alpha`, not `beta`. In the runtime-down fixture, `valid` was selected while disk active remained `soon`, and `R` reported `Disk active account remains \\`soon\\``, again proving the action targeted the active account rather than the selected row."
+    },
+    {
+      "id": "VAL-TUI-009",
+      "status": "pass",
+      "summary": "Clear-feedback removed transient status text without altering selection or account state.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-after-refresh-active-alpha.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-after-clear-feedback.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/runtime-down-clean-after-clear-feedback.txt"
+      ],
+      "details": "After visible failure feedback in both live and runtime-down sessions, pressing `c` cleared the footer message back to blank while keeping the selected row, disk active account, runtime panel, and counters unchanged."
+    },
+    {
+      "id": "VAL-TUI-010",
+      "status": "pass",
+      "summary": "The TUI used explicit operator-readable auth labels for valid, expiring soon, expired, static, and unknown, with distinct missing-vs-malformed expiry details.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/auth-labels-valid.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/auth-labels-expiring-soon.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/auth-labels-expired.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/auth-labels-static.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/auth-labels-unknown-missing.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/auth-labels-unknown-malformed.txt"
+      ],
+      "details": "A dedicated auth-label fixture showed `Auth health: valid`, `expiring soon`, `expired`, `static`, and `unknown` in the selected-account panel. The `unknown-missing` account showed `Expiry: expiry metadata missing`, while `unknown-malformed` showed `Expiry: malformed expiry metadata (not-a-timestamp)`, which truthfully distinguishes the two unknown states."
+    },
+    {
+      "id": "VAL-TUI-011",
+      "status": "pass",
+      "summary": "When runtime stats were available, the TUI surfaced request counters and the last refresh outcome/timestamp in the runtime panel.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-initial.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-after-cli-activate-reload.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/auth-trouble-after-reload.txt"
+      ],
+      "details": "The idle live fixture showed zeroed counters and `Last refresh: unknown`. After proxied traffic, the live runtime panel updated to `total=1 success=1`. After a proxy-triggered refresh failure, the auth-trouble TUI showed `refresh_attempts=1 refresh_failures=1` and `Last refresh: failure for \\`refresh-fail\\` at ...`, making runtime refresh outcome visible without reading files or logs."
+    },
+    {
+      "id": "VAL-TUI-012",
+      "status": "pass",
+      "summary": "When runtime was down, local disk-backed actions still worked where feasible and runtime-dependent refresh paths failed with readable copy while local state stayed visible.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/runtime-down-clean-after-activate-soon.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/runtime-down-clean-after-refresh-selected-soon.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/runtime-down-clean-after-refresh-active-runtime-down.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/runtime-down-clean-after-delete-valid.txt"
+      ],
+      "details": "With runtime unavailable, pressing `a` still updated the local disk active account from `valid` to `soon`; `f` failed with readable refresh-token-exchange copy naming the selected account; `R` failed with explicit `runtime stats unavailable` copy while preserving the disk active account label; and `d` still deleted a locally saved account without hiding the local account list."
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "status": "pass",
+      "summary": "CLI active-account changes became visible in the TUI after reload while runtime state remained truthfully separate.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/cli-activate-beta.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-after-cli-activate-reload.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/cli-remove-alpha.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/live-after-cli-remove-alpha-reload.txt"
+      ],
+      "details": "After CLI activation changed the saved active account to `beta`, TUI reload showed `Local disk active account: beta` while still showing `Runtime active account: alpha`. After CLI removal of `alpha`, reload again showed the saved state change (`beta` on disk, one saved account left) while runtime stats still truthfully reported the still-running proxy's runtime state as `alpha`."
+    },
+    {
+      "id": "VAL-CROSS-002",
+      "status": "pass",
+      "summary": "A proxy-triggered refresh attempt became visible across runtime surfaces without reading the state file manually.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/auth-trouble-proxy-request.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/auth-trouble-stats-after.json",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/auth-trouble-after-reload.txt"
+      ],
+      "details": "A proxied `GET /v1/models` against the auth-trouble fixture triggered an expired-account refresh attempt and returned a local 502. `/v0/runtime/stats` then showed `auth_refresh_attempts=1`, `auth_refresh_failures=1`, and a failed `last_refresh`, and the auth-trouble TUI showed the same failed refresh outcome in its runtime panel after reload."
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "status": "pass",
+      "summary": "When runtime was down, reload and feedback clearing preserved local state while keeping runtime failures separate from local actions.",
+      "evidence": [
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/runtime-down-clean-after-refresh-active-runtime-down.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/runtime-down-clean-after-clear-feedback.txt",
+        "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/tui-console/runtime-down-clean-after-reload.txt"
+      ],
+      "details": "In the runtime-down fixture, local actions changed disk state, `R` surfaced runtime unavailability separately from that local state, `c` cleared only the transient footer message, and `r` reloaded the current disk-backed account list without hiding local accounts or collapsing the separate `Runtime unavailable` messaging."
+    }
+  ],
+  "frictions": [
+    "tuistory keeps the PTY session alive after `q` exits the TUI binary, so explicit `tuistory close` cleanup was still required even though the application quit successfully.",
+    "With runtime down, `f` still attempts the hardwired Codex OAuth refresh exchange and surfaces the resulting OAuth 401 text instead of a pure local runtime-unavailable message; this was truthful but not called out in user-testing guidance."
+  ],
+  "blockers": [],
+  "overallSummary": "Validated 15 assigned TUI/cross-surface assertions for terminal-operator-console: 15 passed, 0 failed, 0 blocked. Evidence and the flow report were written under the requested mission and validation paths."
+}
