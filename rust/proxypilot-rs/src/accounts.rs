@@ -1,9 +1,10 @@
+use std::fs;
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::config::AppConfig;
-use crate::state::AccountState;
+use crate::state::{AccountState, ImportedCodexAuth};
 
 pub fn add_codex_account(
     config: &AppConfig,
@@ -45,9 +46,11 @@ pub fn list_accounts(config: &AppConfig, config_path: &Path) -> Result<()> {
         } else {
             "-"
         };
+        let email = account.email.as_deref().unwrap_or("-");
+        let source = account.source.as_deref().unwrap_or("-");
         println!(
-            "{marker} {:<16} provider={}",
-            account.name, account.provider
+            "{marker} {:<16} provider={} email={} source={}",
+            account.name, account.provider, email, source
         );
     }
 
@@ -60,6 +63,57 @@ pub fn activate_account(config: &AppConfig, config_path: &Path, name: String) ->
     state.activate(&name)?;
     state.save(&state_path)?;
     println!("active account set to `{}`", name);
+    println!("state file: {}", state_path.display());
+    Ok(())
+}
+
+pub fn import_codex_account(
+    config: &AppConfig,
+    config_path: &Path,
+    auth_file: &Path,
+    name: Option<String>,
+    activate: bool,
+) -> Result<()> {
+    let raw = fs::read_to_string(auth_file)
+        .with_context(|| format!("failed to read Codex auth file {}", auth_file.display()))?;
+    let imported: ImportedCodexAuth = serde_json::from_str(&raw)
+        .with_context(|| format!("failed to parse Codex auth file {}", auth_file.display()))?;
+
+    let resolved_name = name
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            if imported.email.trim().is_empty() {
+                None
+            } else {
+                Some(imported.email.trim().to_string())
+            }
+        })
+        .or_else(|| {
+            auth_file
+                .file_stem()
+                .map(|value| value.to_string_lossy().to_string())
+        })
+        .unwrap_or_else(|| "codex-import".to_string());
+
+    let state_path = config.resolve_state_path(config_path);
+    let mut state = AccountState::load_or_default(&state_path)?;
+    state.add_imported_codex_account(
+        resolved_name.clone(),
+        imported,
+        format!("import:{}", auth_file.display()),
+        activate,
+    )?;
+    state.save(&state_path)?;
+
+    if state.active_account.as_deref() == Some(resolved_name.as_str()) {
+        println!(
+            "imported Codex auth `{}` and marked it active",
+            resolved_name
+        );
+    } else {
+        println!("imported Codex auth `{}`", resolved_name);
+    }
+    println!("source file: {}", auth_file.display());
     println!("state file: {}", state_path.display());
     Ok(())
 }

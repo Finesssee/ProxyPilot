@@ -53,6 +53,18 @@ async fn main() -> Result<()> {
                 let config = AppConfig::load(&path)?;
                 proxypilot_rs::accounts::list_accounts(&config, &path)?;
             }
+            AccountCommand::ImportCodex {
+                shared,
+                file,
+                name,
+                activate,
+            } => {
+                let path = resolve_config_path(shared.config);
+                let config = AppConfig::load(&path)?;
+                proxypilot_rs::accounts::import_codex_account(
+                    &config, &path, &file, name, activate,
+                )?;
+            }
             AccountCommand::Activate { shared, name } => {
                 let path = resolve_config_path(shared.config);
                 let config = AppConfig::load(&path)?;

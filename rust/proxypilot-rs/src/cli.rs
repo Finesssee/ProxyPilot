@@ -58,6 +58,17 @@ pub enum AccountCommand {
         #[arg(long, default_value_t = false)]
         activate: bool,
     },
+    /// Import a Codex auth JSON file from the Go/ProxyPilot world.
+    ImportCodex {
+        #[command(flatten)]
+        shared: SharedConfig,
+        #[arg(long)]
+        file: PathBuf,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long, default_value_t = false)]
+        activate: bool,
+    },
     /// List saved accounts and show which one is active.
     List {
         #[command(flatten)]
