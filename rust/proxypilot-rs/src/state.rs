@@ -20,6 +20,10 @@ pub struct AccountEntry {
     pub provider: String,
     pub api_key: String,
     #[serde(default)]
+    pub refresh_token: Option<String>,
+    #[serde(default)]
+    pub id_token: Option<String>,
+    #[serde(default)]
     pub email: Option<String>,
     #[serde(default)]
     pub account_id: Option<String>,
@@ -81,6 +85,8 @@ impl AccountState {
             name: trimmed_name.to_string(),
             provider: "codex".to_string(),
             api_key: trimmed_key.to_string(),
+            refresh_token: None,
+            id_token: None,
             email: None,
             account_id: None,
             expires_at: None,
@@ -173,10 +179,48 @@ impl AccountState {
                 imported.provider_type.trim().to_string()
             },
             api_key: imported.access_token.trim().to_string(),
+            refresh_token: optional_trimmed(imported.refresh_token),
+            id_token: None,
             email: optional_trimmed(imported.email),
             account_id: optional_trimmed(imported.account_id),
             expires_at: optional_trimmed(imported.expires_at),
             source: Some(source),
+        });
+
+        if activate || self.active_account.is_none() {
+            self.active_account = Some(trimmed_name.to_string());
+        }
+        self.accounts.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(())
+    }
+}
+
+impl AccountState {
+    pub fn add_device_codex_account(
+        &mut self,
+        name: String,
+        result: crate::codex::DeviceAuthResult,
+        activate: bool,
+    ) -> Result<()> {
+        let trimmed_name = name.trim();
+        if trimmed_name.is_empty() {
+            bail!("account name cannot be empty");
+        }
+        if result.access_token.trim().is_empty() {
+            bail!("device auth result missing access token");
+        }
+
+        self.accounts.retain(|account| account.name != trimmed_name);
+        self.accounts.push(AccountEntry {
+            name: trimmed_name.to_string(),
+            provider: "codex".to_string(),
+            api_key: result.access_token,
+            refresh_token: optional_trimmed(result.refresh_token),
+            id_token: optional_trimmed(result.id_token),
+            email: result.email,
+            account_id: result.account_id,
+            expires_at: result.expires_at,
+            source: Some("device-login".to_string()),
         });
 
         if activate || self.active_account.is_none() {

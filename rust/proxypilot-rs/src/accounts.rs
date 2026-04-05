@@ -3,6 +3,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
+use crate::codex;
 use crate::config::AppConfig;
 use crate::state::{AccountState, ImportedCodexAuth};
 
@@ -114,6 +115,36 @@ pub fn import_codex_account(
         println!("imported Codex auth `{}`", resolved_name);
     }
     println!("source file: {}", auth_file.display());
+    println!("state file: {}", state_path.display());
+    Ok(())
+}
+
+pub async fn login_codex_device(
+    config: &AppConfig,
+    config_path: &Path,
+    name: Option<String>,
+    activate: bool,
+) -> Result<()> {
+    let result = codex::login_with_device_flow().await?;
+    let resolved_name = name
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| result.email.clone())
+        .or_else(|| result.account_id.clone())
+        .unwrap_or_else(|| "codex-device".to_string());
+
+    let state_path = config.resolve_state_path(config_path);
+    let mut state = AccountState::load_or_default(&state_path)?;
+    state.add_device_codex_account(resolved_name.clone(), result, activate)?;
+    state.save(&state_path)?;
+
+    if state.active_account.as_deref() == Some(resolved_name.as_str()) {
+        println!(
+            "saved Codex device login `{}` and marked it active",
+            resolved_name
+        );
+    } else {
+        println!("saved Codex device login `{}`", resolved_name);
+    }
     println!("state file: {}", state_path.display());
     Ok(())
 }

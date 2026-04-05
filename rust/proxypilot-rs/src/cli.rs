@@ -69,6 +69,15 @@ pub enum AccountCommand {
         #[arg(long, default_value_t = false)]
         activate: bool,
     },
+    /// Start the Codex device flow and save the resulting account locally.
+    LoginCodexDevice {
+        #[command(flatten)]
+        shared: SharedConfig,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long, default_value_t = false)]
+        activate: bool,
+    },
     /// List saved accounts and show which one is active.
     List {
         #[command(flatten)]
