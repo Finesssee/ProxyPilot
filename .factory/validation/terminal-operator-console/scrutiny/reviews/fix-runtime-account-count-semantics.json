@@ -1,0 +1,21 @@
+{
+  "featureId": "fix-runtime-account-count-semantics",
+  "reviewedAt": "2026-04-05T11:36:06.651055Z",
+  "commitId": "91fe6562",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed the original runtime-stats feature (`1b3542d7`), the prior scrutiny finding, and the fix commit (`91fe6562`). The fix resolves the remaining non-blocking truthfulness issue: `/v0/runtime/stats.account_count` now counts only runtime-usable Codex accounts, mixed-provider and blank-key entries no longer inflate that value, and the TUI wording matches the runtime semantics.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The worker skipped the rust-operator-worker skill's required manual `tuistory` verification even though the feature touched TUI-visible runtime wording. For this fix the unit-level wording assertion was likely sufficient, but the skill currently leaves that lightweight label-only case undocumented.",
+      "evidence": "Skill procedure step 6 requires manual verification with `tuistory` when the feature affects the TUI or runtime observability surface (`/home/fsos/code-lean/ai-tools/ProxyPilot/.factory/skills/rust-operator-worker/SKILL.md`). The handoff for session `38bb865f-5bfd-4b20-8a75-281170e69c06` records `followedProcedure: false` and says manual TUI verification was skipped in favor of unit tests because the change was only label alignment."
+    }
+  ],
+  "addressesFailureFrom": "/home/fsos/code-lean/ai-tools/ProxyPilot/.factory/validation/terminal-operator-console/scrutiny/reviews/proxy-runtime-stats-surface.json",
+  "summary": "Pass. The follow-up fix closes the prior `account_count` truthfulness gap and I found no new code issues in the scoped change."
+}

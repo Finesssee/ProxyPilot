@@ -1,0 +1,28 @@
+{
+  "featureId": "fix-tui-footer-and-passive-polling",
+  "reviewedAt": "2026-04-05T11:36:55Z",
+  "commitId": "67c79b9dc5755305448c33df5cb1d761f150bece",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "Reviewed the fix commit together with both prior failed reviews (`terminal-tui-operator-console` and `cli-state-runtime-truthfulness-and-docs`). The passive-polling blocker is resolved: idle polling now stays on `/healthz` + `/v0/runtime/stats`, and the new regression test proves it no longer calls `/v1/models`. However, the footer visibility blocker is only partially fixed: the panel now fits the four nominal footer lines, but realistic long feedback still wraps and pushes the help text back out of view.",
+    "issues": [
+      {
+        "file": "rust/proxypilot-rs/src/tui.rs",
+        "line": 396,
+        "severity": "blocking",
+        "description": "The footer still has a fixed height of `Constraint::Length(6)`, which leaves only four inner text rows once the bordered `Keys` block is rendered (`tui.rs:530-543`). That is enough only when the feedback line stays on a single row. But routine operator messages in this same file are much longer\u2014for example the `runtime_refresh_target` failure text at `tui.rs:701-708` is 131 characters before account-name variation, so in the worker's own 120-column verification geometry it wraps to two rows. When that happens, one of the status/help lines is clipped again, so the feature does not fully satisfy the prior blocker of keeping all footer/help guidance visible. The added snapshot test (`tui.rs:943-975`) only exercises a short `Feedback line`, so it misses this realistic wrapped-feedback path."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The shared Rust operator-worker guidance still does not tell workers to exercise long, wrapped operator feedback when validating fixed-height TUI regions. That omission helped this fix reintroduce a footer-visibility edge case even though the worker followed the documented procedure and added a snapshot test.",
+      "evidence": "`rust-operator-worker` step 6/7 asks for manual TUI verification and truthful operator-visible wording review, but it does not call out wrap/line-budget checks for fixed-height panels (`/home/fsos/code-lean/ai-tools/ProxyPilot/.factory/skills/rust-operator-worker/SKILL.md`). In this fix, the new regression test in `rust/proxypilot-rs/src/tui.rs:943-975` only uses a one-line `Feedback line`, while the production footer can render much longer routine messages such as `runtime_refresh_target` at `tui.rs:701-708`."
+    }
+  ],
+  "addressesFailureFrom": "/home/fsos/code-lean/ai-tools/ProxyPilot/.factory/validation/terminal-operator-console/scrutiny/reviews/terminal-tui-operator-console.json; /home/fsos/code-lean/ai-tools/ProxyPilot/.factory/validation/terminal-operator-console/scrutiny/reviews/cli-state-runtime-truthfulness-and-docs.json",
+  "summary": "Fail. The fix successfully stops passive idle polling from contaminating runtime telemetry, but the footer/help blocker is not fully resolved because long, routine feedback messages can still wrap and hide guidance in the fixed-height footer."
+}
