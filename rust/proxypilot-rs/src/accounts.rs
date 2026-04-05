@@ -49,9 +49,10 @@ pub fn list_accounts(config: &AppConfig, config_path: &Path) -> Result<()> {
         };
         let email = account.email.as_deref().unwrap_or("-");
         let source = account.source.as_deref().unwrap_or("-");
+        let plan = account.plan_type.as_deref().unwrap_or("-");
         println!(
-            "{marker} {:<16} provider={} email={} source={}",
-            account.name, account.provider, email, source
+            "{marker} {:<16} provider={} email={} plan={} source={}",
+            account.name, account.provider, email, plan, source
         );
     }
 

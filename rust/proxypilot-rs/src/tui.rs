@@ -147,6 +147,7 @@ impl TuiApp {
                             .account_id
                             .clone()
                             .unwrap_or_else(|| "-".to_string()),
+                        plan_type: account.plan_type.clone().unwrap_or_else(|| "-".to_string()),
                         source: account.source.clone().unwrap_or_else(|| "-".to_string()),
                         is_active: state.active_account.as_deref() == Some(account.name.as_str()),
                         can_refresh: account
@@ -416,6 +417,7 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
             Line::from(format!("Name: {}", selected.name)),
             Line::from(format!("Email: {}", selected.email)),
             Line::from(format!("Account ID: {}", selected.account_id)),
+            Line::from(format!("Plan: {}", selected.plan_type)),
             Line::from(format!("Token mode: {}", selected.token_mode())),
             Line::from(format!("Expiry: {}", selected.expiry_detail())),
             Line::from(format!("Source: {}", selected.source)),
@@ -473,6 +475,7 @@ struct AccountRow {
     name: String,
     email: String,
     account_id: String,
+    plan_type: String,
     source: String,
     is_active: bool,
     can_refresh: bool,

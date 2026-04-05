@@ -28,6 +28,8 @@ pub struct AccountEntry {
     #[serde(default)]
     pub account_id: Option<String>,
     #[serde(default)]
+    pub plan_type: Option<String>,
+    #[serde(default)]
     pub expires_at: Option<String>,
     #[serde(default)]
     pub source: Option<String>,
@@ -41,6 +43,7 @@ pub struct ActiveCodexAccount {
     pub id_token: Option<String>,
     pub email: Option<String>,
     pub account_id: Option<String>,
+    pub plan_type: Option<String>,
     pub expires_at: Option<String>,
 }
 
@@ -94,6 +97,7 @@ impl AccountState {
             id_token: None,
             email: None,
             account_id: None,
+            plan_type: None,
             expires_at: None,
             source: Some("manual".to_string()),
         });
@@ -154,6 +158,7 @@ impl AccountState {
                 id_token: account.id_token.clone(),
                 email: account.email.clone(),
                 account_id: account.account_id.clone(),
+                plan_type: account.plan_type.clone(),
                 expires_at: account.expires_at.clone(),
             })
     }
@@ -170,6 +175,7 @@ impl AccountState {
                 id_token: account.id_token.clone(),
                 email: account.email.clone(),
                 account_id: account.account_id.clone(),
+                plan_type: account.plan_type.clone(),
                 expires_at: account.expires_at.clone(),
             })
     }
@@ -233,6 +239,7 @@ impl AccountState {
             id_token: None,
             email: optional_trimmed(imported.email),
             account_id: optional_trimmed(imported.account_id),
+            plan_type: None,
             expires_at: optional_trimmed(imported.expires_at),
             source: Some(source),
         });
@@ -269,6 +276,7 @@ impl AccountState {
             id_token: optional_trimmed(result.id_token),
             email: result.email,
             account_id: result.account_id,
+            plan_type: result.plan_type,
             expires_at: result.expires_at,
             source: Some("device-login".to_string()),
         });
@@ -300,6 +308,9 @@ impl AccountState {
         }
         if result.account_id.is_some() {
             entry.account_id = result.account_id;
+        }
+        if result.plan_type.is_some() {
+            entry.plan_type = result.plan_type;
         }
         if result.expires_at.is_some() {
             entry.expires_at = result.expires_at;
@@ -378,6 +389,7 @@ mod tests {
             .unwrap();
         assert_eq!(account.email.as_deref(), Some("dev@example.com"));
         assert_eq!(account.account_id.as_deref(), Some("acct_123"));
+        assert_eq!(account.plan_type.as_deref(), None);
         assert_eq!(account.expires_at.as_deref(), Some("2026-04-06T00:00:00Z"));
         assert_eq!(account.source.as_deref(), Some("file"));
     }
@@ -397,5 +409,28 @@ mod tests {
         assert_eq!(state.active_account.as_deref(), Some("backup"));
         assert_eq!(state.accounts.len(), 1);
         assert_eq!(state.accounts[0].name, "backup");
+    }
+
+    #[test]
+    fn device_account_carries_plan_type() {
+        let mut state = AccountState::default();
+        state
+            .add_device_codex_account(
+                "device".to_string(),
+                crate::codex::DeviceAuthResult {
+                    access_token: "access".to_string(),
+                    refresh_token: "refresh".to_string(),
+                    id_token: "id".to_string(),
+                    email: Some("dev@example.com".to_string()),
+                    account_id: Some("acct_123".to_string()),
+                    plan_type: Some("pro".to_string()),
+                    expires_at: Some("2026-04-06T00:00:00Z".to_string()),
+                },
+                true,
+            )
+            .unwrap();
+
+        let account = state.active_codex_account().unwrap();
+        assert_eq!(account.plan_type.as_deref(), Some("pro"));
     }
 }
