@@ -17,7 +17,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use reqwest::StatusCode;
 use serde::Deserialize;
 
-use crate::auth_runtime::{self, AuthCredentialSource, AuthHealthSnapshot};
+use crate::auth_runtime::{self, AuthCredentialSource, AuthHealthSnapshot, RuntimeStatsSnapshot};
 use crate::codex;
 use crate::config::AppConfig;
 use crate::state::AccountState;
@@ -78,6 +78,8 @@ struct TuiApp {
     config_path: String,
     health_status: String,
     health_color: Color,
+    runtime_stats: Option<RuntimeStatsSnapshot>,
+    runtime_error: Option<String>,
     accounts: Vec<AccountRow>,
     selected_account_idx: usize,
     active_account: String,
@@ -95,6 +97,8 @@ impl TuiApp {
             config_path: config_path.display().to_string(),
             health_status: "waiting for first health check".to_string(),
             health_color: Color::Yellow,
+            runtime_stats: None,
+            runtime_error: None,
             accounts: Vec::new(),
             selected_account_idx: 0,
             active_account: "none".to_string(),
@@ -125,6 +129,37 @@ impl TuiApp {
                 self.health_status = format!("proxy not running yet: {err}");
                 self.health_color = Color::Red;
                 self.models.clear();
+            }
+        }
+
+        self.refresh_runtime_stats().await;
+    }
+
+    async fn refresh_runtime_stats(&mut self) {
+        let runtime_url = format!("http://{}/v0/runtime/stats", self.config.server.bind);
+        match reqwest::get(runtime_url).await {
+            Ok(response) if response.status() == StatusCode::OK => {
+                match response.json::<RuntimeStatsSnapshot>().await {
+                    Ok(snapshot) => {
+                        self.runtime_error = None;
+                        self.runtime_stats = Some(snapshot);
+                    }
+                    Err(err) => {
+                        self.runtime_stats = None;
+                        self.runtime_error = Some(format!("failed to decode runtime stats: {err}"));
+                    }
+                }
+            }
+            Ok(response) => {
+                self.runtime_stats = None;
+                self.runtime_error = Some(format!(
+                    "runtime stats endpoint returned {}",
+                    response.status()
+                ));
+            }
+            Err(err) => {
+                self.runtime_stats = None;
+                self.runtime_error = Some(format!("runtime stats unavailable: {err}"));
             }
         }
     }
@@ -347,7 +382,7 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
         .margin(1)
         .constraints([
             Constraint::Length(4),
-            Constraint::Length(8),
+            Constraint::Length(9),
             Constraint::Length(10),
             Constraint::Length(12),
             Constraint::Min(7),
@@ -357,12 +392,12 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
 
     let title = Paragraph::new(vec![
         Line::from(Span::styled(
-            "ProxyPilot Rust Replatform",
+            "Codex Operator Console",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         )),
-        Line::from("Terminal-first rewrite branch with a real Codex proxy slice."),
+        Line::from("Terminal-first Rust proxy slice with live runtime stats and disk-backed account control."),
     ])
     .block(Block::default().borders(Borders::ALL).title("Overview"));
 
@@ -376,25 +411,27 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
                     .add_modifier(Modifier::BOLD),
             ),
         ]),
+        Line::from(format!("Disk active account: {}", app.active_account)),
         Line::from(format!("Bind: {}", app.config.server.bind)),
         Line::from(format!("Upstream: {}", app.config.codex.upstream_base_url)),
-        Line::from(format!("Active account: {}", app.active_account)),
         Line::from(format!("Saved accounts: {}", app.account_count)),
         Line::from(format!("Config: {}", app.config_path)),
     ])
     .block(Block::default().borders(Borders::ALL).title("Runtime"));
 
-    let summary_lines = app
-        .config
-        .config_summary(Path::new(&app.config_path))
-        .into_iter()
-        .map(Line::from)
-        .collect::<Vec<_>>();
-    let summary = Paragraph::new(summary_lines)
+    let runtime_lines = runtime_panel_lines(
+        app.runtime_stats.as_ref(),
+        app.runtime_error.as_deref(),
+        &app.active_account,
+    )
+    .into_iter()
+    .map(Line::from)
+    .collect::<Vec<_>>();
+    let runtime = Paragraph::new(runtime_lines)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Config Summary"),
+                .title("Runtime Stats"),
         )
         .wrap(Wrap { trim: false });
 
@@ -488,17 +525,16 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
             app.feedback.as_str(),
             Style::default().fg(app.feedback_color),
         )]),
-        Line::from(
-            "q quit  |  r reload  |  arrows move  |  a activate  |  f refresh selected  |  R refresh active  |  d delete  |  c clear feedback",
-        ),
+        Line::from(footer_help_text()),
     ])
-    .block(Block::default().borders(Borders::ALL).title("Keys"));
+    .block(Block::default().borders(Borders::ALL).title("Keys"))
+    .wrap(Wrap { trim: false });
 
     frame.render_widget(title, chunks[0]);
     frame.render_widget(health, chunks[1]);
-    frame.render_widget(models, chunks[2]);
-    frame.render_widget(accounts, chunks[3]);
-    frame.render_widget(summary, chunks[4]);
+    frame.render_widget(runtime, chunks[2]);
+    frame.render_widget(models, chunks[3]);
+    frame.render_widget(accounts, chunks[4]);
     frame.render_widget(footer, chunks[5]);
 }
 
@@ -538,5 +574,143 @@ impl AccountRow {
 
     fn expiry_detail(&self) -> String {
         self.auth_health.expiry_detail()
+    }
+}
+
+fn runtime_panel_lines(
+    runtime_stats: Option<&RuntimeStatsSnapshot>,
+    runtime_error: Option<&str>,
+    disk_active_account: &str,
+) -> Vec<String> {
+    match runtime_stats {
+        Some(stats) => vec![
+            "Runtime stats: live".to_string(),
+            format!(
+                "Active account: {} ({} accounts)",
+                stats.active_account_name.as_deref().unwrap_or("none"),
+                stats.account_count
+            ),
+            format!("Auth state: {}", stats.auth_health.summary_label()),
+            format!(
+                "Request counters: total={} success={} 401={} refresh_attempts={} refresh_failures={}",
+                stats.request_counters.total_proxied_requests,
+                stats.request_counters.successful_upstream_responses,
+                stats.request_counters.upstream_401_count,
+                stats.request_counters.auth_refresh_attempts,
+                stats.request_counters.auth_refresh_failures,
+            ),
+            format!(
+                "Last refresh: {}",
+                refresh_status_summary(&stats.last_refresh)
+            ),
+            format!("Bind: {}", stats.bind_address),
+            format!("Upstream: {}", stats.upstream_base_url),
+        ],
+        None => vec![
+            "Runtime unavailable".to_string(),
+            runtime_error
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| "Runtime stats endpoint is unavailable.".to_string()),
+            format!("Local disk-backed active account: {}", disk_active_account),
+            "Local disk-backed account list is still available.".to_string(),
+        ],
+    }
+}
+
+fn refresh_status_summary(status: &crate::auth_runtime::RefreshStatusSnapshot) -> String {
+    let mut parts = vec![match status.kind {
+        crate::auth_runtime::RefreshStatusKind::Success => "success".to_string(),
+        crate::auth_runtime::RefreshStatusKind::Failure => "failure".to_string(),
+        crate::auth_runtime::RefreshStatusKind::Skipped => "skipped".to_string(),
+        crate::auth_runtime::RefreshStatusKind::Unknown => "unknown".to_string(),
+    }];
+    if let Some(account) = status.account_name.as_deref() {
+        parts.push(format!("for `{account}`"));
+    }
+    if let Some(occurred_at_unix_secs) = status.occurred_at_unix_secs {
+        parts.push(format!("at {occurred_at_unix_secs}"));
+    }
+    if let Some(message) = status.message.as_deref() {
+        parts.push(format!("- {message}"));
+    }
+    parts.join(" ")
+}
+
+fn footer_help_text() -> String {
+    "q quit  |  r reload/poll  |  arrows move  |  a activate  |  f refresh selected  |  R refresh active  |  d delete  |  c clear feedback".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth_runtime::{
+        AuthCredentialSource, AuthHealthSnapshot, AuthHealthState, AuthMetadataState,
+        RefreshStatusKind, RefreshStatusSnapshot, RuntimeRequestCounters, RuntimeStatsSnapshot,
+    };
+
+    fn sample_runtime_stats() -> RuntimeStatsSnapshot {
+        let mut snapshot = RuntimeStatsSnapshot::new(
+            "127.0.0.1:8318",
+            "https://api.openai.com",
+            Some("primary".to_string()),
+            2,
+            AuthHealthSnapshot {
+                state: AuthHealthState::Valid,
+                source: AuthCredentialSource::ActiveAccount,
+                metadata_state: AuthMetadataState::Present,
+                expires_at: Some("2026-04-06T00:00:00Z".to_string()),
+                expires_at_unix_secs: Some(1_765_440_000),
+                expires_in_secs: Some(86_400),
+            },
+        );
+        snapshot.request_counters = RuntimeRequestCounters {
+            total_proxied_requests: 7,
+            successful_upstream_responses: 6,
+            auth_refresh_attempts: 2,
+            auth_refresh_failures: 1,
+            upstream_401_count: 1,
+        };
+        snapshot.last_refresh = RefreshStatusSnapshot {
+            kind: RefreshStatusKind::Success,
+            account_name: Some("primary".to_string()),
+            occurred_at_unix_secs: Some(1_765_440_123),
+            message: Some("refreshed after expiry".to_string()),
+        };
+        snapshot
+    }
+
+    #[test]
+    fn runtime_panel_lines_include_counters_and_last_refresh_outcome() {
+        let lines = runtime_panel_lines(Some(&sample_runtime_stats()), None, "primary");
+        let joined = lines.join("\n");
+
+        assert!(joined.contains("Runtime stats: live"));
+        assert!(joined.contains("Auth state: valid"));
+        assert!(joined.contains("Request counters: total=7"));
+        assert!(joined.contains("Last refresh: success for `primary`"));
+        assert!(joined.contains("refreshed after expiry"));
+    }
+
+    #[test]
+    fn runtime_panel_lines_show_unavailable_copy_when_runtime_is_down() {
+        let lines = runtime_panel_lines(None, Some("connect refused"), "primary");
+        let joined = lines.join("\n");
+
+        assert!(joined.contains("Runtime unavailable"));
+        assert!(joined.contains("connect refused"));
+        assert!(joined.contains("Local disk-backed account list is still available."));
+    }
+
+    #[test]
+    fn footer_help_text_matches_milestone_actions() {
+        let help = footer_help_text();
+
+        assert!(help.contains("q quit"));
+        assert!(help.contains("r reload"));
+        assert!(help.contains("a activate"));
+        assert!(help.contains("f refresh selected"));
+        assert!(help.contains("R refresh active"));
+        assert!(help.contains("d delete"));
+        assert!(help.contains("c clear feedback"));
     }
 }

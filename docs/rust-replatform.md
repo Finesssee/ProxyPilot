@@ -19,7 +19,7 @@ This branch carries the Rust rewrite line for ProxyPilot.
 - explicit Codex-facing routes for `/v1/models`, `/v1/chat/completions`, and `/v1/responses`
 - a local `/v0/runtime/stats` operator surface for runtime-memory counters, auth-health, and last refresh status
 - CLI account commands for adding, importing, device-login, refresh, listing, activating, and removing Codex accounts
-- a TUI account/operator panel that shows models, local accounts, live runtime stats, active account state, terminal actions for activate/refresh/delete, and selected-account token expiry and plan metadata
+- a TUI operator console that shows live runtime stats, runtime-unavailable copy, local accounts, selected-account details, token state labels, terminal actions for activate/refresh/delete, and separate selected-account vs active-account refresh handling
 - runtime credential resolution that prefers the active saved account over the config fallback key
 - proactive Codex token refresh when the active saved account is already expired or within the refresh window, plus the existing 401-retry refresh fallback
 - end-to-end tests against a mocked upstream server
