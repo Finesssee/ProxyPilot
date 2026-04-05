@@ -1,0 +1,8 @@
+{
+  "access_token": "seed-access-token",
+  "refresh_token": "seed-refresh-token",
+  "email": "seed@example.com",
+  "account_id": "acct_seed",
+  "expired": "2020-01-01T00:00:00Z",
+  "type": "codex"
+}

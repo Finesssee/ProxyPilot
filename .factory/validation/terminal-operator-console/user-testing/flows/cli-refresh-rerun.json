@@ -1,0 +1,69 @@
+{
+  "groupId": "cli-refresh-rerun",
+  "testedAt": "2026-04-05T13:32:26Z",
+  "isolation": {
+    "surface": "shell",
+    "fixtureDirectory": "/home/fsos/code-lean/ai-tools/ProxyPilot/.factory/validation/terminal-operator-console/user-testing/fixtures/cli-refresh-rerun",
+    "evidenceDirectory": "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/cli-refresh-rerun",
+    "configPath": "/home/fsos/code-lean/ai-tools/ProxyPilot/.factory/validation/terminal-operator-console/user-testing/fixtures/cli-refresh-rerun/proxypilot-rs.toml",
+    "statePath": "/home/fsos/code-lean/ai-tools/ProxyPilot/.factory/validation/terminal-operator-console/user-testing/fixtures/cli-refresh-rerun/proxypilot-rs.state.toml",
+    "refreshTokenUrl": "http://127.0.0.1:34051/oauth/token"
+  },
+  "toolsUsed": [
+    "shell"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-CLI-003",
+      "title": "Refresh commands handle both refreshable and static accounts clearly",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Import a refreshable saved Codex account into isolated state and add a static account",
+          "expected": "Fixture state contains one active refreshable account and one static account",
+          "observed": "account list showed `refreshable-local` active with `refresh=refreshable` and `static-local` present with `refresh=static`"
+        },
+        {
+          "action": "Run `account refresh-codex` with no `--name` while the refreshable account is active",
+          "expected": "Refresh succeeds through the configured local refresh endpoint and updates saved account metadata",
+          "observed": "Command printed `refreshed saved Codex account `refreshable-local` in local state`; the local stub received one POST to `/oauth/token`; state updated access token, refresh token, email, account id, plan, and expiry"
+        },
+        {
+          "action": "Run `account refresh-codex --name static-local`",
+          "expected": "Static account refresh is rejected with a clear operator-readable error and no state corruption",
+          "observed": "Command exited non-zero with `account `static-local` is static and has no refresh token`; follow-up state snapshot matched the post-success state byte-for-byte"
+        },
+        {
+          "action": "Run `account refresh-codex --name missing-local`",
+          "expected": "Missing account refresh is rejected with a clear operator-readable error and no state corruption",
+          "observed": "Command exited non-zero with `no saved Codex account named missing-local`; follow-up state snapshot remained unchanged and list output still showed the same active/static accounts"
+        }
+      ],
+      "evidence": {
+        "commandOutputs": [
+          "terminal-operator-console/cli-refresh-rerun/VAL-CLI-003-import-refreshable.txt",
+          "terminal-operator-console/cli-refresh-rerun/VAL-CLI-003-add-static.txt",
+          "terminal-operator-console/cli-refresh-rerun/VAL-CLI-003-list-before-refresh.txt",
+          "terminal-operator-console/cli-refresh-rerun/VAL-CLI-003-refresh-success.txt",
+          "terminal-operator-console/cli-refresh-rerun/VAL-CLI-003-list-after-success.txt",
+          "terminal-operator-console/cli-refresh-rerun/VAL-CLI-003-refresh-static-fails.txt",
+          "terminal-operator-console/cli-refresh-rerun/VAL-CLI-003-refresh-missing-fails.txt",
+          "terminal-operator-console/cli-refresh-rerun/VAL-CLI-003-list-after-failures.txt"
+        ],
+        "stateSnapshots": [
+          "terminal-operator-console/cli-refresh-rerun/VAL-CLI-003-state-before-refresh.toml",
+          "terminal-operator-console/cli-refresh-rerun/VAL-CLI-003-state-after-success.toml",
+          "terminal-operator-console/cli-refresh-rerun/VAL-CLI-003-state-after-failures.toml"
+        ],
+        "network": "terminal-operator-console/cli-refresh-rerun/VAL-CLI-003-refresh-stub-requests.json",
+        "config": "terminal-operator-console/cli-refresh-rerun/VAL-CLI-003-config.toml",
+        "fixtureImport": "terminal-operator-console/cli-refresh-rerun/VAL-CLI-003-import-auth.json",
+        "validator": "terminal-operator-console/cli-refresh-rerun/VAL-CLI-003-refresh-related-tests.txt"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "VAL-CLI-003 passed: refresh succeeded for the active refreshable Codex account through `codex.refresh_token_url`, static and missing account refreshes failed clearly, and saved state stayed coherent after all runs."
+}

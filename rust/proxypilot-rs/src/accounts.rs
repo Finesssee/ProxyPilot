@@ -454,7 +454,7 @@ mod tests {
             Some("2030-01-01T00:00:00Z")
         );
 
-        let _ = server.abort();
+        server.abort();
         let _ = fs::remove_file(config_path);
         let _ = fs::remove_file(state_path);
     }

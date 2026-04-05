@@ -1,0 +1,10 @@
+[server]
+bind = "127.0.0.1:18318"
+
+[state]
+path = "/home/fsos/code-lean/ai-tools/ProxyPilot/.factory/validation/terminal-operator-console/user-testing/fixtures/http-refresh-rerun/VAL-HTTP-008.state.toml"
+
+[codex]
+upstream_base_url = "http://127.0.0.1:18319"
+api_key = ""
+refresh_token_url = "http://127.0.0.1:18319/oauth/token"

@@ -1,0 +1,11 @@
+# isolated CLI refresh rerun config
+[server]
+bind = "127.0.0.1:8318"
+
+[state]
+path = "/home/fsos/code-lean/ai-tools/ProxyPilot/.factory/validation/terminal-operator-console/user-testing/fixtures/cli-refresh-rerun/proxypilot-rs.state.toml"
+
+[codex]
+upstream_base_url = "https://api.openai.com"
+api_key = ""
+refresh_token_url = "http://127.0.0.1:34051/oauth/token"

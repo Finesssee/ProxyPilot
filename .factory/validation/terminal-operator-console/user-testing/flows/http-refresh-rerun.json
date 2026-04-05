@@ -1,0 +1,84 @@
+{
+  "groupId": "http-refresh-rerun",
+  "testedAt": "2026-04-05T13:34:49Z",
+  "isolation": {
+    "surface": "curl",
+    "fixtureDirectory": "/home/fsos/code-lean/ai-tools/ProxyPilot/.factory/validation/terminal-operator-console/user-testing/fixtures/http-refresh-rerun",
+    "evidenceDirectory": "/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/evidence/terminal-operator-console/http-refresh-rerun",
+    "proxyBind": "127.0.0.1:18318",
+    "stubBind": "127.0.0.1:18319",
+    "refreshTokenUrl": "http://127.0.0.1:18319/oauth/token"
+  },
+  "toolsUsed": [
+    "curl"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-HTTP-007",
+      "title": "Proactive refresh is visible before forwarding expired or near-expiry requests",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Start proxypilot-rs with an expired refreshable active account plus a local OAuth/upstream stub",
+          "expected": "Runtime stats start with expired auth health and zero counters",
+          "observed": "/v0/runtime/stats reported auth_health.state=expired with total_proxied_requests=0 and auth_refresh_attempts=0"
+        },
+        {
+          "action": "Send GET /v1/models through the proxy",
+          "expected": "Proxy refreshes before forwarding and the client request succeeds with the refreshed token",
+          "observed": "Client received 200 JSON showing received_authorization=Bearer preemptive-fresh-token"
+        },
+        {
+          "action": "Inspect runtime stats and stub traffic after the request",
+          "expected": "Stats show one refresh attempt/success and upstream sees only refreshed-token traffic",
+          "observed": "Stats showed total_proxied_requests=1, successful_upstream_responses=1, auth_refresh_attempts=1, upstream_401_count=0, last_refresh.kind=success; stub log recorded POST /oauth/token before GET /v1/models with Bearer preemptive-fresh-token"
+        }
+      ],
+      "evidence": {
+        "statsBefore": "terminal-operator-console/http-refresh-rerun/VAL-HTTP-007-stats-before.json",
+        "requestHeaders": "terminal-operator-console/http-refresh-rerun/VAL-HTTP-007-request.headers.txt",
+        "requestBody": "terminal-operator-console/http-refresh-rerun/VAL-HTTP-007-request-body.json",
+        "statsAfter": "terminal-operator-console/http-refresh-rerun/VAL-HTTP-007-stats-after.json",
+        "stubLog": "terminal-operator-console/http-refresh-rerun/VAL-HTTP-007-stub-log.jsonl",
+        "proxyLog": "terminal-operator-console/http-refresh-rerun/VAL-HTTP-007-proxy.log",
+        "stubStdout": "terminal-operator-console/http-refresh-rerun/VAL-HTTP-007-stub.log"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-HTTP-008",
+      "title": "Upstream 401 retry refresh is visible and counted exactly once",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Start proxypilot-rs with a refreshable active account and a local stub that returns 401 on the first /v1/models request",
+          "expected": "Initial stats are zeroed and the first upstream attempt uses the stale token",
+          "observed": "Stub log recorded the first GET /v1/models with Bearer stale-401-token and response_status=401"
+        },
+        {
+          "action": "Let the proxy handle the 401-triggered refresh-and-retry path for one GET /v1/models client request",
+          "expected": "Proxy refreshes once, retries once, and the client sees the retried success result",
+          "observed": "Client received 200 JSON showing received_authorization=Bearer retry-fresh-token on attempt=2"
+        },
+        {
+          "action": "Inspect runtime stats and stub traffic after the request",
+          "expected": "Stats count one proxied request, one upstream 401, one refresh success, and mock upstream shows 401 then refresh then retry",
+          "observed": "Stats showed total_proxied_requests=1, successful_upstream_responses=1, auth_refresh_attempts=1, upstream_401_count=1, last_refresh.kind=success; stub log showed GET 401 -> POST /oauth/token -> GET 200 with Bearer retry-fresh-token"
+        }
+      ],
+      "evidence": {
+        "statsBefore": "terminal-operator-console/http-refresh-rerun/VAL-HTTP-008-stats-before.json",
+        "requestHeaders": "terminal-operator-console/http-refresh-rerun/VAL-HTTP-008-request.headers.txt",
+        "requestBody": "terminal-operator-console/http-refresh-rerun/VAL-HTTP-008-request-body.json",
+        "statsAfter": "terminal-operator-console/http-refresh-rerun/VAL-HTTP-008-stats-after.json",
+        "stubLog": "terminal-operator-console/http-refresh-rerun/VAL-HTTP-008-stub-log.jsonl",
+        "proxyLog": "terminal-operator-console/http-refresh-rerun/VAL-HTTP-008-proxy.log",
+        "stubStdout": "terminal-operator-console/http-refresh-rerun/VAL-HTTP-008-stub.log"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Retested 2 assertions: VAL-HTTP-007 passed with proactive refresh before forwarding, and VAL-HTTP-008 passed with one 401-triggered refresh-and-retry path counted exactly once."
+}

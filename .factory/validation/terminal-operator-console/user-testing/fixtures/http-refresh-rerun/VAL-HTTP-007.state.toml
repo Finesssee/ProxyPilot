@@ -1,0 +1,13 @@
+active_account = "preemptive-account"
+
+[[accounts]]
+name = "preemptive-account"
+provider = "codex"
+api_key = "expired-preemptive-token"
+refresh_token = "preemptive-refresh-token"
+id_token = "header.payload.sig"
+email = "refresh@example.com"
+account_id = "acct_seed"
+plan_type = "seed"
+expires_at = "1970-01-01T00:00:00Z"
+source = "fixture"

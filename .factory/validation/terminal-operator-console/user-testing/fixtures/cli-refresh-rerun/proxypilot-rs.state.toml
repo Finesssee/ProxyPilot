@@ -1,0 +1,19 @@
+active_account = "refreshable-local"
+
+[[accounts]]
+name = "refreshable-local"
+provider = "codex"
+api_key = "refreshed-access-token"
+refresh_token = "refreshed-refresh-token"
+id_token = "header.eyJlbWFpbCI6InJlcnVuQGV4YW1wbGUuY29tIiwiZXhwIjoxODkzNDU2MDAwLCJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF9yZWZyZXNoX3JlcnVuIiwiY2hhdGdwdF9wbGFuX3R5cGUiOiJwcm8ifX0.sig"
+email = "rerun@example.com"
+account_id = "acct_refresh_rerun"
+plan_type = "pro"
+expires_at = "2030-01-01T00:00:00Z"
+source = "import:/home/fsos/code-lean/ai-tools/ProxyPilot/.factory/validation/terminal-operator-console/user-testing/fixtures/cli-refresh-rerun/refreshable-auth.json"
+
+[[accounts]]
+name = "static-local"
+provider = "codex"
+api_key = "sk-static-local"
+source = "manual"
