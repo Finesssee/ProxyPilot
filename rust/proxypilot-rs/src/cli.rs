@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 #[derive(Debug, Parser)]
 #[command(name = "proxypilot-rs")]
@@ -29,5 +29,45 @@ pub enum Command {
     Tui {
         #[arg(long, default_value = "proxypilot-rs.toml")]
         config: PathBuf,
+    },
+    /// Manage local account state for the Rust rewrite.
+    Account {
+        #[command(flatten)]
+        shared: SharedConfig,
+        #[command(subcommand)]
+        command: AccountCommand,
+    },
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct SharedConfig {
+    #[arg(long, default_value = "proxypilot-rs.toml")]
+    pub config: PathBuf,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AccountCommand {
+    /// Add or replace a Codex account in the local state file.
+    AddCodex {
+        #[command(flatten)]
+        shared: SharedConfig,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        api_key: String,
+        #[arg(long, default_value_t = false)]
+        activate: bool,
+    },
+    /// List saved accounts and show which one is active.
+    List {
+        #[command(flatten)]
+        shared: SharedConfig,
+    },
+    /// Select the active account used by the proxy.
+    Activate {
+        #[command(flatten)]
+        shared: SharedConfig,
+        #[arg(long)]
+        name: String,
     },
 }

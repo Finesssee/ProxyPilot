@@ -15,9 +15,11 @@ This branch carries the Rust rewrite line for ProxyPilot.
 
 - a `run` command that starts a local proxy server
 - a `tui` command that opens a minimal terminal operator view
-- a TOML config model focused on one provider path: Codex
+- a TOML config model plus a separate local state file for saved accounts
 - explicit Codex-facing routes for `/v1/models`, `/v1/chat/completions`, and `/v1/responses`
+- CLI account commands for adding, listing, and activating Codex accounts
 - a TUI model panel that reads from the Rust proxy's own `/v1/models` endpoint
+- runtime credential resolution that prefers the active saved account over the config fallback key
 - end-to-end tests against a mocked upstream server
 
 ## Design defaults
@@ -33,6 +35,7 @@ From the repo root:
 ```bash
 cd rust
 cargo run -p proxypilot-rs -- init
+cargo run -p proxypilot-rs -- account add-codex --name primary --api-key sk-...
 cargo run -p proxypilot-rs -- run --config proxypilot-rs.toml
 ```
 

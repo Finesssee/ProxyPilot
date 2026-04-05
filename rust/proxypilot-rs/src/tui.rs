@@ -18,6 +18,7 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 
 use crate::config::AppConfig;
+use crate::state::AccountState;
 
 pub async fn run(config: AppConfig, config_path: &Path) -> Result<()> {
     enable_raw_mode()?;
@@ -68,6 +69,8 @@ struct TuiApp {
     config_path: String,
     health_status: String,
     health_color: Color,
+    active_account: String,
+    account_count: usize,
     models: Vec<String>,
     last_poll: Instant,
 }
@@ -79,6 +82,8 @@ impl TuiApp {
             config_path: config_path.display().to_string(),
             health_status: "waiting for first health check".to_string(),
             health_color: Color::Yellow,
+            active_account: "none".to_string(),
+            account_count: 0,
             models: Vec::new(),
             last_poll: Instant::now() - Duration::from_secs(3),
         }
@@ -86,6 +91,7 @@ impl TuiApp {
 
     async fn refresh_health(&mut self) {
         self.last_poll = Instant::now();
+        self.refresh_accounts();
 
         match reqwest::get(self.config.health_url()).await {
             Ok(response) if response.status() == StatusCode::OK => {
@@ -102,6 +108,23 @@ impl TuiApp {
                 self.health_status = format!("proxy not running yet: {err}");
                 self.health_color = Color::Red;
                 self.models.clear();
+            }
+        }
+    }
+
+    fn refresh_accounts(&mut self) {
+        let state_path = self.config.resolve_state_path(Path::new(&self.config_path));
+        match AccountState::load_or_default(&state_path) {
+            Ok(state) => {
+                self.account_count = state.accounts.len();
+                self.active_account = state
+                    .active_codex_account()
+                    .map(|account| account.name)
+                    .unwrap_or_else(|| "none".to_string());
+            }
+            Err(err) => {
+                self.account_count = 0;
+                self.active_account = format!("state error: {err}");
             }
         }
     }
@@ -170,6 +193,8 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
         ]),
         Line::from(format!("Bind: {}", app.config.server.bind)),
         Line::from(format!("Upstream: {}", app.config.codex.upstream_base_url)),
+        Line::from(format!("Active account: {}", app.active_account)),
+        Line::from(format!("Saved accounts: {}", app.account_count)),
         Line::from(format!("Config: {}", app.config_path)),
     ])
     .block(Block::default().borders(Borders::ALL).title("Runtime"));

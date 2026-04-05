@@ -9,6 +9,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub server: ServerConfig,
     #[serde(default)]
+    pub state: StateConfig,
+    #[serde(default)]
     pub codex: CodexConfig,
 }
 
@@ -16,6 +18,12 @@ pub struct AppConfig {
 pub struct ServerConfig {
     #[serde(default = "default_bind")]
     pub bind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateConfig {
+    #[serde(default = "default_state_path")]
+    pub path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,6 +38,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             server: ServerConfig::default(),
+            state: StateConfig::default(),
             codex: CodexConfig::default(),
         }
     }
@@ -39,6 +48,14 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             bind: default_bind(),
+        }
+    }
+}
+
+impl Default for StateConfig {
+    fn default() -> Self {
+        Self {
+            path: default_state_path(),
         }
     }
 }
@@ -90,6 +107,9 @@ impl AppConfig {
         if self.codex.upstream_base_url.trim().is_empty() {
             bail!("codex.upstream_base_url cannot be empty");
         }
+        if self.state.path.trim().is_empty() {
+            bail!("state.path cannot be empty");
+        }
         Ok(())
     }
 
@@ -101,9 +121,10 @@ impl AppConfig {
         vec![
             format!("config: {}", path.display()),
             format!("listen: {}", self.server.bind),
+            format!("state path: {}", self.resolve_state_path(path).display()),
             format!("codex upstream: {}", self.codex.upstream_base_url),
             format!(
-                "codex api key: {}",
+                "codex fallback api key: {}",
                 if self.codex.api_key.trim().is_empty() {
                     "missing"
                 } else {
@@ -116,16 +137,29 @@ impl AppConfig {
     pub fn example_toml() -> &'static str {
         r#"# ProxyPilot Rust replatform config
 #
-# This first milestone keeps the config deliberately small:
-# one local bind address and one Codex-compatible upstream.
+# The rewrite keeps long-lived account state in a separate local file.
 
 [server]
 bind = "127.0.0.1:8318"
 
+[state]
+path = "proxypilot-rs.state.toml"
+
 [codex]
 upstream_base_url = "https://api.openai.com"
-api_key = "set-me"
+api_key = ""
 "#
+    }
+
+    pub fn resolve_state_path(&self, config_path: &Path) -> PathBuf {
+        let raw = PathBuf::from(self.state.path.trim());
+        if raw.is_absolute() {
+            raw
+        } else if let Some(parent) = config_path.parent() {
+            parent.join(raw)
+        } else {
+            raw
+        }
     }
 }
 
@@ -141,6 +175,10 @@ fn default_codex_base_url() -> String {
     "https://api.openai.com".to_string()
 }
 
+fn default_state_path() -> String {
+    "proxypilot-rs.state.toml".to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,6 +187,7 @@ mod tests {
     fn parses_example_config() {
         let config: AppConfig = toml::from_str(AppConfig::example_toml()).unwrap();
         assert_eq!(config.server.bind, "127.0.0.1:8318");
+        assert_eq!(config.state.path, "proxypilot-rs.state.toml");
         assert_eq!(config.codex.upstream_base_url, "https://api.openai.com");
     }
 }

@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -10,27 +11,31 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use reqwest::Client;
 use serde_json::json;
+use tokio::sync::RwLock;
 use tracing::info;
 
 use crate::config::AppConfig;
+use crate::state::AccountState;
 
 #[derive(Clone)]
 pub struct AppState {
     config: Arc<AppConfig>,
+    accounts: Arc<RwLock<AccountState>>,
     client: Client,
 }
 
 impl AppState {
-    pub fn new(config: AppConfig) -> Self {
+    pub fn new(config: AppConfig, accounts: AccountState) -> Self {
         Self {
             config: Arc::new(config),
+            accounts: Arc::new(RwLock::new(accounts)),
             client: Client::new(),
         }
     }
 }
 
-pub fn build_app(config: AppConfig) -> Router {
-    let state = AppState::new(config);
+pub fn build_app(config: AppConfig, accounts: AccountState) -> Router {
+    let state = AppState::new(config, accounts);
 
     Router::new()
         .route("/healthz", get(healthz))
@@ -41,14 +46,16 @@ pub fn build_app(config: AppConfig) -> Router {
         .with_state(state)
 }
 
-pub async fn run(config: AppConfig) -> Result<()> {
+pub async fn run(config: AppConfig, config_path: &Path) -> Result<()> {
     let bind_addr: SocketAddr = config
         .server
         .bind
         .parse()
         .with_context(|| format!("invalid bind address {}", config.server.bind))?;
 
-    let app = build_app(config.clone());
+    let state_path = config.resolve_state_path(config_path);
+    let accounts = AccountState::load_or_default(&state_path)?;
+    let app = build_app(config.clone(), accounts);
     let listener = tokio::net::TcpListener::bind(bind_addr)
         .await
         .with_context(|| format!("failed to bind {}", bind_addr))?;
@@ -64,11 +71,16 @@ pub async fn run(config: AppConfig) -> Result<()> {
 }
 
 async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
+    let account_state = state.accounts.read().await;
+    let active_account = account_state
+        .active_codex_account()
+        .map(|account| account.name);
     Json(json!({
         "status": "ok",
         "provider": "codex",
         "listen": state.config.server.bind,
         "upstream": state.config.codex.upstream_base_url,
+        "active_account": active_account,
     }))
 }
 
@@ -143,6 +155,10 @@ async fn forward_upstream(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response<Body>, ProxyError> {
+    let token = {
+        let accounts = state.accounts.read().await;
+        accounts.effective_codex_api_key(&state.config)
+    };
     let mut request = state.client.request(method, target);
 
     for (name, value) in &headers {
@@ -152,8 +168,10 @@ async fn forward_upstream(
         request = request.header(name, value);
     }
 
-    if !state.config.codex.api_key.trim().is_empty() {
-        request = request.bearer_auth(state.config.codex.api_key.trim());
+    if let Some(api_key) = token
+        && !api_key.trim().is_empty()
+    {
+        request = request.bearer_auth(api_key);
     }
 
     let upstream = request
@@ -289,13 +307,14 @@ mod tests {
             server: crate::config::ServerConfig {
                 bind: "127.0.0.1:0".to_string(),
             },
+            state: crate::config::StateConfig::default(),
             codex: crate::config::CodexConfig {
                 upstream_base_url: upstream_url.clone(),
                 api_key: "test-token".to_string(),
             },
         };
 
-        let proxy_app = build_app(config);
+        let proxy_app = build_app(config, AccountState::default());
         let (proxy_url, proxy_shutdown) = start_listener(proxy_app).await;
 
         let client = Client::new();
@@ -344,13 +363,14 @@ mod tests {
             server: crate::config::ServerConfig {
                 bind: "127.0.0.1:0".to_string(),
             },
+            state: crate::config::StateConfig::default(),
             codex: crate::config::CodexConfig {
                 upstream_base_url: upstream_url.clone(),
                 api_key: "test-token".to_string(),
             },
         };
 
-        let proxy_app = build_app(config);
+        let proxy_app = build_app(config, AccountState::default());
         let (proxy_url, proxy_shutdown) = start_listener(proxy_app).await;
 
         let client = Client::new();
@@ -392,13 +412,14 @@ mod tests {
             server: crate::config::ServerConfig {
                 bind: "127.0.0.1:0".to_string(),
             },
+            state: crate::config::StateConfig::default(),
             codex: crate::config::CodexConfig {
                 upstream_base_url: upstream_url.clone(),
                 api_key: "test-token".to_string(),
             },
         };
 
-        let proxy_app = build_app(config);
+        let proxy_app = build_app(config, AccountState::default());
         let (proxy_url, proxy_shutdown) = start_listener(proxy_app).await;
 
         let client = Client::new();
@@ -423,13 +444,14 @@ mod tests {
             server: crate::config::ServerConfig {
                 bind: "127.0.0.1:0".to_string(),
             },
+            state: crate::config::StateConfig::default(),
             codex: crate::config::CodexConfig {
                 upstream_base_url: "https://api.openai.com".to_string(),
                 api_key: "test-token".to_string(),
             },
         };
 
-        let proxy_app = build_app(config);
+        let proxy_app = build_app(config, AccountState::default());
         let (proxy_url, proxy_shutdown) = start_listener(proxy_app).await;
 
         let client = Client::new();
@@ -450,5 +472,55 @@ mod tests {
         );
 
         let _ = proxy_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn active_state_account_beats_config_fallback() {
+        async fn upstream_handler(headers: HeaderMap) -> impl IntoResponse {
+            let auth = headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            Json(json!({
+                "received_authorization": auth
+            }))
+        }
+
+        let upstream_app = Router::new().route("/v1/models", get(upstream_handler));
+        let (upstream_url, upstream_shutdown) = start_listener(upstream_app).await;
+
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            state: crate::config::StateConfig::default(),
+            codex: crate::config::CodexConfig {
+                upstream_base_url: upstream_url,
+                api_key: "fallback-token".to_string(),
+            },
+        };
+
+        let mut accounts = AccountState::default();
+        accounts
+            .add_or_replace_codex_account("primary".to_string(), "state-token".to_string(), true)
+            .unwrap();
+
+        let proxy_app = build_app(config, accounts);
+        let (proxy_url, proxy_shutdown) = start_listener(proxy_app).await;
+
+        let payload: Value = Client::new()
+            .get(format!("{proxy_url}/v1/models"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+
+        assert_eq!(payload["received_authorization"], "Bearer state-token");
+
+        let _ = proxy_shutdown.send(());
+        let _ = upstream_shutdown.send(());
     }
 }
