@@ -68,6 +68,21 @@ pub fn activate_account(config: &AppConfig, config_path: &Path, name: String) ->
     Ok(())
 }
 
+pub fn remove_account(config: &AppConfig, config_path: &Path, name: String) -> Result<()> {
+    let state_path = config.resolve_state_path(config_path);
+    let mut state = AccountState::load_or_default(&state_path)?;
+    state.remove_account(&name)?;
+    state.save(&state_path)?;
+
+    println!("removed account `{}`", name);
+    match state.active_account.as_deref() {
+        Some(active) => println!("active account is now `{}`", active),
+        None => println!("no active account remains"),
+    }
+    println!("state file: {}", state_path.display());
+    Ok(())
+}
+
 pub fn import_codex_account(
     config: &AppConfig,
     config_path: &Path,

@@ -118,6 +118,30 @@ impl AccountState {
         }
     }
 
+    pub fn remove_account(&mut self, name: &str) -> Result<()> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            bail!("account name cannot be empty");
+        }
+
+        let original_len = self.accounts.len();
+        self.accounts.retain(|account| account.name != trimmed);
+        if self.accounts.len() == original_len {
+            bail!("no saved account named {}", trimmed);
+        }
+
+        if self.active_account.as_deref() == Some(trimmed) {
+            self.active_account = self
+                .accounts
+                .iter()
+                .find(|account| account.provider == "codex")
+                .map(|account| account.name.clone())
+                .or_else(|| self.accounts.first().map(|account| account.name.clone()));
+        }
+
+        Ok(())
+    }
+
     pub fn active_codex_account(&self) -> Option<ActiveCodexAccount> {
         let active_name = self.active_account.as_deref()?;
         self.accounts
@@ -356,5 +380,22 @@ mod tests {
         assert_eq!(account.account_id.as_deref(), Some("acct_123"));
         assert_eq!(account.expires_at.as_deref(), Some("2026-04-06T00:00:00Z"));
         assert_eq!(account.source.as_deref(), Some("file"));
+    }
+
+    #[test]
+    fn removing_active_account_promotes_next_saved_account() {
+        let mut state = AccountState::default();
+        state
+            .add_or_replace_codex_account("primary".to_string(), "key-1".to_string(), true)
+            .unwrap();
+        state
+            .add_or_replace_codex_account("backup".to_string(), "key-2".to_string(), false)
+            .unwrap();
+
+        state.remove_account("primary").unwrap();
+
+        assert_eq!(state.active_account.as_deref(), Some("backup"));
+        assert_eq!(state.accounts.len(), 1);
+        assert_eq!(state.accounts[0].name, "backup");
     }
 }

@@ -17,8 +17,8 @@ This branch carries the Rust rewrite line for ProxyPilot.
 - a `tui` command that opens a minimal terminal operator view
 - a TOML config model plus a separate local state file for saved accounts
 - explicit Codex-facing routes for `/v1/models`, `/v1/chat/completions`, and `/v1/responses`
-- CLI account commands for adding, importing, device-login, refresh, listing, and activating Codex accounts
-- a TUI account/operator panel that shows models, local accounts, active account state, terminal actions for activate/refresh, and selected-account token expiry health
+- CLI account commands for adding, importing, device-login, refresh, listing, activating, and removing Codex accounts
+- a TUI account/operator panel that shows models, local accounts, active account state, terminal actions for activate/refresh/delete, and selected-account token expiry health
 - runtime credential resolution that prefers the active saved account over the config fallback key
 - end-to-end tests against a mocked upstream server
 
@@ -39,6 +39,7 @@ cargo run -p proxypilot-rs -- account add-codex --name primary --api-key sk-...
 cargo run -p proxypilot-rs -- account import-codex --file ../auths/codex-example.json --activate
 cargo run -p proxypilot-rs -- account login-codex-device --activate
 cargo run -p proxypilot-rs -- account refresh-codex
+cargo run -p proxypilot-rs -- account remove --name old-account
 cargo run -p proxypilot-rs -- run --config proxypilot-rs.toml
 ```
 

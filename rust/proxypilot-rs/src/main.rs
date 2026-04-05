@@ -84,6 +84,11 @@ async fn main() -> Result<()> {
                 let config = AppConfig::load(&path)?;
                 proxypilot_rs::accounts::activate_account(&config, &path, name)?;
             }
+            AccountCommand::Remove { shared, name } => {
+                let path = resolve_config_path(shared.config);
+                let config = AppConfig::load(&path)?;
+                proxypilot_rs::accounts::remove_account(&config, &path, name)?;
+            }
         },
     }
 

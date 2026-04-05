@@ -60,6 +60,7 @@ async fn run_loop(
                 KeyCode::Up => app.move_selection_up(),
                 KeyCode::Down => app.move_selection_down(),
                 KeyCode::Char('a') => app.activate_selected_account(),
+                KeyCode::Char('d') => app.delete_selected_account(),
                 KeyCode::Char('f') => app.refresh_selected_account().await,
                 _ => {}
             }
@@ -97,7 +98,7 @@ impl TuiApp {
             account_count: 0,
             models: Vec::new(),
             feedback: "Use arrows to select an account, `a` to activate, `f` to refresh."
-                .to_string(),
+                .replace("`f` to refresh.", "`f` to refresh, `d` to delete."),
             feedback_color: Color::DarkGray,
             last_poll: Instant::now() - Duration::from_secs(3),
         }
@@ -239,6 +240,31 @@ impl TuiApp {
             }
             Err(err) => {
                 self.feedback = format!("Failed to activate account: {err}");
+                self.feedback_color = Color::Red;
+            }
+        }
+    }
+
+    fn delete_selected_account(&mut self) {
+        let Some(selected) = self.accounts.get(self.selected_account_idx) else {
+            self.feedback = "No saved Codex account to delete.".to_string();
+            self.feedback_color = Color::Yellow;
+            return;
+        };
+
+        let state_path = self.config.resolve_state_path(Path::new(&self.config_path));
+        match AccountState::load_or_default(&state_path).and_then(|mut state| {
+            state.remove_account(&selected.name)?;
+            state.save(&state_path)?;
+            Ok(())
+        }) {
+            Ok(()) => {
+                self.feedback = format!("Deleted account `{}`.", selected.name);
+                self.feedback_color = Color::Green;
+                self.refresh_accounts();
+            }
+            Err(err) => {
+                self.feedback = format!("Failed to delete account: {err}");
                 self.feedback_color = Color::Red;
             }
         }
@@ -420,7 +446,7 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
             Style::default().fg(app.feedback_color),
         )]),
         Line::from(
-            "q quit  |  r refresh health  |  arrows move  |  a activate  |  f refresh account",
+            "q quit  |  r refresh health  |  arrows move  |  a activate  |  f refresh  |  d delete",
         ),
     ])
     .block(Block::default().borders(Borders::ALL).title("Keys"));

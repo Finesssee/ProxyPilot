@@ -97,4 +97,11 @@ pub enum AccountCommand {
         #[arg(long)]
         name: String,
     },
+    /// Remove a saved account from the local state file.
+    Remove {
+        #[command(flatten)]
+        shared: SharedConfig,
+        #[arg(long)]
+        name: String,
+    },
 }
