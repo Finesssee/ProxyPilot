@@ -1,0 +1,13 @@
+commands:
+  install: cargo fetch --manifest-path rust/Cargo.toml
+  fmt: cargo fmt --all --manifest-path rust/Cargo.toml
+  test: cargo test --manifest-path rust/Cargo.toml
+  tui-help: cargo run --manifest-path rust/Cargo.toml -p proxypilot-rs -- tui --help
+
+services:
+  proxypilot-rs:
+    start: cargo run --manifest-path rust/Cargo.toml -p proxypilot-rs -- run --config rust/proxypilot-rs.toml
+    stop: lsof -ti :8318 | xargs -r kill
+    healthcheck: curl -sf http://127.0.0.1:8318/healthz
+    port: 8318
+    depends_on: []
