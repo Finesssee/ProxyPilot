@@ -1,0 +1,15 @@
+{
+  "featureId": "fix-tui-footer-wrap-visibility",
+  "reviewedAt": "2026-04-05T12:02:30Z",
+  "commitId": "159a3b21",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed the prior failed fix (`fix-tui-footer-and-passive-polling`) alongside the rerun fix commit `159a3b21`, the worker handoff, and the transcript skeleton. This rerun fully addresses the remaining footer-wrap blocker: the TUI now sizes the footer from its wrapped content instead of a fixed six-row region, and the regression test was updated to use the same long runtime-active-account failure wording that previously exposed clipping.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "/home/fsos/code-lean/ai-tools/ProxyPilot/.factory/validation/terminal-operator-console/scrutiny/reviews/fix-tui-footer-and-passive-polling.json",
+  "summary": "Pass. The rerun replaces the fixed-height footer with content-based sizing and adds realistic long-message regression coverage, so the prior footer-wrap visibility failure is adequately resolved."
+}

@@ -1,7 +1,7 @@
 {
   "milestone": "terminal-operator-console",
-  "round": 2,
-  "status": "fail",
+  "round": 3,
+  "status": "pass",
   "validatorsRun": {
     "format": {
       "passed": true,
@@ -25,36 +25,15 @@
     }
   },
   "reviewsSummary": {
-    "total": 2,
+    "total": 1,
     "passed": 1,
-    "failed": 1,
-    "failedFeatures": [
-      "fix-tui-footer-and-passive-polling"
-    ]
+    "failed": 0,
+    "failedFeatures": []
   },
-  "blockingIssues": [
-    {
-      "featureId": "fix-tui-footer-and-passive-polling",
-      "severity": "blocking",
-      "description": "The TUI footer still has a fixed six-row outer height, which leaves only four inner text rows inside the bordered keys block. Long routine feedback such as the runtime-active-account failure copy wraps at the validated terminal width, so one of the footer status/help lines becomes clipped again and the operator console still fails the footer-visibility contract."
-    }
-  ],
+  "blockingIssues": [],
   "nonBlockingIssues": [],
   "appliedUpdates": [],
-  "suggestedGuidanceUpdates": [
-    {
-      "target": "rust-operator-worker",
-      "suggestion": "When validating fixed-height TUI regions, explicitly exercise long wrapped operator feedback (not just short placeholder strings) so layout-fit checks prove realistic messages remain visible.",
-      "evidence": "The follow-up review for `fix-tui-footer-and-passive-polling` found the new snapshot test only covered a short `Feedback line`, while real footer messages in `rust/proxypilot-rs/src/tui.rs` are long enough to wrap and clip help text again within the fixed six-row footer.",
-      "isSystemic": true
-    },
-    {
-      "target": "rust-operator-worker",
-      "suggestion": "Document when label-only TUI/runtime wording changes may use lightweight non-interactive verification instead of full `tuistory` validation, so narrow observability fixes can follow a clear exception path.",
-      "evidence": "The pass review for `fix-runtime-account-count-semantics` noted the worker intentionally skipped manual `tuistory` verification because the change only aligned runtime/TUI labels, but the current skill does not describe that small-change exception.",
-      "isSystemic": false
-    }
-  ],
+  "suggestedGuidanceUpdates": [],
   "rejectedObservations": [],
-  "previousRound": "/home/fsos/code-lean/ai-tools/ProxyPilot/.factory/validation/terminal-operator-console/scrutiny/synthesis.round1.json"
+  "previousRound": "/home/fsos/code-lean/ai-tools/ProxyPilot/.factory/validation/terminal-operator-console/scrutiny/synthesis.round2.json"
 }
