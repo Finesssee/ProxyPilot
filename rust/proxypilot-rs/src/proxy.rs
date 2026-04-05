@@ -14,7 +14,9 @@ use serde_json::json;
 use tokio::sync::RwLock;
 use tracing::info;
 
-use crate::auth_runtime::{self, AuthCredentialSource};
+use crate::auth_runtime::{
+    self, AuthCredentialSource, RefreshStatusSnapshot, RuntimeRequestCounters, RuntimeStatsSnapshot,
+};
 use crate::config::AppConfig;
 use crate::state::AccountState;
 
@@ -22,18 +24,115 @@ use crate::state::AccountState;
 pub struct AppState {
     config: Arc<AppConfig>,
     accounts: Arc<RwLock<AccountState>>,
+    runtime: Arc<RwLock<RuntimeTelemetry>>,
     client: Client,
     device_endpoints: Arc<crate::codex::DeviceEndpoints>,
 }
 
+#[derive(Debug, Clone, Default)]
+struct RuntimeTelemetry {
+    active_account_name: Option<String>,
+    account_count: usize,
+    auth_health: Option<auth_runtime::AuthHealthSnapshot>,
+    request_counters: RuntimeRequestCounters,
+    last_refresh: RefreshStatusSnapshot,
+}
+
 impl AppState {
     pub fn new(config: AppConfig, accounts: AccountState) -> Self {
+        let runtime = runtime_telemetry_from_state(&config, &accounts);
         Self {
             config: Arc::new(config),
             accounts: Arc::new(RwLock::new(accounts)),
+            runtime: Arc::new(RwLock::new(runtime)),
             client: Client::new(),
             device_endpoints: Arc::new(crate::codex::DeviceEndpoints::default()),
         }
+    }
+
+    async fn runtime_stats_snapshot(&self) -> RuntimeStatsSnapshot {
+        let runtime = self.runtime.read().await;
+        let mut snapshot = RuntimeStatsSnapshot::new(
+            self.config.server.bind.clone(),
+            self.config.codex.upstream_base_url.clone(),
+            runtime.active_account_name.clone(),
+            runtime.account_count,
+            runtime.auth_health.clone().unwrap_or_else(|| {
+                auth_runtime::evaluate_auth_health(
+                    AuthCredentialSource::NoCredential,
+                    None,
+                    None,
+                    auth_runtime::now_unix_secs(),
+                )
+            }),
+        );
+        snapshot.request_counters = runtime.request_counters.clone();
+        snapshot.last_refresh = runtime.last_refresh.clone();
+        snapshot
+    }
+
+    async fn record_supported_request(&self) {
+        let mut runtime = self.runtime.write().await;
+        runtime.request_counters.total_proxied_requests += 1;
+    }
+
+    async fn record_successful_upstream_response(&self) {
+        let mut runtime = self.runtime.write().await;
+        runtime.request_counters.successful_upstream_responses += 1;
+    }
+
+    async fn record_upstream_401(&self) {
+        let mut runtime = self.runtime.write().await;
+        runtime.request_counters.upstream_401_count += 1;
+    }
+
+    async fn record_refresh_attempt(&self) {
+        let mut runtime = self.runtime.write().await;
+        runtime.request_counters.auth_refresh_attempts += 1;
+    }
+
+    async fn record_refresh_failure(&self, account_name: Option<String>, message: String) {
+        let mut runtime = self.runtime.write().await;
+        runtime.request_counters.auth_refresh_failures += 1;
+        runtime.last_refresh =
+            RefreshStatusSnapshot::failure(account_name, auth_runtime::now_unix_secs(), message);
+    }
+
+    async fn record_refresh_success(&self, account_name: String) {
+        let mut runtime = self.runtime.write().await;
+        runtime.last_refresh =
+            RefreshStatusSnapshot::success(account_name, auth_runtime::now_unix_secs());
+    }
+}
+
+fn runtime_telemetry_from_state(config: &AppConfig, accounts: &AccountState) -> RuntimeTelemetry {
+    let active_account = accounts.active_codex_account();
+    let source = if active_account.is_some() {
+        AuthCredentialSource::ActiveAccount
+    } else if config.codex.api_key.trim().is_empty() {
+        AuthCredentialSource::NoCredential
+    } else {
+        AuthCredentialSource::ConfigFallbackKey
+    };
+    let refresh_token = active_account
+        .as_ref()
+        .and_then(|account| account.refresh_token.as_deref());
+    let expires_at = active_account
+        .as_ref()
+        .and_then(|account| account.expires_at.as_deref());
+    let auth_health = auth_runtime::evaluate_auth_health(
+        source,
+        refresh_token,
+        expires_at,
+        auth_runtime::now_unix_secs(),
+    );
+
+    RuntimeTelemetry {
+        active_account_name: active_account.map(|account| account.name),
+        account_count: accounts.accounts.len(),
+        auth_health: Some(auth_health),
+        request_counters: RuntimeRequestCounters::default(),
+        last_refresh: RefreshStatusSnapshot::default(),
     }
 }
 
@@ -42,6 +141,7 @@ pub fn build_app(config: AppConfig, accounts: AccountState) -> Router {
 
     Router::new()
         .route("/healthz", get(healthz))
+        .route("/v0/runtime/stats", get(runtime_stats))
         .route("/v1/models", get(list_models))
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/responses", post(responses))
@@ -85,6 +185,10 @@ async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
         "upstream": state.config.codex.upstream_base_url,
         "active_account": active_account,
     }))
+}
+
+async fn runtime_stats(State(state): State<AppState>) -> impl IntoResponse {
+    Json(state.runtime_stats_snapshot().await)
 }
 
 async fn list_models(
@@ -158,6 +262,8 @@ async fn forward_upstream(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response<Body>, ProxyError> {
+    state.record_supported_request().await;
+
     if active_account_needs_refresh(state).await {
         let _ = try_refresh_active_codex_account(state).await?;
     }
@@ -171,6 +277,7 @@ async fn forward_upstream(
         .context("failed to reach upstream Codex endpoint")?;
 
     let upstream = if upstream.status() == StatusCode::UNAUTHORIZED {
+        state.record_upstream_401().await;
         if let Some(refreshed_token) = try_refresh_active_codex_account(state).await? {
             send_upstream_request(
                 state,
@@ -190,6 +297,9 @@ async fn forward_upstream(
     };
 
     let status = upstream.status();
+    if status.is_success() {
+        state.record_successful_upstream_response().await;
+    }
     let response_headers = upstream.headers().clone();
     let response_body = upstream
         .bytes()
@@ -253,21 +363,35 @@ async fn try_refresh_active_codex_account(state: &AppState) -> Result<Option<Str
         return Ok(None);
     };
 
-    let refreshed = crate::codex::refresh_with_refresh_token_for_test(
+    state.record_refresh_attempt().await;
+
+    let refreshed = match crate::codex::refresh_with_refresh_token_for_test(
         state.client.clone(),
         (*state.device_endpoints).clone(),
         refresh_token,
     )
     .await
-    .map_err(ProxyError::from)?;
+    {
+        Ok(value) => value,
+        Err(err) => {
+            state
+                .record_refresh_failure(Some(active.name.clone()), err.to_string())
+                .await;
+            return Err(ProxyError::from(err));
+        }
+    };
 
     {
         let mut accounts = state.accounts.write().await;
-        accounts
-            .update_codex_account_tokens(&active.name, refreshed)
-            .map_err(ProxyError::from)?;
+        if let Err(err) = accounts.update_codex_account_tokens(&active.name, refreshed) {
+            state
+                .record_refresh_failure(Some(active.name.clone()), err.to_string())
+                .await;
+            return Err(ProxyError::from(err));
+        }
     }
 
+    state.record_refresh_success(active.name.clone()).await;
     let refreshed_token = {
         let accounts = state.accounts.read().await;
         accounts
@@ -379,6 +503,23 @@ mod tests {
             let _ = server.await;
         });
         (format!("http://{}", addr), tx)
+    }
+
+    fn build_test_state_with_endpoints(
+        config: AppConfig,
+        accounts: AccountState,
+        oauth_token_url: String,
+    ) -> AppState {
+        AppState {
+            config: std::sync::Arc::new(config),
+            accounts: std::sync::Arc::new(tokio::sync::RwLock::new(accounts)),
+            runtime: std::sync::Arc::new(tokio::sync::RwLock::new(RuntimeTelemetry::default())),
+            client: Client::new(),
+            device_endpoints: std::sync::Arc::new(crate::codex::DeviceEndpoints {
+                oauth_token_url,
+                ..crate::codex::DeviceEndpoints::default()
+            }),
+        }
     }
 
     #[tokio::test]
@@ -708,62 +849,34 @@ mod tests {
             )
             .unwrap();
 
-        let state = AppState {
-            config: std::sync::Arc::new(config),
-            accounts: std::sync::Arc::new(tokio::sync::RwLock::new(accounts)),
-            client: Client::new(),
-            device_endpoints: std::sync::Arc::new(crate::codex::DeviceEndpoints {
-                oauth_token_url: format!("{refresh_url}/oauth/token"),
-                ..crate::codex::DeviceEndpoints::default()
-            }),
-        };
+        let state =
+            build_test_state_with_endpoints(config, accounts, format!("{refresh_url}/oauth/token"));
 
-        let refreshed = {
-            let active = state.accounts.read().await.active_codex_account().unwrap();
-            let response = crate::codex::refresh_with_refresh_token_for_test(
-                Client::new(),
-                (*state.device_endpoints).clone(),
-                active.refresh_token.as_deref().unwrap(),
-            )
-            .await
-            .unwrap();
-            state
-                .accounts
-                .write()
-                .await
-                .update_codex_account_tokens("primary", response)
-                .unwrap();
-            state
-                .accounts
-                .read()
-                .await
-                .active_codex_account()
-                .unwrap()
-                .api_key
-        };
-
-        assert_eq!(refreshed, "fresh-token");
-
-        let response = send_upstream_request(
+        let response = forward_upstream(
             &state,
-            &Method::GET,
-            &format!("{}/v1/models", state.config.codex.upstream_base_url),
-            &HeaderMap::new(),
-            &Bytes::new(),
-            Some(
-                state
-                    .accounts
-                    .read()
-                    .await
-                    .active_codex_account()
-                    .unwrap()
-                    .api_key,
-            ),
+            Method::GET,
+            format!("{}/v1/models", state.config.codex.upstream_base_url),
+            HeaderMap::new(),
+            Bytes::new(),
         )
         .await
         .unwrap();
-        let payload: Value = response.json().await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(payload["received_authorization"], "Bearer fresh-token");
+
+        let snapshot = state.runtime_stats_snapshot().await;
+        assert_eq!(snapshot.request_counters.total_proxied_requests, 1);
+        assert_eq!(snapshot.request_counters.successful_upstream_responses, 1);
+        assert_eq!(snapshot.request_counters.auth_refresh_attempts, 1);
+        assert_eq!(snapshot.request_counters.auth_refresh_failures, 0);
+        assert_eq!(snapshot.request_counters.upstream_401_count, 1);
+        assert_eq!(
+            snapshot.last_refresh.kind,
+            crate::auth_runtime::RefreshStatusKind::Success
+        );
 
         let _ = upstream_shutdown.send(());
         let _ = refresh_shutdown.send(());
@@ -838,15 +951,8 @@ mod tests {
             )
             .unwrap();
 
-        let state = AppState {
-            config: std::sync::Arc::new(config),
-            accounts: std::sync::Arc::new(tokio::sync::RwLock::new(accounts)),
-            client: Client::new(),
-            device_endpoints: std::sync::Arc::new(crate::codex::DeviceEndpoints {
-                oauth_token_url: format!("{refresh_url}/oauth/token"),
-                ..crate::codex::DeviceEndpoints::default()
-            }),
-        };
+        let state =
+            build_test_state_with_endpoints(config, accounts, format!("{refresh_url}/oauth/token"));
 
         let response = forward_upstream(
             &state,
@@ -869,6 +975,340 @@ mod tests {
         let active = state.accounts.read().await.active_codex_account().unwrap();
         assert_eq!(active.api_key, "preemptive-fresh-token");
         assert_eq!(active.plan_type.as_deref(), Some("team"));
+
+        let snapshot = state.runtime_stats_snapshot().await;
+        assert_eq!(snapshot.request_counters.total_proxied_requests, 1);
+        assert_eq!(snapshot.request_counters.successful_upstream_responses, 1);
+        assert_eq!(snapshot.request_counters.auth_refresh_attempts, 1);
+        assert_eq!(snapshot.request_counters.auth_refresh_failures, 0);
+        assert_eq!(
+            snapshot.last_refresh.kind,
+            crate::auth_runtime::RefreshStatusKind::Success
+        );
+
+        let _ = upstream_shutdown.send(());
+        let _ = refresh_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn unsupported_routes_do_not_change_success_counters() {
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            state: crate::config::StateConfig::default(),
+            codex: crate::config::CodexConfig {
+                upstream_base_url: "https://example.com".to_string(),
+                api_key: "fallback-token".to_string(),
+            },
+        };
+
+        let app = build_app(config, AccountState::default());
+        let (proxy_url, proxy_shutdown) = start_listener(app).await;
+        let client = Client::new();
+
+        let response = client
+            .post(format!("{proxy_url}/v1/files"))
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let snapshot: Value = client
+            .get(format!("{proxy_url}/v0/runtime/stats"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(snapshot["request_counters"]["total_proxied_requests"], 0);
+        assert_eq!(
+            snapshot["request_counters"]["successful_upstream_responses"],
+            0
+        );
+
+        let _ = proxy_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn runtime_stats_endpoint_is_local_and_does_not_hit_upstream() {
+        let upstream_hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let upstream_hits_for_handler = upstream_hits.clone();
+        let upstream_app = Router::new().route(
+            "/v1/models",
+            get(move || {
+                let upstream_hits_for_handler = upstream_hits_for_handler.clone();
+                async move {
+                    upstream_hits_for_handler.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Json(json!({
+                        "object": "list",
+                        "data": []
+                    }))
+                }
+            }),
+        );
+        let (upstream_url, upstream_shutdown) = start_listener(upstream_app).await;
+
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            state: crate::config::StateConfig::default(),
+            codex: crate::config::CodexConfig {
+                upstream_base_url: upstream_url,
+                api_key: "".to_string(),
+            },
+        };
+
+        let app = build_app(config, AccountState::default());
+        let (proxy_url, proxy_shutdown) = start_listener(app).await;
+
+        let payload: Value = Client::new()
+            .get(format!("{proxy_url}/v0/runtime/stats"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+
+        assert_eq!(payload["bind_address"], "127.0.0.1:0");
+        assert_eq!(upstream_hits.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+        let _ = proxy_shutdown.send(());
+        let _ = upstream_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn runtime_stats_reports_in_memory_snapshot_and_counters() {
+        async fn upstream_handler() -> impl IntoResponse {
+            Json(json!({
+                "object": "list",
+                "data": []
+            }))
+        }
+
+        let upstream_app = Router::new().route("/v1/models", get(upstream_handler));
+        let (upstream_url, upstream_shutdown) = start_listener(upstream_app).await;
+
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            state: crate::config::StateConfig::default(),
+            codex: crate::config::CodexConfig {
+                upstream_base_url: upstream_url.clone(),
+                api_key: "fallback-token".to_string(),
+            },
+        };
+
+        let mut accounts = AccountState::default();
+        accounts
+            .add_or_replace_codex_account("primary".to_string(), "state-token".to_string(), true)
+            .unwrap();
+
+        let app = build_app(config, accounts);
+        let (proxy_url, proxy_shutdown) = start_listener(app).await;
+        let client = Client::new();
+
+        let snapshot: Value = client
+            .get(format!("{proxy_url}/v0/runtime/stats"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+
+        assert_eq!(snapshot["bind_address"], "127.0.0.1:0");
+        assert_eq!(snapshot["upstream_base_url"], upstream_url);
+        assert_eq!(snapshot["active_account_name"], "primary");
+        assert_eq!(snapshot["account_count"], 1);
+        assert_eq!(snapshot["auth_health"]["state"], "static");
+        assert_eq!(snapshot["request_counters"]["total_proxied_requests"], 0);
+        assert_eq!(snapshot["last_refresh"]["kind"], "unknown");
+
+        let response = client
+            .get(format!("{proxy_url}/v1/models"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let snapshot: Value = client
+            .get(format!("{proxy_url}/v0/runtime/stats"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(snapshot["request_counters"]["total_proxied_requests"], 1);
+        assert_eq!(
+            snapshot["request_counters"]["successful_upstream_responses"],
+            1
+        );
+
+        let _ = proxy_shutdown.send(());
+
+        let restarted_app = build_app(
+            AppConfig {
+                server: crate::config::ServerConfig {
+                    bind: "127.0.0.1:0".to_string(),
+                },
+                state: crate::config::StateConfig::default(),
+                codex: crate::config::CodexConfig {
+                    upstream_base_url: upstream_url.clone(),
+                    api_key: "fallback-token".to_string(),
+                },
+            },
+            {
+                let mut accounts = AccountState::default();
+                accounts
+                    .add_or_replace_codex_account(
+                        "primary".to_string(),
+                        "state-token".to_string(),
+                        true,
+                    )
+                    .unwrap();
+                accounts
+            },
+        );
+        let (restarted_url, restarted_shutdown) = start_listener(restarted_app).await;
+        let restarted_snapshot: Value = client
+            .get(format!("{restarted_url}/v0/runtime/stats"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(
+            restarted_snapshot["request_counters"]["total_proxied_requests"],
+            0
+        );
+        assert_eq!(restarted_snapshot["last_refresh"]["kind"], "unknown");
+
+        let _ = upstream_shutdown.send(());
+        let _ = restarted_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn runtime_stats_uses_fallback_key_without_implying_active_saved_account() {
+        let upstream_app = Router::new().route(
+            "/v1/models",
+            get(|| async { Json(json!({"object": "list", "data": []})) }),
+        );
+        let (upstream_url, upstream_shutdown) = start_listener(upstream_app).await;
+
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            state: crate::config::StateConfig::default(),
+            codex: crate::config::CodexConfig {
+                upstream_base_url: upstream_url.clone(),
+                api_key: "fallback-token".to_string(),
+            },
+        };
+
+        let app = build_app(config, AccountState::default());
+        let (proxy_url, proxy_shutdown) = start_listener(app).await;
+        let payload: Value = Client::new()
+            .get(format!("{proxy_url}/v0/runtime/stats"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+
+        assert!(payload["active_account_name"].is_null());
+        assert_eq!(payload["auth_health"]["state"], "static");
+        assert_eq!(payload["request_counters"]["total_proxied_requests"], 0);
+
+        let _ = proxy_shutdown.send(());
+        let _ = upstream_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn runtime_stats_records_refresh_failure_on_proactive_refresh() {
+        async fn upstream_handler(headers: HeaderMap) -> impl IntoResponse {
+            let auth = headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+
+            Json(json!({
+                "received_authorization": auth
+            }))
+        }
+
+        async fn refresh_handler() -> impl IntoResponse {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"error": "refresh failed"})),
+            )
+        }
+
+        let upstream_app = Router::new().route("/v1/models", get(upstream_handler));
+        let refresh_app = Router::new().route("/oauth/token", post(refresh_handler));
+        let (upstream_url, upstream_shutdown) = start_listener(upstream_app).await;
+        let (refresh_url, refresh_shutdown) = start_listener(refresh_app).await;
+
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            state: crate::config::StateConfig::default(),
+            codex: crate::config::CodexConfig {
+                upstream_base_url: upstream_url.clone(),
+                api_key: "".to_string(),
+            },
+        };
+
+        let mut accounts = AccountState::default();
+        accounts
+            .add_device_codex_account(
+                "primary".to_string(),
+                crate::codex::DeviceAuthResult {
+                    access_token: "expired-token".to_string(),
+                    refresh_token: "old-refresh-token".to_string(),
+                    id_token: "".to_string(),
+                    email: Some("refresh@example.com".to_string()),
+                    account_id: Some("acct_refresh".to_string()),
+                    plan_type: Some("pro".to_string()),
+                    expires_at: Some("1970-01-01T00:00:00Z".to_string()),
+                },
+                true,
+            )
+            .unwrap();
+
+        let state =
+            build_test_state_with_endpoints(config, accounts, format!("{refresh_url}/oauth/token"));
+
+        let error = forward_upstream(
+            &state,
+            Method::GET,
+            format!("{}/v1/models", state.config.codex.upstream_base_url),
+            HeaderMap::new(),
+            Bytes::new(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.status, StatusCode::BAD_GATEWAY);
+
+        let snapshot = state.runtime_stats_snapshot().await;
+        assert_eq!(snapshot.request_counters.total_proxied_requests, 1);
+        assert_eq!(snapshot.request_counters.auth_refresh_attempts, 1);
+        assert_eq!(snapshot.request_counters.auth_refresh_failures, 1);
+        assert_eq!(
+            snapshot.last_refresh.kind,
+            crate::auth_runtime::RefreshStatusKind::Failure
+        );
 
         let _ = upstream_shutdown.send(());
         let _ = refresh_shutdown.send(());
