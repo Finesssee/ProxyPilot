@@ -163,6 +163,13 @@ impl AccountState {
             })
     }
 
+    pub fn runtime_usable_codex_account_count(&self) -> usize {
+        self.accounts
+            .iter()
+            .filter(|account| account.provider == "codex" && !account.api_key.trim().is_empty())
+            .count()
+    }
+
     pub fn codex_account_by_name(&self, name: &str) -> Option<ActiveCodexAccount> {
         let trimmed = name.trim();
         self.accounts
@@ -432,5 +439,48 @@ mod tests {
 
         let account = state.active_codex_account().unwrap();
         assert_eq!(account.plan_type.as_deref(), Some("pro"));
+    }
+
+    #[test]
+    fn runtime_usable_codex_account_count_ignores_mixed_provider_and_empty_key_entries() {
+        let mut state = AccountState::default();
+        state.accounts.push(AccountEntry {
+            name: "primary".to_string(),
+            provider: "codex".to_string(),
+            api_key: "state-key".to_string(),
+            refresh_token: None,
+            id_token: None,
+            email: None,
+            account_id: None,
+            plan_type: None,
+            expires_at: None,
+            source: Some("manual".to_string()),
+        });
+        state.accounts.push(AccountEntry {
+            name: "mixed".to_string(),
+            provider: "anthropic".to_string(),
+            api_key: "other-key".to_string(),
+            refresh_token: None,
+            id_token: None,
+            email: None,
+            account_id: None,
+            plan_type: None,
+            expires_at: None,
+            source: Some("manual".to_string()),
+        });
+        state.accounts.push(AccountEntry {
+            name: "broken".to_string(),
+            provider: "codex".to_string(),
+            api_key: "   ".to_string(),
+            refresh_token: None,
+            id_token: None,
+            email: None,
+            account_id: None,
+            plan_type: None,
+            expires_at: None,
+            source: Some("manual".to_string()),
+        });
+
+        assert_eq!(state.runtime_usable_codex_account_count(), 1);
     }
 }

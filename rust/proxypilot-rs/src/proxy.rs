@@ -102,7 +102,7 @@ impl AppState {
 fn runtime_telemetry_from_state(accounts: &AccountState) -> RuntimeTelemetry {
     RuntimeTelemetry {
         active_account_name: accounts.active_codex_account().map(|account| account.name),
-        account_count: accounts.accounts.len(),
+        account_count: accounts.runtime_usable_codex_account_count(),
         request_counters: RuntimeRequestCounters::default(),
         last_refresh: RefreshStatusSnapshot::default(),
     }
@@ -1108,6 +1108,30 @@ mod tests {
         accounts
             .add_or_replace_codex_account("primary".to_string(), "state-token".to_string(), true)
             .unwrap();
+        accounts.accounts.push(crate::state::AccountEntry {
+            name: "mixed".to_string(),
+            provider: "anthropic".to_string(),
+            api_key: "other-token".to_string(),
+            refresh_token: None,
+            id_token: None,
+            email: None,
+            account_id: None,
+            plan_type: None,
+            expires_at: None,
+            source: Some("manual".to_string()),
+        });
+        accounts.accounts.push(crate::state::AccountEntry {
+            name: "blank".to_string(),
+            provider: "codex".to_string(),
+            api_key: "   ".to_string(),
+            refresh_token: None,
+            id_token: None,
+            email: None,
+            account_id: None,
+            plan_type: None,
+            expires_at: None,
+            source: Some("manual".to_string()),
+        });
 
         let app = build_app(config, accounts);
         let (proxy_url, proxy_shutdown) = start_listener(app).await;
@@ -1193,6 +1217,65 @@ mod tests {
 
         let _ = upstream_shutdown.send(());
         let _ = restarted_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn runtime_stats_account_count_stays_on_runtime_snapshot_after_disk_changes() {
+        let upstream_app = Router::new().route(
+            "/v1/models",
+            get(|| async { Json(json!({"object": "list", "data": []})) }),
+        );
+        let (upstream_url, upstream_shutdown) = start_listener(upstream_app).await;
+
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            state: crate::config::StateConfig::default(),
+            codex: crate::config::CodexConfig {
+                upstream_base_url: upstream_url,
+                api_key: "".to_string(),
+            },
+        };
+
+        let mut accounts = AccountState::default();
+        accounts
+            .add_or_replace_codex_account("primary".to_string(), "state-token".to_string(), true)
+            .unwrap();
+
+        let state = AppState::new(config, accounts);
+        {
+            let mut live_accounts = state.accounts.write().await;
+            live_accounts.accounts.push(crate::state::AccountEntry {
+                name: "mixed".to_string(),
+                provider: "anthropic".to_string(),
+                api_key: "other-token".to_string(),
+                refresh_token: None,
+                id_token: None,
+                email: None,
+                account_id: None,
+                plan_type: None,
+                expires_at: None,
+                source: Some("manual".to_string()),
+            });
+            live_accounts.accounts.push(crate::state::AccountEntry {
+                name: "blank".to_string(),
+                provider: "codex".to_string(),
+                api_key: "   ".to_string(),
+                refresh_token: None,
+                id_token: None,
+                email: None,
+                account_id: None,
+                plan_type: None,
+                expires_at: None,
+                source: Some("manual".to_string()),
+            });
+        }
+
+        let snapshot = state.runtime_stats_snapshot().await;
+        assert_eq!(snapshot.account_count, 1);
+
+        let _ = upstream_shutdown.send(());
     }
 
     #[tokio::test]

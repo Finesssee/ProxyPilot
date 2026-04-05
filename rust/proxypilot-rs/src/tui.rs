@@ -602,7 +602,7 @@ fn runtime_panel_lines(
                 stats.active_account_name.as_deref().unwrap_or("none")
             ),
             format!("Local disk active account: {}", disk_active_account),
-            format!("Runtime account count: {}", stats.account_count),
+            format!("Runtime-usable Codex accounts: {}", stats.account_count),
             format!("Auth state: {}", stats.auth_health.summary_label()),
             format!(
                 "Request counters: total={} success={} 401={} refresh_attempts={} refresh_failures={}",
@@ -767,7 +767,7 @@ mod tests {
         assert!(joined.contains("Runtime stats: live"));
         assert!(joined.contains("Runtime active account: primary"));
         assert!(joined.contains("Local disk active account: primary"));
-        assert!(joined.contains("Runtime account count: 2"));
+        assert!(joined.contains("Runtime-usable Codex accounts: 2"));
         assert!(!joined.contains("Saved accounts on disk: 2"));
         assert!(joined.contains("Auth state: valid"));
         assert!(joined.contains("Request counters: total=7"));
