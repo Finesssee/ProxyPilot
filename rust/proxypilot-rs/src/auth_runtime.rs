@@ -247,6 +247,10 @@ pub fn parse_rfc3339_z(value: &str) -> Option<i64> {
         return None;
     }
 
+    if day > i64::from(days_in_month(year, month as u32)?) {
+        return None;
+    }
+
     let adjusted_year = year - if month <= 2 { 1 } else { 0 };
     let era = if adjusted_year >= 0 {
         adjusted_year
@@ -262,6 +266,21 @@ pub fn parse_rfc3339_z(value: &str) -> Option<i64> {
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     let days = era * 146_097 + doe - 719_468;
     Some(days * 86_400 + hour * 3_600 + minute * 60 + second)
+}
+
+fn days_in_month(year: i64, month: u32) -> Option<u8> {
+    Some(match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        _ => return None,
+    })
+}
+
+fn is_leap_year(year: i64) -> bool {
+    let year = year.rem_euclid(400);
+    year % 4 == 0 && (year % 100 != 0 || year == 0)
 }
 
 pub fn evaluate_auth_health(
@@ -378,6 +397,14 @@ mod tests {
     fn rejects_non_rfc3339_z_timestamps() {
         assert_eq!(parse_rfc3339_z("2026-04-05 12:00:00"), None);
         assert_eq!(parse_rfc3339_z("2026-13-05T12:00:00Z"), None);
+        assert_eq!(parse_rfc3339_z("2026-04-31T12:00:00Z"), None);
+        assert_eq!(parse_rfc3339_z("2023-02-29T12:00:00Z"), None);
+    }
+
+    #[test]
+    fn accepts_valid_leap_day_timestamps() {
+        assert_eq!(parse_rfc3339_z("2024-02-29T12:00:00Z"), Some(1_709_208_000));
+        assert_eq!(parse_rfc3339_z("2000-02-29T23:59:59Z"), Some(951_868_799));
     }
 
     #[test]
@@ -442,6 +469,18 @@ mod tests {
             malformed
                 .expiry_detail()
                 .contains("malformed expiry metadata")
+        );
+
+        let impossible_calendar_date = evaluate_auth_health(
+            AuthCredentialSource::ActiveAccount,
+            Some("refresh"),
+            Some("2023-02-29T12:00:00Z"),
+            1_700_000_000,
+        );
+        assert_eq!(impossible_calendar_date.state, AuthHealthState::Unknown);
+        assert_eq!(
+            impossible_calendar_date.metadata_state,
+            AuthMetadataState::Malformed
         );
     }
 

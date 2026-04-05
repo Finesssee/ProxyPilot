@@ -33,14 +33,13 @@ pub struct AppState {
 struct RuntimeTelemetry {
     active_account_name: Option<String>,
     account_count: usize,
-    auth_health: Option<auth_runtime::AuthHealthSnapshot>,
     request_counters: RuntimeRequestCounters,
     last_refresh: RefreshStatusSnapshot,
 }
 
 impl AppState {
     pub fn new(config: AppConfig, accounts: AccountState) -> Self {
-        let runtime = runtime_telemetry_from_state(&config, &accounts);
+        let runtime = runtime_telemetry_from_state(&accounts);
         Self {
             config: Arc::new(config),
             accounts: Arc::new(RwLock::new(accounts)),
@@ -52,19 +51,14 @@ impl AppState {
 
     async fn runtime_stats_snapshot(&self) -> RuntimeStatsSnapshot {
         let runtime = self.runtime.read().await;
+        let accounts = self.accounts.read().await;
+        let auth_health = runtime_auth_health_from_state(&self.config, &accounts);
         let mut snapshot = RuntimeStatsSnapshot::new(
             self.config.server.bind.clone(),
             self.config.codex.upstream_base_url.clone(),
             runtime.active_account_name.clone(),
             runtime.account_count,
-            runtime.auth_health.clone().unwrap_or_else(|| {
-                auth_runtime::evaluate_auth_health(
-                    AuthCredentialSource::NoCredential,
-                    None,
-                    None,
-                    auth_runtime::now_unix_secs(),
-                )
-            }),
+            auth_health,
         );
         snapshot.request_counters = runtime.request_counters.clone();
         snapshot.last_refresh = runtime.last_refresh.clone();
@@ -105,7 +99,19 @@ impl AppState {
     }
 }
 
-fn runtime_telemetry_from_state(config: &AppConfig, accounts: &AccountState) -> RuntimeTelemetry {
+fn runtime_telemetry_from_state(accounts: &AccountState) -> RuntimeTelemetry {
+    RuntimeTelemetry {
+        active_account_name: accounts.active_codex_account().map(|account| account.name),
+        account_count: accounts.accounts.len(),
+        request_counters: RuntimeRequestCounters::default(),
+        last_refresh: RefreshStatusSnapshot::default(),
+    }
+}
+
+fn runtime_auth_health_from_state(
+    config: &AppConfig,
+    accounts: &AccountState,
+) -> auth_runtime::AuthHealthSnapshot {
     let active_account = accounts.active_codex_account();
     let source = if active_account.is_some() {
         AuthCredentialSource::ActiveAccount
@@ -120,20 +126,13 @@ fn runtime_telemetry_from_state(config: &AppConfig, accounts: &AccountState) -> 
     let expires_at = active_account
         .as_ref()
         .and_then(|account| account.expires_at.as_deref());
-    let auth_health = auth_runtime::evaluate_auth_health(
+
+    auth_runtime::evaluate_auth_health(
         source,
         refresh_token,
         expires_at,
         auth_runtime::now_unix_secs(),
-    );
-
-    RuntimeTelemetry {
-        active_account_name: active_account.map(|account| account.name),
-        account_count: accounts.accounts.len(),
-        auth_health: Some(auth_health),
-        request_counters: RuntimeRequestCounters::default(),
-        last_refresh: RefreshStatusSnapshot::default(),
-    }
+    )
 }
 
 pub fn build_app(config: AppConfig, accounts: AccountState) -> Router {
@@ -510,10 +509,11 @@ mod tests {
         accounts: AccountState,
         oauth_token_url: String,
     ) -> AppState {
+        let runtime = runtime_telemetry_from_state(&accounts);
         AppState {
             config: std::sync::Arc::new(config),
             accounts: std::sync::Arc::new(tokio::sync::RwLock::new(accounts)),
-            runtime: std::sync::Arc::new(tokio::sync::RwLock::new(RuntimeTelemetry::default())),
+            runtime: std::sync::Arc::new(tokio::sync::RwLock::new(runtime)),
             client: Client::new(),
             device_endpoints: std::sync::Arc::new(crate::codex::DeviceEndpoints {
                 oauth_token_url,
@@ -803,7 +803,7 @@ mod tests {
         fn encoded_claims_placeholder() -> String {
             let payload = serde_json::json!({
                 "email": "refresh@example.com",
-                "exp": 1767225600_i64,
+                "exp": 1893456000_i64,
                 "https://api.openai.com/auth": {
                     "chatgpt_account_id": "acct_refresh",
                     "chatgpt_plan_type": "pro"
@@ -843,7 +843,7 @@ mod tests {
                     email: Some("refresh@example.com".to_string()),
                     account_id: Some("acct_refresh".to_string()),
                     plan_type: Some("pro".to_string()),
-                    expires_at: Some("2026-04-06T00:00:00Z".to_string()),
+                    expires_at: Some("2030-01-01T00:00:00Z".to_string()),
                 },
                 true,
             )
@@ -1234,6 +1234,128 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn runtime_stats_recomputes_after_successful_refresh() {
+        async fn upstream_handler(headers: HeaderMap) -> impl IntoResponse {
+            let auth = headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+
+            Json(json!({
+                "received_authorization": auth
+            }))
+        }
+
+        async fn refresh_handler() -> impl IntoResponse {
+            Json(json!({
+                "access_token": "fresh-token",
+                "refresh_token": "fresh-refresh-token",
+                "id_token": format!("header.{}.sig", encoded_claims_placeholder("pro")),
+                "expires_in": 3600
+            }))
+        }
+
+        fn encoded_claims_placeholder(plan: &str) -> String {
+            let payload = serde_json::json!({
+                "email": "refresh@example.com",
+                "exp": 1893456000_i64,
+                "https://api.openai.com/auth": {
+                    "chatgpt_account_id": "acct_refresh",
+                    "chatgpt_plan_type": plan
+                }
+            });
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(serde_json::to_vec(&payload).unwrap())
+        }
+
+        let upstream_app = Router::new().route("/v1/models", get(upstream_handler));
+        let refresh_app = Router::new().route("/oauth/token", post(refresh_handler));
+        let (upstream_url, upstream_shutdown) = start_listener(upstream_app).await;
+        let (refresh_url, refresh_shutdown) = start_listener(refresh_app).await;
+
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            state: crate::config::StateConfig::default(),
+            codex: crate::config::CodexConfig {
+                upstream_base_url: upstream_url.clone(),
+                api_key: "fallback-token".to_string(),
+            },
+        };
+
+        let mut accounts = AccountState::default();
+        accounts
+            .add_device_codex_account(
+                "primary".to_string(),
+                crate::codex::DeviceAuthResult {
+                    access_token: "stale-token".to_string(),
+                    refresh_token: "old-refresh-token".to_string(),
+                    id_token: "".to_string(),
+                    email: Some("refresh@example.com".to_string()),
+                    account_id: Some("acct_refresh".to_string()),
+                    plan_type: Some("free".to_string()),
+                    expires_at: Some("1970-01-01T00:00:00Z".to_string()),
+                },
+                true,
+            )
+            .unwrap();
+
+        let state =
+            build_test_state_with_endpoints(config, accounts, format!("{refresh_url}/oauth/token"));
+
+        let before = state.runtime_stats_snapshot().await;
+        assert_eq!(
+            before.auth_health.state,
+            crate::auth_runtime::AuthHealthState::Expired
+        );
+        assert_eq!(
+            before.auth_health.expires_at.as_deref(),
+            Some("1970-01-01T00:00:00Z")
+        );
+
+        let response = forward_upstream(
+            &state,
+            Method::GET,
+            format!("{}/v1/models", state.config.codex.upstream_base_url),
+            HeaderMap::new(),
+            Bytes::new(),
+        )
+        .await
+        .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["received_authorization"], "Bearer fresh-token");
+
+        let after = state.runtime_stats_snapshot().await;
+        assert_eq!(
+            after.auth_health.state,
+            crate::auth_runtime::AuthHealthState::Valid
+        );
+        assert_eq!(
+            after.auth_health.source,
+            AuthCredentialSource::ActiveAccount
+        );
+        assert_eq!(
+            after.auth_health.expires_at.as_deref(),
+            Some("2030-01-01T00:00:00Z")
+        );
+        assert_eq!(after.request_counters.auth_refresh_attempts, 1);
+        assert_eq!(after.request_counters.auth_refresh_failures, 0);
+        assert_eq!(
+            after.last_refresh.kind,
+            crate::auth_runtime::RefreshStatusKind::Success
+        );
+        assert_eq!(after.last_refresh.account_name.as_deref(), Some("primary"));
+
+        let _ = upstream_shutdown.send(());
+        let _ = refresh_shutdown.send(());
+    }
+
+    #[tokio::test]
     async fn runtime_stats_records_refresh_failure_on_proactive_refresh() {
         async fn upstream_handler(headers: HeaderMap) -> impl IntoResponse {
             let auth = headers
@@ -1308,6 +1430,126 @@ mod tests {
         assert_eq!(
             snapshot.last_refresh.kind,
             crate::auth_runtime::RefreshStatusKind::Failure
+        );
+        assert_eq!(
+            snapshot.auth_health.state,
+            crate::auth_runtime::AuthHealthState::Expired
+        );
+
+        let _ = upstream_shutdown.send(());
+        let _ = refresh_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn runtime_stats_updates_health_after_refresh_rewrites_expired_account() {
+        async fn upstream_handler(headers: HeaderMap) -> impl IntoResponse {
+            let auth = headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+
+            Json(json!({
+                "received_authorization": auth
+            }))
+        }
+
+        async fn refresh_handler() -> impl IntoResponse {
+            Json(json!({
+                "access_token": "fresh-token",
+                "refresh_token": "fresh-refresh-token",
+                "id_token": format!("header.{}.sig", encoded_claims_placeholder("pro")),
+                "expires_in": 3600
+            }))
+        }
+
+        fn encoded_claims_placeholder(plan: &str) -> String {
+            let payload = serde_json::json!({
+                "email": "refresh@example.com",
+                "exp": 1893456000_i64,
+                "https://api.openai.com/auth": {
+                    "chatgpt_account_id": "acct_refresh",
+                    "chatgpt_plan_type": plan
+                }
+            });
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(serde_json::to_vec(&payload).unwrap())
+        }
+
+        let upstream_app = Router::new().route("/v1/models", get(upstream_handler));
+        let refresh_app = Router::new().route("/oauth/token", post(refresh_handler));
+        let (upstream_url, upstream_shutdown) = start_listener(upstream_app).await;
+        let (refresh_url, refresh_shutdown) = start_listener(refresh_app).await;
+
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            state: crate::config::StateConfig::default(),
+            codex: crate::config::CodexConfig {
+                upstream_base_url: upstream_url.clone(),
+                api_key: "".to_string(),
+            },
+        };
+
+        let mut accounts = AccountState::default();
+        accounts
+            .add_device_codex_account(
+                "primary".to_string(),
+                crate::codex::DeviceAuthResult {
+                    access_token: "stale-token".to_string(),
+                    refresh_token: "old-refresh-token".to_string(),
+                    id_token: "".to_string(),
+                    email: Some("refresh@example.com".to_string()),
+                    account_id: Some("acct_refresh".to_string()),
+                    plan_type: Some("free".to_string()),
+                    expires_at: Some("1970-01-01T00:00:00Z".to_string()),
+                },
+                true,
+            )
+            .unwrap();
+
+        let state =
+            build_test_state_with_endpoints(config, accounts, format!("{refresh_url}/oauth/token"));
+
+        let before = state.runtime_stats_snapshot().await;
+        assert_eq!(
+            before.auth_health.state,
+            crate::auth_runtime::AuthHealthState::Expired
+        );
+        assert_eq!(
+            before.auth_health.expires_at.as_deref(),
+            Some("1970-01-01T00:00:00Z")
+        );
+
+        let response = forward_upstream(
+            &state,
+            Method::GET,
+            format!("{}/v1/models", state.config.codex.upstream_base_url),
+            HeaderMap::new(),
+            Bytes::new(),
+        )
+        .await
+        .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["received_authorization"], "Bearer fresh-token");
+
+        let after = state.runtime_stats_snapshot().await;
+        assert_eq!(
+            after.auth_health.state,
+            crate::auth_runtime::AuthHealthState::Valid
+        );
+        assert_eq!(
+            after.auth_health.expires_at.as_deref(),
+            Some("2030-01-01T00:00:00Z")
+        );
+        assert_eq!(after.request_counters.auth_refresh_attempts, 1);
+        assert_eq!(
+            after.last_refresh.kind,
+            crate::auth_runtime::RefreshStatusKind::Success
         );
 
         let _ = upstream_shutdown.send(());
