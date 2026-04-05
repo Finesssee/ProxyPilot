@@ -49,6 +49,7 @@ docs/*
 !docs/long-context-features.md
 !docs/desktop-app-build-process.md
 !docs/cli.md
+!docs/rust-replatform.md
 AGENTS.md
 CLAUDE.md
 GEMINI.md
@@ -75,6 +76,7 @@ claude-progress.txt
 feature_list.json
 tui-snapshot*.txt
 tui-ttyd.png
+rust/target/
 
 # Local settings (user-specific)
 *.local.json

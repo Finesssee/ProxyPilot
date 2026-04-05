@@ -19,6 +19,10 @@
   Built in Go, it handles OAuth authentication, token management, and API translation automatically. One server to route them all.
 </p>
 
+<p align="center">
+  An experimental Rust replatform now lives on the <code>rust-replatform</code> branch with a terminal-first <code>proxypilot-rs</code> binary under <code>rust/</code>.
+</p>
+
 ---
 
 > [!TIP]
