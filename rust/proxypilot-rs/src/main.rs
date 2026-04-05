@@ -74,6 +74,11 @@ async fn main() -> Result<()> {
                 let config = AppConfig::load(&path)?;
                 proxypilot_rs::accounts::login_codex_device(&config, &path, name, activate).await?;
             }
+            AccountCommand::RefreshCodex { shared, name } => {
+                let path = resolve_config_path(shared.config);
+                let config = AppConfig::load(&path)?;
+                proxypilot_rs::accounts::refresh_codex_account(&config, &path, name).await?;
+            }
             AccountCommand::Activate { shared, name } => {
                 let path = resolve_config_path(shared.config);
                 let config = AppConfig::load(&path)?;

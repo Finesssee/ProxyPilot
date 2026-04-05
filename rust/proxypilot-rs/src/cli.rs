@@ -78,6 +78,13 @@ pub enum AccountCommand {
         #[arg(long, default_value_t = false)]
         activate: bool,
     },
+    /// Refresh a saved Codex account using its refresh token.
+    RefreshCodex {
+        #[command(flatten)]
+        shared: SharedConfig,
+        #[arg(long)]
+        name: Option<String>,
+    },
     /// List saved accounts and show which one is active.
     List {
         #[command(flatten)]

@@ -148,3 +148,36 @@ pub async fn login_codex_device(
     println!("state file: {}", state_path.display());
     Ok(())
 }
+
+pub async fn refresh_codex_account(
+    config: &AppConfig,
+    config_path: &Path,
+    name: Option<String>,
+) -> Result<()> {
+    let state_path = config.resolve_state_path(config_path);
+    let mut state = AccountState::load_or_default(&state_path)?;
+
+    let target = if let Some(name) = name.filter(|value| !value.trim().is_empty()) {
+        state
+            .codex_account_by_name(&name)
+            .ok_or_else(|| anyhow::anyhow!("no saved Codex account named {}", name))?
+    } else {
+        state
+            .active_codex_account()
+            .ok_or_else(|| anyhow::anyhow!("no active Codex account to refresh"))?
+    };
+
+    let refresh_token = target
+        .refresh_token
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("account `{}` has no refresh token", target.name))?;
+
+    let result = codex::refresh_with_refresh_token(refresh_token).await?;
+    let refreshed_name = target.name.clone();
+    state.update_codex_account_tokens(&refreshed_name, result)?;
+    state.save(&state_path)?;
+
+    println!("refreshed Codex account `{}`", refreshed_name);
+    println!("state file: {}", state_path.display());
+    Ok(())
+}

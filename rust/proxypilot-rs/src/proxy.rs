@@ -159,26 +159,28 @@ async fn forward_upstream(
         let accounts = state.accounts.read().await;
         accounts.effective_codex_api_key(&state.config)
     };
-    let mut request = state.client.request(method, target);
-
-    for (name, value) in &headers {
-        if should_skip_request_header(name.as_str()) {
-            continue;
-        }
-        request = request.header(name, value);
-    }
-
-    if let Some(api_key) = token
-        && !api_key.trim().is_empty()
-    {
-        request = request.bearer_auth(api_key);
-    }
-
-    let upstream = request
-        .body(body)
-        .send()
+    let upstream = send_upstream_request(state, &method, &target, &headers, &body, token)
         .await
         .context("failed to reach upstream Codex endpoint")?;
+
+    let upstream = if upstream.status() == StatusCode::UNAUTHORIZED {
+        if let Some(refreshed_token) = try_refresh_active_codex_account(state).await? {
+            send_upstream_request(
+                state,
+                &method,
+                &target,
+                &headers,
+                &body,
+                Some(refreshed_token),
+            )
+            .await
+            .context("failed to retry upstream Codex endpoint after refresh")?
+        } else {
+            upstream
+        }
+    } else {
+        upstream
+    };
 
     let status = upstream.status();
     let response_headers = upstream.headers().clone();
@@ -199,6 +201,70 @@ async fn forward_upstream(
         .body(Body::from(response_body))
         .context("failed to build downstream response")
         .map_err(ProxyError::from)
+}
+
+async fn send_upstream_request(
+    state: &AppState,
+    method: &Method,
+    target: &str,
+    headers: &HeaderMap,
+    body: &Bytes,
+    token: Option<String>,
+) -> Result<reqwest::Response> {
+    let mut request = state.client.request(method.clone(), target);
+
+    for (name, value) in headers {
+        if should_skip_request_header(name.as_str()) {
+            continue;
+        }
+        request = request.header(name, value);
+    }
+
+    if let Some(api_key) = token
+        && !api_key.trim().is_empty()
+    {
+        request = request.bearer_auth(api_key);
+    }
+
+    request
+        .body(body.clone())
+        .send()
+        .await
+        .context("upstream request failed")
+}
+
+async fn try_refresh_active_codex_account(state: &AppState) -> Result<Option<String>, ProxyError> {
+    let active = {
+        let accounts = state.accounts.read().await;
+        accounts.active_codex_account()
+    };
+
+    let Some(active) = active else {
+        return Ok(None);
+    };
+    let Some(refresh_token) = active.refresh_token.as_deref() else {
+        return Ok(None);
+    };
+
+    let refreshed = crate::codex::refresh_with_refresh_token(refresh_token)
+        .await
+        .map_err(ProxyError::from)?;
+
+    {
+        let mut accounts = state.accounts.write().await;
+        accounts
+            .update_codex_account_tokens(&active.name, refreshed)
+            .map_err(ProxyError::from)?;
+    }
+
+    let refreshed_token = {
+        let accounts = state.accounts.read().await;
+        accounts
+            .active_codex_account()
+            .map(|account| account.api_key)
+    };
+
+    Ok(refreshed_token)
 }
 
 fn build_upstream_url(base_url: &str, original_uri: &OriginalUri) -> Result<String, ProxyError> {
@@ -266,6 +332,7 @@ impl IntoResponse for ProxyError {
 mod tests {
     use super::*;
     use axum::routing::{get, post};
+    use base64::Engine;
     use serde_json::Value;
     use tokio::sync::oneshot;
 
@@ -522,5 +589,150 @@ mod tests {
 
         let _ = proxy_shutdown.send(());
         let _ = upstream_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn refreshes_active_account_after_401_and_retries() {
+        async fn upstream_handler(
+            headers: HeaderMap,
+            State(seen): State<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+        ) -> impl IntoResponse {
+            let auth = headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+
+            if auth == "Bearer stale-token" && !seen.swap(true, std::sync::atomic::Ordering::SeqCst)
+            {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({"error": "expired token"})),
+                )
+                    .into_response();
+            }
+
+            Json(json!({
+                "received_authorization": auth
+            }))
+            .into_response()
+        }
+
+        async fn refresh_handler() -> impl IntoResponse {
+            Json(json!({
+                "access_token": "fresh-token",
+                "refresh_token": "fresh-refresh-token",
+                "id_token": format!("header.{}.sig", encoded_claims_placeholder()),
+                "expires_in": 3600
+            }))
+        }
+
+        fn encoded_claims_placeholder() -> String {
+            let payload = serde_json::json!({
+                "email": "refresh@example.com",
+                "exp": 1767225600_i64,
+                "https://api.openai.com/auth": {
+                    "chatgpt_account_id": "acct_refresh",
+                    "chatgpt_plan_type": "pro"
+                }
+            });
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(serde_json::to_vec(&payload).unwrap())
+        }
+
+        let seen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let upstream_app = Router::new()
+            .route("/v1/models", get(upstream_handler))
+            .with_state(seen);
+        let refresh_app = Router::new().route("/oauth/token", post(refresh_handler));
+        let (upstream_url, upstream_shutdown) = start_listener(upstream_app).await;
+        let (refresh_url, refresh_shutdown) = start_listener(refresh_app).await;
+
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            state: crate::config::StateConfig::default(),
+            codex: crate::config::CodexConfig {
+                upstream_base_url: upstream_url,
+                api_key: "".to_string(),
+            },
+        };
+
+        let mut accounts = AccountState::default();
+        accounts
+            .add_device_codex_account(
+                "primary".to_string(),
+                crate::codex::DeviceAuthResult {
+                    access_token: "stale-token".to_string(),
+                    refresh_token: "old-refresh-token".to_string(),
+                    id_token: "".to_string(),
+                    email: Some("refresh@example.com".to_string()),
+                    account_id: Some("acct_refresh".to_string()),
+                    plan_type: Some("pro".to_string()),
+                    expires_at: Some("2026-04-06T00:00:00Z".to_string()),
+                },
+                true,
+            )
+            .unwrap();
+
+        let state = AppState {
+            config: std::sync::Arc::new(config),
+            accounts: std::sync::Arc::new(tokio::sync::RwLock::new(accounts)),
+            client: Client::new(),
+        };
+
+        let refreshed = {
+            let active = state.accounts.read().await.active_codex_account().unwrap();
+            let response = crate::codex::refresh_with_refresh_token_for_test(
+                Client::new(),
+                crate::codex::DeviceEndpoints {
+                    oauth_token_url: format!("{refresh_url}/oauth/token"),
+                    ..crate::codex::DeviceEndpoints::default()
+                },
+                active.refresh_token.as_deref().unwrap(),
+            )
+            .await
+            .unwrap();
+            state
+                .accounts
+                .write()
+                .await
+                .update_codex_account_tokens("primary", response)
+                .unwrap();
+            state
+                .accounts
+                .read()
+                .await
+                .active_codex_account()
+                .unwrap()
+                .api_key
+        };
+
+        assert_eq!(refreshed, "fresh-token");
+
+        let response = send_upstream_request(
+            &state,
+            &Method::GET,
+            &format!("{}/v1/models", state.config.codex.upstream_base_url),
+            &HeaderMap::new(),
+            &Bytes::new(),
+            Some(
+                state
+                    .accounts
+                    .read()
+                    .await
+                    .active_codex_account()
+                    .unwrap()
+                    .api_key,
+            ),
+        )
+        .await
+        .unwrap();
+        let payload: Value = response.json().await.unwrap();
+        assert_eq!(payload["received_authorization"], "Bearer fresh-token");
+
+        let _ = upstream_shutdown.send(());
+        let _ = refresh_shutdown.send(());
     }
 }

@@ -118,6 +118,11 @@ pub async fn login_with_device_flow() -> Result<DeviceAuthResult> {
     login_with_device_flow_for_test(Client::new(), DeviceEndpoints::default()).await
 }
 
+pub async fn refresh_with_refresh_token(refresh_token: &str) -> Result<DeviceAuthResult> {
+    refresh_with_refresh_token_for_test(Client::new(), DeviceEndpoints::default(), refresh_token)
+        .await
+}
+
 pub async fn login_with_device_flow_for_test(
     client: Client,
     endpoints: DeviceEndpoints,
@@ -157,6 +162,47 @@ pub async fn login_with_device_flow_for_test(
     }
 
     exchange_authorization_code(&client, &endpoints, &device_tokens).await
+}
+
+pub async fn refresh_with_refresh_token_for_test(
+    client: Client,
+    endpoints: DeviceEndpoints,
+    refresh_token: &str,
+) -> Result<DeviceAuthResult> {
+    let trimmed = refresh_token.trim();
+    if trimmed.is_empty() {
+        bail!("refresh token is required");
+    }
+
+    let response = client
+        .post(&endpoints.oauth_token_url)
+        .header("Accept", "application/json")
+        .form(&[
+            ("client_id", CLIENT_ID),
+            ("grant_type", "refresh_token"),
+            ("refresh_token", trimmed),
+            ("scope", "openid profile email"),
+        ])
+        .send()
+        .await
+        .context("failed to refresh Codex tokens")?;
+
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .context("failed to read Codex refresh response")?;
+    if !status.is_success() {
+        bail!(
+            "codex token refresh failed with status {}: {}",
+            status,
+            body
+        );
+    }
+
+    let payload: TokenExchangeResponse =
+        serde_json::from_str(&body).context("failed to decode Codex refresh response")?;
+    build_auth_result(payload)
 }
 
 async fn request_device_code(
@@ -277,6 +323,10 @@ async fn exchange_authorization_code(
 
     let payload: TokenExchangeResponse =
         serde_json::from_str(&body).context("failed to decode OAuth token response")?;
+    build_auth_result(payload)
+}
+
+fn build_auth_result(payload: TokenExchangeResponse) -> Result<DeviceAuthResult> {
     let claims = parse_jwt_claims(&payload.id_token).ok();
     let expires_at = claims
         .as_ref()
@@ -559,5 +609,48 @@ mod tests {
         let _ = user_shutdown.send(());
         let _ = token_shutdown.send(());
         let _ = oauth_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn refresh_flow_returns_updated_tokens_and_claims() {
+        async fn refresh_exchange() -> impl axum::response::IntoResponse {
+            let payload = json!({
+                "email": "refresh@example.com",
+                "exp": 1767225600_i64,
+                "https://api.openai.com/auth": {
+                    "chatgpt_account_id": "acct_refresh",
+                    "chatgpt_plan_type": "pro"
+                }
+            });
+            let claims = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap());
+            Json(json!({
+                "access_token": "refreshed-access-token",
+                "refresh_token": "refreshed-refresh-token",
+                "id_token": format!("header.{}.sig", claims),
+                "expires_in": 3600
+            }))
+        }
+
+        let refresh_app = Router::new().route("/oauth/token", post(refresh_exchange));
+        let (refresh_url, refresh_shutdown) = start_listener(refresh_app).await;
+
+        let result = refresh_with_refresh_token_for_test(
+            Client::new(),
+            DeviceEndpoints {
+                oauth_token_url: format!("{refresh_url}/oauth/token"),
+                ..DeviceEndpoints::default()
+            },
+            "old-refresh-token",
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.access_token, "refreshed-access-token");
+        assert_eq!(result.refresh_token, "refreshed-refresh-token");
+        assert_eq!(result.email.as_deref(), Some("refresh@example.com"));
+        assert_eq!(result.account_id.as_deref(), Some("acct_refresh"));
+        assert_eq!(result.plan_type.as_deref(), Some("pro"));
+
+        let _ = refresh_shutdown.send(());
     }
 }

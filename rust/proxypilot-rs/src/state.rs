@@ -37,6 +37,11 @@ pub struct AccountEntry {
 pub struct ActiveCodexAccount {
     pub name: String,
     pub api_key: String,
+    pub refresh_token: Option<String>,
+    pub id_token: Option<String>,
+    pub email: Option<String>,
+    pub account_id: Option<String>,
+    pub expires_at: Option<String>,
 }
 
 impl AccountState {
@@ -121,6 +126,27 @@ impl AccountState {
             .map(|account| ActiveCodexAccount {
                 name: account.name.clone(),
                 api_key: account.api_key.clone(),
+                refresh_token: account.refresh_token.clone(),
+                id_token: account.id_token.clone(),
+                email: account.email.clone(),
+                account_id: account.account_id.clone(),
+                expires_at: account.expires_at.clone(),
+            })
+    }
+
+    pub fn codex_account_by_name(&self, name: &str) -> Option<ActiveCodexAccount> {
+        let trimmed = name.trim();
+        self.accounts
+            .iter()
+            .find(|account| account.provider == "codex" && account.name == trimmed)
+            .map(|account| ActiveCodexAccount {
+                name: account.name.clone(),
+                api_key: account.api_key.clone(),
+                refresh_token: account.refresh_token.clone(),
+                id_token: account.id_token.clone(),
+                email: account.email.clone(),
+                account_id: account.account_id.clone(),
+                expires_at: account.expires_at.clone(),
             })
     }
 
@@ -227,6 +253,33 @@ impl AccountState {
             self.active_account = Some(trimmed_name.to_string());
         }
         self.accounts.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(())
+    }
+
+    pub fn update_codex_account_tokens(
+        &mut self,
+        account_name: &str,
+        result: crate::codex::DeviceAuthResult,
+    ) -> Result<()> {
+        let trimmed = account_name.trim();
+        let entry = self
+            .accounts
+            .iter_mut()
+            .find(|account| account.provider == "codex" && account.name == trimmed)
+            .ok_or_else(|| anyhow::anyhow!("no saved Codex account named {}", trimmed))?;
+
+        entry.api_key = result.access_token;
+        entry.refresh_token = optional_trimmed(result.refresh_token);
+        entry.id_token = optional_trimmed(result.id_token);
+        if result.email.is_some() {
+            entry.email = result.email;
+        }
+        if result.account_id.is_some() {
+            entry.account_id = result.account_id;
+        }
+        if result.expires_at.is_some() {
+            entry.expires_at = result.expires_at;
+        }
         Ok(())
     }
 }
