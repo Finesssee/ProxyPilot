@@ -17,6 +17,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use reqwest::StatusCode;
 use serde::Deserialize;
 
+use crate::codex;
 use crate::config::AppConfig;
 use crate::state::AccountState;
 
@@ -56,6 +57,10 @@ async fn run_loop(
             match key.code {
                 KeyCode::Char('q') => break,
                 KeyCode::Char('r') => app.refresh_health().await,
+                KeyCode::Up => app.move_selection_up(),
+                KeyCode::Down => app.move_selection_down(),
+                KeyCode::Char('a') => app.activate_selected_account(),
+                KeyCode::Char('f') => app.refresh_selected_account().await,
                 _ => {}
             }
         }
@@ -69,9 +74,13 @@ struct TuiApp {
     config_path: String,
     health_status: String,
     health_color: Color,
+    accounts: Vec<AccountRow>,
+    selected_account_idx: usize,
     active_account: String,
     account_count: usize,
     models: Vec<String>,
+    feedback: String,
+    feedback_color: Color,
     last_poll: Instant,
 }
 
@@ -82,9 +91,14 @@ impl TuiApp {
             config_path: config_path.display().to_string(),
             health_status: "waiting for first health check".to_string(),
             health_color: Color::Yellow,
+            accounts: Vec::new(),
+            selected_account_idx: 0,
             active_account: "none".to_string(),
             account_count: 0,
             models: Vec::new(),
+            feedback: "Use arrows to select an account, `a` to activate, `f` to refresh."
+                .to_string(),
+            feedback_color: Color::DarkGray,
             last_poll: Instant::now() - Duration::from_secs(3),
         }
     }
@@ -121,10 +135,33 @@ impl TuiApp {
                     .active_codex_account()
                     .map(|account| account.name)
                     .unwrap_or_else(|| "none".to_string());
+                self.accounts = state
+                    .accounts
+                    .iter()
+                    .filter(|account| account.provider == "codex")
+                    .map(|account| AccountRow {
+                        name: account.name.clone(),
+                        email: account.email.clone().unwrap_or_else(|| "-".to_string()),
+                        source: account.source.clone().unwrap_or_else(|| "-".to_string()),
+                        is_active: state.active_account.as_deref() == Some(account.name.as_str()),
+                        can_refresh: account
+                            .refresh_token
+                            .as_deref()
+                            .map(|value| !value.trim().is_empty())
+                            .unwrap_or(false),
+                    })
+                    .collect();
+
+                if self.accounts.is_empty() {
+                    self.selected_account_idx = 0;
+                } else if self.selected_account_idx >= self.accounts.len() {
+                    self.selected_account_idx = self.accounts.len() - 1;
+                }
             }
             Err(err) => {
                 self.account_count = 0;
                 self.active_account = format!("state error: {err}");
+                self.accounts.clear();
             }
         }
     }
@@ -155,6 +192,86 @@ impl TuiApp {
             }
         }
     }
+
+    fn move_selection_up(&mut self) {
+        if self.accounts.is_empty() {
+            return;
+        }
+        if self.selected_account_idx == 0 {
+            self.selected_account_idx = self.accounts.len() - 1;
+        } else {
+            self.selected_account_idx -= 1;
+        }
+    }
+
+    fn move_selection_down(&mut self) {
+        if self.accounts.is_empty() {
+            return;
+        }
+        self.selected_account_idx = (self.selected_account_idx + 1) % self.accounts.len();
+    }
+
+    fn activate_selected_account(&mut self) {
+        let Some(selected) = self.accounts.get(self.selected_account_idx) else {
+            self.feedback = "No saved Codex account to activate.".to_string();
+            self.feedback_color = Color::Yellow;
+            return;
+        };
+
+        let state_path = self.config.resolve_state_path(Path::new(&self.config_path));
+        match AccountState::load_or_default(&state_path).and_then(|mut state| {
+            state.activate(&selected.name)?;
+            state.save(&state_path)?;
+            Ok(())
+        }) {
+            Ok(()) => {
+                self.feedback = format!("Activated account `{}`.", selected.name);
+                self.feedback_color = Color::Green;
+                self.refresh_accounts();
+            }
+            Err(err) => {
+                self.feedback = format!("Failed to activate account: {err}");
+                self.feedback_color = Color::Red;
+            }
+        }
+    }
+
+    async fn refresh_selected_account(&mut self) {
+        let Some(selected) = self.accounts.get(self.selected_account_idx) else {
+            self.feedback = "No saved Codex account to refresh.".to_string();
+            self.feedback_color = Color::Yellow;
+            return;
+        };
+
+        let state_path = self.config.resolve_state_path(Path::new(&self.config_path));
+        let result = async {
+            let mut state = AccountState::load_or_default(&state_path)?;
+            let target = state
+                .codex_account_by_name(&selected.name)
+                .ok_or_else(|| anyhow::anyhow!("account `{}` no longer exists", selected.name))?;
+            let refresh_token = target.refresh_token.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("account `{}` has no refresh token", selected.name)
+            })?;
+            let refreshed = codex::refresh_with_refresh_token(refresh_token).await?;
+            state.update_codex_account_tokens(&selected.name, refreshed)?;
+            state.save(&state_path)?;
+            Result::<(), anyhow::Error>::Ok(())
+        }
+        .await;
+
+        match result {
+            Ok(()) => {
+                self.feedback = format!("Refreshed account `{}`.", selected.name);
+                self.feedback_color = Color::Green;
+                self.refresh_accounts();
+                self.refresh_health().await;
+            }
+            Err(err) => {
+                self.feedback = format!("Failed to refresh account: {err}");
+                self.feedback_color = Color::Red;
+            }
+        }
+    }
 }
 
 fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
@@ -165,7 +282,8 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
             Constraint::Length(4),
             Constraint::Length(8),
             Constraint::Length(10),
-            Constraint::Min(8),
+            Constraint::Length(10),
+            Constraint::Min(6),
             Constraint::Length(3),
         ])
         .split(frame.area());
@@ -231,14 +349,54 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
         )
         .wrap(Wrap { trim: false });
 
-    let footer = Paragraph::new("q quit  |  r refresh health  |  run the server in another terminal with `proxypilot-rs run`")
-        .block(Block::default().borders(Borders::ALL).title("Keys"));
+    let account_lines = if app.accounts.is_empty() {
+        vec![Line::from(
+            "No saved Codex accounts yet. Use the CLI account commands first.",
+        )]
+    } else {
+        app.accounts
+            .iter()
+            .enumerate()
+            .map(|(idx, account)| {
+                let selector = if idx == app.selected_account_idx {
+                    ">"
+                } else {
+                    " "
+                };
+                let active = if account.is_active { "*" } else { " " };
+                let refresh = if account.can_refresh {
+                    "refresh"
+                } else {
+                    "static"
+                };
+                Line::from(format!(
+                    "{}{} {:<14} {:<20} {:<8} {}",
+                    selector, active, account.name, account.email, refresh, account.source
+                ))
+            })
+            .collect()
+    };
+    let accounts = Paragraph::new(account_lines)
+        .block(Block::default().borders(Borders::ALL).title("Accounts"))
+        .wrap(Wrap { trim: false });
+
+    let footer = Paragraph::new(vec![
+        Line::from(vec![Span::styled(
+            app.feedback.as_str(),
+            Style::default().fg(app.feedback_color),
+        )]),
+        Line::from(
+            "q quit  |  r refresh health  |  arrows move  |  a activate  |  f refresh account",
+        ),
+    ])
+    .block(Block::default().borders(Borders::ALL).title("Keys"));
 
     frame.render_widget(title, chunks[0]);
     frame.render_widget(health, chunks[1]);
     frame.render_widget(models, chunks[2]);
-    frame.render_widget(summary, chunks[3]);
-    frame.render_widget(footer, chunks[4]);
+    frame.render_widget(accounts, chunks[3]);
+    frame.render_widget(summary, chunks[4]);
+    frame.render_widget(footer, chunks[5]);
 }
 
 #[derive(Debug, Deserialize)]
@@ -249,4 +407,12 @@ struct ModelsResponse {
 #[derive(Debug, Deserialize)]
 struct ModelEntry {
     id: String,
+}
+
+struct AccountRow {
+    name: String,
+    email: String,
+    source: String,
+    is_active: bool,
+    can_refresh: bool,
 }

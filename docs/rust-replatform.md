@@ -18,7 +18,7 @@ This branch carries the Rust rewrite line for ProxyPilot.
 - a TOML config model plus a separate local state file for saved accounts
 - explicit Codex-facing routes for `/v1/models`, `/v1/chat/completions`, and `/v1/responses`
 - CLI account commands for adding, importing, device-login, refresh, listing, and activating Codex accounts
-- a TUI model panel that reads from the Rust proxy's own `/v1/models` endpoint
+- a TUI account/operator panel that shows models, local accounts, active account state, and terminal actions for activate/refresh
 - runtime credential resolution that prefers the active saved account over the config fallback key
 - end-to-end tests against a mocked upstream server
 
