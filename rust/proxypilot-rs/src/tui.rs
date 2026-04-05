@@ -361,7 +361,8 @@ impl TuiApp {
                     target.name
                 )
             })?;
-            let refreshed = codex::refresh_with_refresh_token(refresh_token).await?;
+            let refreshed =
+                codex::refresh_with_refresh_token_from_config(&self.config, refresh_token).await?;
             state.update_codex_account_tokens(&target.name, refreshed)?;
             state.save(&state_path)?;
             Result::<(), anyhow::Error>::Ok(())

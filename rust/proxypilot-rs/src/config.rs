@@ -32,6 +32,8 @@ pub struct CodexConfig {
     pub upstream_base_url: String,
     #[serde(default)]
     pub api_key: String,
+    #[serde(default)]
+    pub refresh_token_url: String,
 }
 
 impl Default for ServerConfig {
@@ -55,6 +57,7 @@ impl Default for CodexConfig {
         Self {
             upstream_base_url: default_codex_base_url(),
             api_key: "set-me".to_string(),
+            refresh_token_url: String::new(),
         }
     }
 }
@@ -114,6 +117,14 @@ impl AppConfig {
             format!("state path: {}", self.resolve_state_path(path).display()),
             format!("codex upstream: {}", self.codex.upstream_base_url),
             format!(
+                "codex refresh token endpoint: {}",
+                if self.codex.refresh_token_url.trim().is_empty() {
+                    "live default".to_string()
+                } else {
+                    self.codex.refresh_token_url.clone()
+                }
+            ),
+            format!(
                 "codex fallback api key: {}",
                 if self.codex.api_key.trim().is_empty() {
                     "missing"
@@ -138,6 +149,7 @@ path = "proxypilot-rs.state.toml"
 [codex]
 upstream_base_url = "https://api.openai.com"
 api_key = ""
+# refresh_token_url = "http://127.0.0.1:18319/oauth/token"
 "#
     }
 
@@ -179,5 +191,6 @@ mod tests {
         assert_eq!(config.server.bind, "127.0.0.1:8318");
         assert_eq!(config.state.path, "proxypilot-rs.state.toml");
         assert_eq!(config.codex.upstream_base_url, "https://api.openai.com");
+        assert!(config.codex.refresh_token_url.is_empty());
     }
 }

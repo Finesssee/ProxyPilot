@@ -92,6 +92,6 @@ Validation guidance for the Rust terminal operator-console mission.
 
 ## Discovered Validation Quirks
 
-- CLI `account refresh-codex` and runtime-triggered refresh paths currently exchange refresh tokens against the built-in OpenAI OAuth endpoint. From the real user surface, validators can reliably prove refresh-attempt visibility and failure handling, but cannot point refresh success to a local stub without code-level test hooks.
+- CLI `account refresh-codex` and runtime-triggered refresh paths now honor `codex.refresh_token_url` when set, so validators can redirect refresh success to a local stub from the real user surface while still relying on the built-in OpenAI OAuth endpoint when the override is unset.
 - `tuistory` sessions should be closed explicitly after the TUI exits with `q`; the PTY can remain allocated even after the binary terminates.
 - In runtime-down TUI scenarios, selected-account refresh (`f`) still attempts the hardwired OAuth refresh exchange for refreshable saved accounts and surfaces that remote failure text. Treat that as truthful runtime-dependent behavior, not as loss of local disk state.

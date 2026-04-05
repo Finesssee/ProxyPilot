@@ -50,6 +50,18 @@ impl Default for DeviceEndpoints {
     }
 }
 
+pub fn device_endpoints_from_config(config: &crate::config::AppConfig) -> DeviceEndpoints {
+    let refresh_token_url = config.codex.refresh_token_url.trim();
+    if refresh_token_url.is_empty() {
+        DeviceEndpoints::default()
+    } else {
+        DeviceEndpoints {
+            oauth_token_url: refresh_token_url.to_string(),
+            ..DeviceEndpoints::default()
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct DeviceCodeRequest<'a> {
     client_id: &'a str,
@@ -121,6 +133,18 @@ pub async fn login_with_device_flow() -> Result<DeviceAuthResult> {
 pub async fn refresh_with_refresh_token(refresh_token: &str) -> Result<DeviceAuthResult> {
     refresh_with_refresh_token_for_test(Client::new(), DeviceEndpoints::default(), refresh_token)
         .await
+}
+
+pub async fn refresh_with_refresh_token_from_config(
+    config: &crate::config::AppConfig,
+    refresh_token: &str,
+) -> Result<DeviceAuthResult> {
+    refresh_with_refresh_token_for_test(
+        Client::new(),
+        device_endpoints_from_config(config),
+        refresh_token,
+    )
+    .await
 }
 
 pub async fn login_with_device_flow_for_test(

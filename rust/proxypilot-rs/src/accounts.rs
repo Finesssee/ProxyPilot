@@ -246,7 +246,7 @@ pub async fn refresh_codex_account(
         )
     })?;
 
-    let result = codex::refresh_with_refresh_token(refresh_token).await?;
+    let result = codex::refresh_with_refresh_token_from_config(config, refresh_token).await?;
     let refreshed_name = target.name.clone();
     state.update_codex_account_tokens(&refreshed_name, result)?;
     state.save(&state_path)?;
@@ -372,6 +372,89 @@ mod tests {
             .to_string();
         assert!(error.contains("no saved Codex account named missing"));
 
+        let _ = fs::remove_file(config_path);
+        let _ = fs::remove_file(state_path);
+    }
+
+    #[tokio::test]
+    async fn refresh_codex_account_uses_configured_refresh_endpoint() {
+        use axum::{Json, Router, routing::post};
+        use serde_json::json;
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        use tokio::net::TcpListener;
+
+        async fn refresh_handler() -> impl axum::response::IntoResponse {
+            Json(json!({
+                "access_token": "refreshed-access",
+                "refresh_token": "refreshed-refresh",
+                "id_token": "header.eyJlbWFpbCI6ImFkbWluQGV4YW1wbGUuY29tIiwiZXhwIjoxODkzNDU2MDAwfQ.sig",
+                "expires_in": 3600
+            }))
+        }
+
+        let refresh_hits = Arc::new(AtomicUsize::new(0));
+        let refresh_hits_for_handler = refresh_hits.clone();
+        let refresh_app = Router::new().route(
+            "/oauth/token",
+            post(move || {
+                let refresh_hits_for_handler = refresh_hits_for_handler.clone();
+                async move {
+                    refresh_hits_for_handler.fetch_add(1, Ordering::SeqCst);
+                    refresh_handler().await
+                }
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let refresh_addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, refresh_app).await.unwrap();
+        });
+
+        let (config_path, state_path) = temp_paths("refresh-endpoint");
+        let mut config = AppConfig::default();
+        config.state.path = state_path.display().to_string();
+        config.codex.refresh_token_url = format!("http://{refresh_addr}/oauth/token");
+        fs::write(&config_path, AppConfig::example_toml()).unwrap();
+
+        let mut state = AccountState::default();
+        state
+            .add_device_codex_account(
+                "primary".to_string(),
+                crate::codex::DeviceAuthResult {
+                    access_token: "old-access".to_string(),
+                    refresh_token: "old-refresh".to_string(),
+                    id_token: "old-id".to_string(),
+                    email: Some("refresh@example.com".to_string()),
+                    account_id: Some("acct".to_string()),
+                    plan_type: Some("pro".to_string()),
+                    expires_at: Some("1970-01-01T00:00:00Z".to_string()),
+                },
+                true,
+            )
+            .unwrap();
+        state.save(&state_path).unwrap();
+
+        refresh_codex_account(&config, &config_path, Some("primary".to_string()))
+            .await
+            .unwrap();
+
+        assert_eq!(refresh_hits.load(Ordering::SeqCst), 1);
+        let updated = AccountState::load_or_default(&state_path).unwrap();
+        let refreshed = updated.codex_account_by_name("primary").unwrap();
+        assert_eq!(refreshed.api_key, "refreshed-access");
+        assert_eq!(
+            refreshed.refresh_token.as_deref(),
+            Some("refreshed-refresh")
+        );
+        assert_eq!(
+            refreshed.expires_at.as_deref(),
+            Some("2030-01-01T00:00:00Z")
+        );
+
+        let _ = server.abort();
         let _ = fs::remove_file(config_path);
         let _ = fs::remove_file(state_path);
     }

@@ -40,12 +40,13 @@ struct RuntimeTelemetry {
 impl AppState {
     pub fn new(config: AppConfig, accounts: AccountState) -> Self {
         let runtime = runtime_telemetry_from_state(&accounts);
+        let device_endpoints = Arc::new(crate::codex::device_endpoints_from_config(&config));
         Self {
             config: Arc::new(config),
             accounts: Arc::new(RwLock::new(accounts)),
             runtime: Arc::new(RwLock::new(runtime)),
             client: Client::new(),
-            device_endpoints: Arc::new(crate::codex::DeviceEndpoints::default()),
+            device_endpoints,
         }
     }
 
@@ -551,6 +552,7 @@ mod tests {
             codex: crate::config::CodexConfig {
                 upstream_base_url: upstream_url.clone(),
                 api_key: "test-token".to_string(),
+                refresh_token_url: String::new(),
             },
         };
 
@@ -607,6 +609,7 @@ mod tests {
             codex: crate::config::CodexConfig {
                 upstream_base_url: upstream_url.clone(),
                 api_key: "test-token".to_string(),
+                refresh_token_url: String::new(),
             },
         };
 
@@ -656,6 +659,7 @@ mod tests {
             codex: crate::config::CodexConfig {
                 upstream_base_url: upstream_url.clone(),
                 api_key: "test-token".to_string(),
+                refresh_token_url: String::new(),
             },
         };
 
@@ -688,6 +692,7 @@ mod tests {
             codex: crate::config::CodexConfig {
                 upstream_base_url: "https://api.openai.com".to_string(),
                 api_key: "test-token".to_string(),
+                refresh_token_url: String::new(),
             },
         };
 
@@ -738,6 +743,7 @@ mod tests {
             codex: crate::config::CodexConfig {
                 upstream_base_url: upstream_url,
                 api_key: "fallback-token".to_string(),
+                refresh_token_url: String::new(),
             },
         };
 
@@ -829,6 +835,7 @@ mod tests {
             codex: crate::config::CodexConfig {
                 upstream_base_url: upstream_url,
                 api_key: "".to_string(),
+                refresh_token_url: String::new(),
             },
         };
 
@@ -883,6 +890,127 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn device_endpoints_follow_config_refresh_override() {
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            state: crate::config::StateConfig::default(),
+            codex: crate::config::CodexConfig {
+                upstream_base_url: "https://example.com".to_string(),
+                api_key: "test-token".to_string(),
+                refresh_token_url: "http://127.0.0.1:18319/oauth/token".to_string(),
+            },
+        };
+
+        let endpoints = crate::codex::device_endpoints_from_config(&config);
+        assert_eq!(
+            endpoints.oauth_token_url,
+            "http://127.0.0.1:18319/oauth/token"
+        );
+    }
+
+    #[tokio::test]
+    async fn runtime_refresh_path_uses_configured_refresh_endpoint() {
+        async fn upstream_handler(headers: HeaderMap) -> impl IntoResponse {
+            let auth = headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+
+            Json(json!({
+                "received_authorization": auth
+            }))
+        }
+
+        async fn refresh_handler() -> impl IntoResponse {
+            Json(json!({
+                "access_token": "configured-token",
+                "refresh_token": "configured-refresh-token",
+                "id_token": format!("header.{}.sig", encoded_claims_placeholder()),
+                "expires_in": 3600
+            }))
+        }
+
+        fn encoded_claims_placeholder() -> String {
+            let payload = serde_json::json!({
+                "email": "refresh@example.com",
+                "exp": 1893456000_i64,
+                "https://api.openai.com/auth": {
+                    "chatgpt_account_id": "acct_refresh",
+                    "chatgpt_plan_type": "pro"
+                }
+            });
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(serde_json::to_vec(&payload).unwrap())
+        }
+
+        let upstream_app = Router::new().route("/v1/models", get(upstream_handler));
+        let refresh_app = Router::new().route("/oauth/token", post(refresh_handler));
+        let (upstream_url, upstream_shutdown) = start_listener(upstream_app).await;
+        let (refresh_url, refresh_shutdown) = start_listener(refresh_app).await;
+
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            state: crate::config::StateConfig::default(),
+            codex: crate::config::CodexConfig {
+                upstream_base_url: upstream_url.clone(),
+                api_key: "".to_string(),
+                refresh_token_url: format!("{refresh_url}/oauth/token"),
+            },
+        };
+
+        let mut accounts = AccountState::default();
+        accounts
+            .add_device_codex_account(
+                "primary".to_string(),
+                crate::codex::DeviceAuthResult {
+                    access_token: "expired-token".to_string(),
+                    refresh_token: "old-refresh-token".to_string(),
+                    id_token: "".to_string(),
+                    email: Some("refresh@example.com".to_string()),
+                    account_id: Some("acct_refresh".to_string()),
+                    plan_type: Some("pro".to_string()),
+                    expires_at: Some("1970-01-01T00:00:00Z".to_string()),
+                },
+                true,
+            )
+            .unwrap();
+
+        let proxy_app = build_app(config, accounts);
+        let (proxy_url, proxy_shutdown) = start_listener(proxy_app).await;
+
+        let response = Client::new()
+            .get(format!("{proxy_url}/v1/models"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.json::<Value>().await.unwrap();
+        assert_eq!(body["received_authorization"], "Bearer configured-token");
+
+        let stats: Value = Client::new()
+            .get(format!("{proxy_url}/v0/runtime/stats"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(stats["request_counters"]["auth_refresh_attempts"], 1);
+        assert_eq!(stats["request_counters"]["auth_refresh_failures"], 0);
+        assert_eq!(stats["last_refresh"]["kind"], "success");
+
+        let _ = proxy_shutdown.send(());
+        let _ = upstream_shutdown.send(());
+        let _ = refresh_shutdown.send(());
+    }
+
+    #[tokio::test]
     async fn refreshes_expired_active_account_before_first_request() {
         async fn upstream_handler(headers: HeaderMap) -> impl IntoResponse {
             let auth = headers
@@ -931,6 +1059,7 @@ mod tests {
             codex: crate::config::CodexConfig {
                 upstream_base_url: upstream_url,
                 api_key: "".to_string(),
+                refresh_token_url: String::new(),
             },
         };
 
@@ -1000,6 +1129,7 @@ mod tests {
             codex: crate::config::CodexConfig {
                 upstream_base_url: "https://example.com".to_string(),
                 api_key: "fallback-token".to_string(),
+                refresh_token_url: String::new(),
             },
         };
 
@@ -1059,6 +1189,7 @@ mod tests {
             codex: crate::config::CodexConfig {
                 upstream_base_url: upstream_url,
                 api_key: "".to_string(),
+                refresh_token_url: String::new(),
             },
         };
 
@@ -1101,6 +1232,7 @@ mod tests {
             codex: crate::config::CodexConfig {
                 upstream_base_url: upstream_url.clone(),
                 api_key: "fallback-token".to_string(),
+                refresh_token_url: String::new(),
             },
         };
 
@@ -1186,6 +1318,7 @@ mod tests {
                 codex: crate::config::CodexConfig {
                     upstream_base_url: upstream_url.clone(),
                     api_key: "fallback-token".to_string(),
+                    refresh_token_url: String::new(),
                 },
             },
             {
@@ -1235,6 +1368,7 @@ mod tests {
             codex: crate::config::CodexConfig {
                 upstream_base_url: upstream_url,
                 api_key: "".to_string(),
+                refresh_token_url: String::new(),
             },
         };
 
@@ -1294,6 +1428,7 @@ mod tests {
             codex: crate::config::CodexConfig {
                 upstream_base_url: upstream_url.clone(),
                 api_key: "fallback-token".to_string(),
+                refresh_token_url: String::new(),
             },
         };
 
@@ -1365,6 +1500,7 @@ mod tests {
             codex: crate::config::CodexConfig {
                 upstream_base_url: upstream_url.clone(),
                 api_key: "fallback-token".to_string(),
+                refresh_token_url: String::new(),
             },
         };
 
@@ -1472,6 +1608,7 @@ mod tests {
             codex: crate::config::CodexConfig {
                 upstream_base_url: upstream_url.clone(),
                 api_key: "".to_string(),
+                refresh_token_url: String::new(),
             },
         };
 
@@ -1572,6 +1709,7 @@ mod tests {
             codex: crate::config::CodexConfig {
                 upstream_base_url: upstream_url.clone(),
                 api_key: "".to_string(),
+                refresh_token_url: String::new(),
             },
         };
 

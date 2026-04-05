@@ -359,6 +359,7 @@ mod tests {
             codex: crate::config::CodexConfig {
                 upstream_base_url: "https://api.openai.com".to_string(),
                 api_key: "fallback-key".to_string(),
+                refresh_token_url: String::new(),
             },
             ..AppConfig::default()
         };
