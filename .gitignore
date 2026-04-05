@@ -119,3 +119,9 @@ config-debug.yaml
 test_results.txt
 test_results_full.txt
 tmpclaude-*
+
+# Opencode
+.beads/
+.opencode/
+.cli-proxy-api/
+.venv/
