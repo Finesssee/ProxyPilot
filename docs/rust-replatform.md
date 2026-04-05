@@ -16,7 +16,8 @@ This branch carries the Rust rewrite line for ProxyPilot.
 - a `run` command that starts a local proxy server
 - a `tui` command that opens a minimal terminal operator view
 - a TOML config model focused on one provider path: Codex
-- an HTTP proxy path for `/v1/*` so the Rust line can forward real Codex/OpenAI-style traffic
+- explicit Codex-facing routes for `/v1/models`, `/v1/chat/completions`, and `/v1/responses`
+- a TUI model panel that reads from the Rust proxy's own `/v1/models` endpoint
 - end-to-end tests against a mocked upstream server
 
 ## Design defaults

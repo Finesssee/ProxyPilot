@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use axum::body::{Body, Bytes};
-use axum::extract::{OriginalUri, Path, State};
+use axum::extract::{OriginalUri, State};
 use axum::http::{HeaderMap, Method, Response, StatusCode};
 use axum::response::IntoResponse;
-use axum::routing::{any, get};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use reqwest::Client;
 use serde_json::json;
@@ -34,7 +34,10 @@ pub fn build_app(config: AppConfig) -> Router {
 
     Router::new()
         .route("/healthz", get(healthz))
-        .route("/v1/{*path}", any(proxy_codex))
+        .route("/v1/models", get(list_models))
+        .route("/v1/chat/completions", post(chat_completions))
+        .route("/v1/responses", post(responses))
+        .route("/v1/{*path}", get(unsupported_v1).post(unsupported_v1))
         .with_state(state)
 }
 
@@ -69,15 +72,77 @@ async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
     }))
 }
 
-async fn proxy_codex(
+async fn list_models(
     State(state): State<AppState>,
-    Path(path): Path<String>,
     original_uri: OriginalUri,
-    method: Method,
+    headers: HeaderMap,
+) -> Result<Response<Body>, ProxyError> {
+    forward_upstream(
+        &state,
+        Method::GET,
+        build_upstream_url(&state.config.codex.upstream_base_url, &original_uri)?,
+        headers,
+        Bytes::new(),
+    )
+    .await
+}
+
+async fn chat_completions(
+    State(state): State<AppState>,
+    original_uri: OriginalUri,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response<Body>, ProxyError> {
-    let target = build_upstream_url(&state.config.codex.upstream_base_url, &path, &original_uri)?;
+    forward_upstream(
+        &state,
+        Method::POST,
+        build_upstream_url(&state.config.codex.upstream_base_url, &original_uri)?,
+        headers,
+        body,
+    )
+    .await
+}
+
+async fn responses(
+    State(state): State<AppState>,
+    original_uri: OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response<Body>, ProxyError> {
+    forward_upstream(
+        &state,
+        Method::POST,
+        build_upstream_url(&state.config.codex.upstream_base_url, &original_uri)?,
+        headers,
+        body,
+    )
+    .await
+}
+
+async fn unsupported_v1(original_uri: OriginalUri) -> impl IntoResponse {
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({
+            "error": format!(
+                "unsupported Rust replatform route: {}",
+                original_uri.0.path()
+            ),
+            "supported_routes": [
+                "/v1/models",
+                "/v1/chat/completions",
+                "/v1/responses"
+            ]
+        })),
+    )
+}
+
+async fn forward_upstream(
+    state: &AppState,
+    method: Method,
+    target: String,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response<Body>, ProxyError> {
     let mut request = state.client.request(method, target);
 
     for (name, value) in &headers {
@@ -118,25 +183,13 @@ async fn proxy_codex(
         .map_err(ProxyError::from)
 }
 
-fn build_upstream_url(
-    base_url: &str,
-    path: &str,
-    original_uri: &OriginalUri,
-) -> Result<String, ProxyError> {
+fn build_upstream_url(base_url: &str, original_uri: &OriginalUri) -> Result<String, ProxyError> {
     let cleaned_base = base_url.trim_end_matches('/');
-    let suffix = if path.is_empty() {
-        original_uri
-            .0
-            .path_and_query()
-            .map(|value| value.as_str())
-            .unwrap_or("/v1")
-    } else {
-        original_uri
-            .0
-            .path_and_query()
-            .map(|value| value.as_str())
-            .unwrap_or("/v1")
-    };
+    let suffix = original_uri
+        .0
+        .path_and_query()
+        .map(|value| value.as_str())
+        .unwrap_or("/v1");
 
     if !suffix.starts_with("/v1") {
         return Err(ProxyError::bad_request("only /v1/* proxying is supported"));
@@ -194,7 +247,7 @@ impl IntoResponse for ProxyError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::routing::post;
+    use axum::routing::{get, post};
     use serde_json::Value;
     use tokio::sync::oneshot;
 
@@ -264,5 +317,138 @@ mod tests {
 
         let _ = proxy_shutdown.send(());
         let _ = upstream_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn proxies_responses_endpoint() {
+        async fn upstream_handler(
+            headers: HeaderMap,
+            Json(body_json): Json<Value>,
+        ) -> impl IntoResponse {
+            let auth = headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            Json(json!({
+                "received_authorization": auth,
+                "echo_input": body_json["input"],
+                "object": "response"
+            }))
+        }
+
+        let upstream_app = Router::new().route("/v1/responses", post(upstream_handler));
+        let (upstream_url, upstream_shutdown) = start_listener(upstream_app).await;
+
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            codex: crate::config::CodexConfig {
+                upstream_base_url: upstream_url.clone(),
+                api_key: "test-token".to_string(),
+            },
+        };
+
+        let proxy_app = build_app(config);
+        let (proxy_url, proxy_shutdown) = start_listener(proxy_app).await;
+
+        let client = Client::new();
+        let response = client
+            .post(format!("{proxy_url}/v1/responses"))
+            .json(&json!({
+                "model": "gpt-5.2-codex",
+                "input": "ship it"
+            }))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: Value = response.json().await.unwrap();
+        assert_eq!(payload["received_authorization"], "Bearer test-token");
+        assert_eq!(payload["echo_input"], "ship it");
+
+        let _ = proxy_shutdown.send(());
+        let _ = upstream_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn proxies_models_endpoint() {
+        async fn upstream_models() -> impl IntoResponse {
+            Json(json!({
+                "object": "list",
+                "data": [
+                    {"id": "gpt-5.2-codex", "object": "model"},
+                    {"id": "gpt-5.4-mini", "object": "model"}
+                ]
+            }))
+        }
+
+        let upstream_app = Router::new().route("/v1/models", get(upstream_models));
+        let (upstream_url, upstream_shutdown) = start_listener(upstream_app).await;
+
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            codex: crate::config::CodexConfig {
+                upstream_base_url: upstream_url.clone(),
+                api_key: "test-token".to_string(),
+            },
+        };
+
+        let proxy_app = build_app(config);
+        let (proxy_url, proxy_shutdown) = start_listener(proxy_app).await;
+
+        let client = Client::new();
+        let response = client
+            .get(format!("{proxy_url}/v1/models"))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: Value = response.json().await.unwrap();
+        assert_eq!(payload["data"][0]["id"], "gpt-5.2-codex");
+        assert_eq!(payload["data"][1]["id"], "gpt-5.4-mini");
+
+        let _ = proxy_shutdown.send(());
+        let _ = upstream_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn unsupported_v1_routes_return_clear_error() {
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            codex: crate::config::CodexConfig {
+                upstream_base_url: "https://api.openai.com".to_string(),
+                api_key: "test-token".to_string(),
+            },
+        };
+
+        let proxy_app = build_app(config);
+        let (proxy_url, proxy_shutdown) = start_listener(proxy_app).await;
+
+        let client = Client::new();
+        let response = client
+            .post(format!("{proxy_url}/v1/files"))
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let payload: Value = response.json().await.unwrap();
+        assert!(
+            payload["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("/v1/files")
+        );
+
+        let _ = proxy_shutdown.send(());
     }
 }

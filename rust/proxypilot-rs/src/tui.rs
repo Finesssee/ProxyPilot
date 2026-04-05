@@ -15,6 +15,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use reqwest::StatusCode;
+use serde::Deserialize;
 
 use crate::config::AppConfig;
 
@@ -67,6 +68,7 @@ struct TuiApp {
     config_path: String,
     health_status: String,
     health_color: Color,
+    models: Vec<String>,
     last_poll: Instant,
 }
 
@@ -77,6 +79,7 @@ impl TuiApp {
             config_path: config_path.display().to_string(),
             health_status: "waiting for first health check".to_string(),
             health_color: Color::Yellow,
+            models: Vec::new(),
             last_poll: Instant::now() - Duration::from_secs(3),
         }
     }
@@ -88,14 +91,44 @@ impl TuiApp {
             Ok(response) if response.status() == StatusCode::OK => {
                 self.health_status = "local proxy reachable".to_string();
                 self.health_color = Color::Green;
+                self.refresh_models().await;
             }
             Ok(response) => {
                 self.health_status = format!("proxy responded with {}", response.status());
                 self.health_color = Color::Yellow;
+                self.models.clear();
             }
             Err(err) => {
                 self.health_status = format!("proxy not running yet: {err}");
                 self.health_color = Color::Red;
+                self.models.clear();
+            }
+        }
+    }
+
+    async fn refresh_models(&mut self) {
+        let models_url = format!("http://{}/v1/models", self.config.server.bind);
+        match reqwest::get(models_url).await {
+            Ok(response) if response.status() == StatusCode::OK => {
+                match response.json::<ModelsResponse>().await {
+                    Ok(payload) => {
+                        self.models = payload
+                            .data
+                            .into_iter()
+                            .map(|entry| entry.id)
+                            .take(8)
+                            .collect();
+                    }
+                    Err(err) => {
+                        self.models = vec![format!("failed to parse models response: {err}")];
+                    }
+                }
+            }
+            Ok(response) => {
+                self.models = vec![format!("models endpoint returned {}", response.status())];
+            }
+            Err(err) => {
+                self.models = vec![format!("failed to fetch models: {err}")];
             }
         }
     }
@@ -108,6 +141,7 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
         .constraints([
             Constraint::Length(4),
             Constraint::Length(8),
+            Constraint::Length(10),
             Constraint::Min(8),
             Constraint::Length(3),
         ])
@@ -154,11 +188,40 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
         )
         .wrap(Wrap { trim: false });
 
+    let model_lines = if app.models.is_empty() {
+        vec![Line::from(
+            "No models loaded yet. Start the proxy and press r.",
+        )]
+    } else {
+        app.models
+            .iter()
+            .map(|model| Line::from(model.as_str()))
+            .collect()
+    };
+    let models = Paragraph::new(model_lines)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Available Models"),
+        )
+        .wrap(Wrap { trim: false });
+
     let footer = Paragraph::new("q quit  |  r refresh health  |  run the server in another terminal with `proxypilot-rs run`")
         .block(Block::default().borders(Borders::ALL).title("Keys"));
 
     frame.render_widget(title, chunks[0]);
     frame.render_widget(health, chunks[1]);
-    frame.render_widget(summary, chunks[2]);
-    frame.render_widget(footer, chunks[3]);
+    frame.render_widget(models, chunks[2]);
+    frame.render_widget(summary, chunks[3]);
+    frame.render_widget(footer, chunks[4]);
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelsResponse {
+    data: Vec<ModelEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelEntry {
+    id: String,
 }
