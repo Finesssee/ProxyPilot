@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     #[serde(default)]
     pub server: ServerConfig,
@@ -32,16 +32,6 @@ pub struct CodexConfig {
     pub upstream_base_url: String,
     #[serde(default)]
     pub api_key: String,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig::default(),
-            state: StateConfig::default(),
-            codex: CodexConfig::default(),
-        }
-    }
 }
 
 impl Default for ServerConfig {

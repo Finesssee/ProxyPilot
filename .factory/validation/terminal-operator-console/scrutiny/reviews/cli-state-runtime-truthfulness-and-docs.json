@@ -1,0 +1,28 @@
+{
+  "featureId": "cli-state-runtime-truthfulness-and-docs",
+  "reviewedAt": "2026-04-05T10:54:50.137470Z",
+  "commitId": "1c2396bb",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "Reviewed feature commit 1c2396bb together with the directly relevant follow-up fixes f4ae033c and cea7a0f4. CLI wording, docs alignment, static-account refresh errors, and runtime-vs-disk refresh targeting are much clearer after those changes, but the TUI footer layout still prevents the new explanatory copy from being visible.",
+    "issues": [
+      {
+        "file": "rust/proxypilot-rs/src/tui.rs",
+        "line": 389,
+        "severity": "blocking",
+        "description": "The footer block is still allocated `Constraint::Length(3)` even though it now renders four content lines (feedback, selected-account hint, runtime status hint, and key help) inside a bordered paragraph at lines 523-534. In ratatui that height leaves room for only a single inner text row, so the newly added runtime/disk guidance and keybinding help are clipped off-screen. That means the feature does not actually make the cross-surface behavior explicit to operators, and docs/tests now describe footer copy that users cannot see."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "TUI copy changes in this mission need a visibility check, not just string-helper tests. The current worker skill and tests verified footer text helpers, but they did not verify that the fixed-height footer block can actually render the added lines.",
+      "evidence": "rust/proxypilot-rs/src/tui.rs:389 keeps the footer at `Constraint::Length(3)` while rust/proxypilot-rs/src/tui.rs:523-534 renders four lines; the added tests at rust/proxypilot-rs/src/tui.rs:770-842 assert string content only and do not exercise visible layout fit."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: the reviewed feature and its direct follow-up fixes improved CLI/runtime truthfulness, but the TUI footer's fixed height still clips the newly added selected-account/runtime hints and key help, so an operator cannot see the copy intended to explain runtime-vs-disk divergence."
+}

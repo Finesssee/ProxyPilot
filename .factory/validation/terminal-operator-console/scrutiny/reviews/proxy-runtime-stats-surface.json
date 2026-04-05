@@ -1,0 +1,33 @@
+{
+  "featureId": "proxy-runtime-stats-surface",
+  "reviewedAt": "2026-04-05T10:57:26.499831Z",
+  "commitId": "1b3542d77c125df31d091f052ca872237c5932c6",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed the original runtime-stats implementation commit (`1b3542d7`) plus the directly relevant follow-up fix commit (`f4ae033c`). The feature now satisfies the core HTTP contract: `/v0/runtime/stats` is local-only, counters stay in memory and reset on restart, supported proxied requests are counted once per client request, proactive and 401-triggered refresh outcomes are surfaced, and post-refresh auth health is recomputed truthfully. I found one remaining non-blocking truthfulness gap in mixed-provider saved state.",
+    "issues": [
+      {
+        "file": "rust/proxypilot-rs/src/proxy.rs",
+        "line": 105,
+        "severity": "non_blocking",
+        "description": "`account_count` reports `accounts.accounts.len()`, which counts every saved entry loaded into memory, not just runtime-usable Codex accounts. That becomes untruthful in mixed-provider state because `AccountState` only treats `provider == \"codex\"` entries as active/refreshable (`rust/proxypilot-rs/src/state.rs:153`, `rust/proxypilot-rs/src/state.rs:170`, `rust/proxypilot-rs/src/state.rs:300`), while imported auth preserves arbitrary `provider_type` values from disk (`rust/proxypilot-rs/src/state.rs:232`). A non-Codex imported entry will inflate `/v0/runtime/stats.account_count` even though the runtime cannot actually use it."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "This feature updated `docs/rust-replatform.md` even though the mission guidance says only docs-alignment work should touch that file. The rule exists, but the worker still crossed it in the runtime-stats feature commit.",
+      "evidence": "Mission AGENTS says `Docs ownership: only features explicitly scoped to docs alignment should update docs/rust-replatform.md or README.md` (`/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/AGENTS.md:59`), while commit `1b3542d7` changes `docs/rust-replatform.md` alongside `rust/proxypilot-rs/src/proxy.rs`."
+    },
+    {
+      "area": "services",
+      "observation": "Runtime-surface smoke verification depends on setup that is not represented in `.factory/services.yaml`: generating a config file and standing up a local mock upstream/refresh server. Workers had to do this ad hoc in the transcript instead of using shared service metadata.",
+      "evidence": "`.factory/services.yaml:8-12` only defines `proxypilot-rs` start/stop/healthcheck. The reviewed worker transcript for session `f8120536-90d3-4124-9b6f-a84412e716f4` shows manual `.factory/init.sh`, temporary config creation, and a background mock HTTP server before the `curl` smoke documented in the handoff `2026-04-05T09-14-14-581Z__proxy-runtime-stats-surface__f8120536-90d3-4124-9b6f-a84412e716f4.json`."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Pass with one non-blocking issue. The runtime stats surface works as intended after the direct follow-up fix, but `account_count` still overstates runtime-usable accounts when saved state contains non-Codex imported entries."
+}

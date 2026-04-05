@@ -1,0 +1,39 @@
+{
+  "featureId": "terminal-tui-operator-console",
+  "reviewedAt": "2026-04-05T18:06:00Z",
+  "commitId": "3da810d19a174aa439f079db9b4fb9ad3a15461e",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "Reviewed the original TUI feature commit `3da810d1` plus the directly relevant follow-up fix `cea7a0f4`. The console now shows runtime stats, handles runtime-unavailable cases more explicitly, and `R` now targets the runtime-reported active account, but two blocking truthfulness issues remain in the live console: the footer/help region is clipped by the fixed layout height, and the TUI's own background model polling mutates the runtime counters and refresh state it is supposed to observe.",
+    "issues": [
+      {
+        "file": "rust/proxypilot-rs/src/tui.rs",
+        "line": 389,
+        "severity": "blocking",
+        "description": "The footer block is still allocated `Constraint::Length(3)` while the `Keys` paragraph renders four separate content lines (`feedback`, selected-account hint, runtime hint, and key help at lines 525-532). With a bordered ratatui block that leaves only one inner text row, so the newly added help/runtime guidance is clipped off-screen. The feature therefore does not actually deliver readable, truthful footer/help text in the running console."
+      },
+      {
+        "file": "rust/proxypilot-rs/src/tui.rs",
+        "line": 113,
+        "severity": "blocking",
+        "description": "The idle poll path still calls `refresh_models()` whenever `/healthz` succeeds (`tui.rs:49-50`, `tui.rs:113-121`, `tui.rs:218-220`). That performs a real `GET /v1/models` through the local proxy, and the proxy counts every supported request and may trigger proactive refresh before forwarding (`proxy.rs:143-145`, `proxy.rs:264-267`). As a result, merely leaving the operator console open inflates `total_proxied_requests`/`successful_upstream_responses` and can change `last_refresh`, so the runtime counters and refresh outcome are not a truthful view of external runtime activity."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "Mission guidance says only docs-scoped features should edit `docs/rust-replatform.md`, but this TUI feature commit changed that file anyway.",
+      "evidence": "Mission AGENTS `/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/AGENTS.md:59` says `Docs ownership: only features explicitly scoped to docs alignment should update docs/rust-replatform.md or README.md`, while commit `3da810d1` changes `docs/rust-replatform.md` alongside `rust/proxypilot-rs/src/tui.rs`."
+    },
+    {
+      "area": "skills",
+      "observation": "For TUI work, helper-string tests are not enough; shared guidance should explicitly require a layout-fit check for any new multi-line regions.",
+      "evidence": "`rust/proxypilot-rs/src/tui.rs:743-840` tests helper string content, but no test or skill step verifies that those lines fit inside the fixed-height footer/runtime blocks (`tui.rs:387-389`, `tui.rs:523-534`). The worker handoff for session `b1f2df79-2748-4890-a74a-2cb5e38b416c` reported footer/help validation even though the clipped layout remained."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail. The feature and direct `cea7a0f4` follow-up improved runtime visibility and `R` targeting, but the live TUI still hides much of the footer/help copy and its own background polling contaminates the runtime counters and refresh status it displays."
+}

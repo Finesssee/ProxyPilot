@@ -1,0 +1,26 @@
+{
+  "featureId": "shared-auth-runtime-domain",
+  "reviewedAt": "2026-04-05T10:52:53.771197Z",
+  "commitId": "1c3edd9f4a2493a2dcd27931a680c359c14c9f43",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The feature successfully extracted shared auth/runtime primitives into `auth_runtime.rs` and both proxy and TUI consumers were moved onto the shared RFC3339 parsing, auth-health classification, and runtime snapshot types. The only blocking correctness gap from the original commit (impossible calendar dates being accepted, plus stale runtime auth-health after refresh) was addressed by the directly relevant follow-up fix `f4ae033c`, so there are no remaining high-confidence issues in this review scope.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The worker had to deviate because the mission/bootstrap path guidance pointed at a repo-relative mission directory that did not exist; the recoverable fallback to `/home/fsos/.factory/missions/...` is not captured in the Rust worker guidance.",
+      "evidence": "Handoff `2026-04-05T08-56-54-173Z__shared-auth-runtime-domain__132757c8-6967-4cb2-b929-a387c3429b02.json`: lines 100-115 record `followedProcedure: false` and explicitly ask to clarify handling when bootstrap paths point to a repo-relative mission directory that does not exist."
+    },
+    {
+      "area": "services",
+      "observation": "Local smoke/runtime setup depends on generating `rust/proxypilot-rs.toml` first, but the services manifest only advertises a start command that assumes that file already exists. The canonical setup helper is discoverable only via `.factory/init.sh` rather than the shared service metadata.",
+      "evidence": "`.factory/services.yaml:9` starts proxypilot-rs with `--config rust/proxypilot-rs.toml`, while `.factory/init.sh:6-7` creates that file on demand before smoke validation."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the shared auth/runtime domain commit (`1c3edd9f4a2493a2dcd27931a680c359c14c9f43`), its transcript/handoff, and the directly relevant follow-up fix (`f4ae033c`). Result: pass, with no remaining actionable code defects in scope after the follow-up fix, plus two shared-state observations about mission path guidance and init/service discoverability."
+}

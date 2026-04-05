@@ -16,6 +16,7 @@ Environment variables, external dependencies, and setup notes.
 ## Local Config Notes
 
 - The Rust slice uses a TOML config and a separate state file.
+- Run `./.factory/init.sh` to fetch Rust dependencies and create `rust/proxypilot-rs.toml` if it is missing before local smoke validation.
 - Workers may generate temporary local configs for smoke validation.
 - Relative state-file paths resolve relative to the chosen config file path.
 

@@ -1,0 +1,94 @@
+{
+  "milestone": "terminal-operator-console",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "format": {
+      "passed": true,
+      "command": "cargo fmt --all --manifest-path rust/Cargo.toml -- --check",
+      "exitCode": 0
+    },
+    "test": {
+      "passed": true,
+      "command": "cargo test --manifest-path rust/Cargo.toml",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "cargo check --manifest-path rust/Cargo.toml",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 6,
+    "passed": 4,
+    "failed": 2,
+    "failedFeatures": [
+      "terminal-tui-operator-console",
+      "cli-state-runtime-truthfulness-and-docs"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "terminal-tui-operator-console",
+      "severity": "blocking",
+      "description": "The TUI footer/help block still uses Constraint::Length(3) while rendering four content lines inside a bordered block, so the selected-account/runtime divergence copy and key help are clipped off-screen. This makes the console fail both the TUI readability contract and the CLI/runtime-truthfulness feature's operator-facing explanation goals."
+    },
+    {
+      "featureId": "terminal-tui-operator-console",
+      "severity": "blocking",
+      "description": "The TUI background polling path still calls GET /v1/models whenever /healthz succeeds, which goes through the proxy and mutates total_proxied_requests, successful_upstream_responses, and potentially last_refresh/auth state. Leaving the console open therefore contaminates the runtime stats it is supposed to observe."
+    }
+  ],
+  "nonBlockingIssues": [
+    {
+      "featureId": "proxy-runtime-stats-surface",
+      "severity": "non_blocking",
+      "description": "runtime_stats.account_count currently reports all saved state entries rather than only runtime-usable Codex accounts, so mixed-provider saved state can overstate runtime-usable account count."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "services.yaml",
+      "description": "Added `init`, `typecheck`, and `lint` commands so scrutiny/user-testing workers can bootstrap the Rust slice and run the full validator suite from shared service metadata.",
+      "sourceFeature": "scrutiny-validator-terminal-operator-console"
+    },
+    {
+      "target": "library",
+      "description": "Documented in `.factory/library/environment.md` that `./.factory/init.sh` fetches Rust dependencies and creates `rust/proxypilot-rs.toml` when missing before smoke validation.",
+      "sourceFeature": "shared-auth-runtime-domain"
+    }
+  ],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "rust-operator-worker",
+      "suggestion": "Clarify that mission artifacts may live under `/home/fsos/.factory/missions/<id>` even when repo-relative `.factory/missions/...` paths are absent, and instruct workers to fall back to the absolute mission directory before treating missing files as blockers.",
+      "evidence": "Review reports for `shared-auth-runtime-domain` and `fix-tui-runtime-truthfulness` both recorded ENOENT attempts against repo-relative mission paths before successfully reading `/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/...`.",
+      "isSystemic": true
+    },
+    {
+      "target": "rust-operator-worker",
+      "suggestion": "For TUI features that change visible copy or layout, require a layout-fit visibility check (render/snapshot or terminal smoke) in addition to helper-string assertions so multi-line regions are proven visible.",
+      "evidence": "Both `terminal-tui-operator-console` and `cli-state-runtime-truthfulness-and-docs` failed review because the footer stayed at `Constraint::Length(3)` while rendering four lines, yet the worker tests only asserted helper-string content.",
+      "isSystemic": true
+    },
+    {
+      "target": "rust-operator-worker",
+      "suggestion": "Reinforce the mission boundary that only docs-scoped features may edit `docs/rust-replatform.md` or `README.md`, and direct workers to defer such changes to the explicit docs-alignment feature when possible.",
+      "evidence": "Review reports for `proxy-runtime-stats-surface` and `terminal-tui-operator-console` both recorded edits to `docs/rust-replatform.md` despite mission AGENTS guidance reserving docs changes for docs-alignment work.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Add a dedicated mock upstream/refresh service definition to `.factory/services.yaml` for runtime smoke validation.",
+      "reason": "ambiguous: the reviewed mock servers were scenario-specific one-off fixtures with ad hoc ports and behavior, so a generic shared service entry would risk encoding the wrong workflow. The concrete bootstrap/config discovery gap was handled instead via additive command/library updates."
+    }
+  ],
+  "previousRound": null
+}

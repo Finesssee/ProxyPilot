@@ -1,7 +1,10 @@
 commands:
   install: cargo fetch --manifest-path rust/Cargo.toml
+  init: ./.factory/init.sh
   fmt: cargo fmt --all --manifest-path rust/Cargo.toml
   test: cargo test --manifest-path rust/Cargo.toml
+  typecheck: cargo check --manifest-path rust/Cargo.toml
+  lint: cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
   tui-help: cargo run --manifest-path rust/Cargo.toml -p proxypilot-rs -- tui --help
 
 services:

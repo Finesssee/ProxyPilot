@@ -1,0 +1,21 @@
+{
+  "featureId": "fix-tui-runtime-truthfulness",
+  "reviewedAt": "2026-04-05T10:51:50.745826Z",
+  "commitId": "cea7a0f4",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The TUI change now drives `R` from the runtime stats active account, preserves truthful runtime-unavailable and missing-runtime-active feedback, and relabels runtime-memory account counts so they are no longer presented as disk state. The scoped tests cover the new runtime-vs-disk selection logic and wording, and I found no high-confidence correctness issues in the reviewed change.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "Mission worker guidance does not explain that mission artifacts may live outside the repo under `/home/fsos/.factory/missions/<id>`. The reviewed worker initially tried repo-relative mission paths and hit ENOENT before switching to the absolute mission directory.",
+      "evidence": "The transcript skeleton for worker session `da34164d-4575-44bf-b059-608a68652407` shows failed reads of `/home/fsos/code-lean/ai-tools/ProxyPilot/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/{mission.md,validation-contract.md,AGENTS.md}` followed by successful reads from `/home/fsos/.factory/missions/7e6968f8-b3d3-4772-9518-ca3a93ea1374/...`; `rust-operator-worker` step 1 requires reading mission artifacts but does not document this path fallback."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Pass. Commit `cea7a0f4` resolves the reviewed TUI truthfulness blockers: `R` now follows runtime-active state from `/v0/runtime/stats`, runtime-unavailable cases remain explicit without hiding disk-backed state, and the runtime count label no longer claims to be disk-backed."
+}
