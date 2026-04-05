@@ -321,19 +321,17 @@ impl TuiApp {
     }
 
     async fn refresh_active_account(&mut self) {
-        let state_path = self.config.resolve_state_path(Path::new(&self.config_path));
-        match AccountState::load_or_default(&state_path) {
-            Ok(state) => {
-                if let Some(active) = state.active_codex_account() {
-                    self.refresh_account_named(active.name).await;
-                } else {
-                    self.feedback = "No active Codex account to refresh.".to_string();
-                    self.feedback_color = Color::Yellow;
-                }
+        match runtime_refresh_target(
+            self.runtime_stats.as_ref(),
+            self.runtime_error.as_deref(),
+            &self.active_account,
+        ) {
+            Ok(active_runtime_account) => {
+                self.refresh_account_named(active_runtime_account).await;
             }
-            Err(err) => {
-                self.feedback = format!("Failed to read account state: {err}");
-                self.feedback_color = Color::Red;
+            Err(message) => {
+                self.feedback = message;
+                self.feedback_color = Color::Yellow;
             }
         }
     }
@@ -596,7 +594,7 @@ fn runtime_panel_lines(
                 stats.active_account_name.as_deref().unwrap_or("none")
             ),
             format!("Local disk active account: {}", disk_active_account),
-            format!("Saved accounts on disk: {}", stats.account_count),
+            format!("Runtime account count: {}", stats.account_count),
             format!("Auth state: {}", stats.auth_health.summary_label()),
             format!(
                 "Request counters: total={} success={} 401={} refresh_attempts={} refresh_failures={}",
@@ -666,6 +664,42 @@ fn account_selection_hint(selected: Option<&AccountRow>) -> String {
     }
 }
 
+fn runtime_refresh_target(
+    runtime_stats: Option<&RuntimeStatsSnapshot>,
+    runtime_error: Option<&str>,
+    disk_active_account: &str,
+) -> std::result::Result<String, String> {
+    let disk_active_account = normalized_active_account_label(disk_active_account);
+
+    match runtime_stats
+        .and_then(|stats| stats.active_account_name.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(active_runtime_account) => Ok(active_runtime_account.to_string()),
+        None => Err(match runtime_stats {
+            Some(_) => format!(
+                "Runtime active account unavailable; runtime stats do not report a live active account. Disk active account remains `{}`.",
+                disk_active_account
+            ),
+            None => format!(
+                "Runtime active account unavailable; {}. Disk active account remains `{}`.",
+                runtime_error.unwrap_or("runtime stats are unavailable"),
+                disk_active_account
+            ),
+        }),
+    }
+}
+
+fn normalized_active_account_label(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        "none".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -713,6 +747,8 @@ mod tests {
         assert!(joined.contains("Runtime stats: live"));
         assert!(joined.contains("Runtime active account: primary"));
         assert!(joined.contains("Local disk active account: primary"));
+        assert!(joined.contains("Runtime account count: 2"));
+        assert!(!joined.contains("Saved accounts on disk: 2"));
         assert!(joined.contains("Auth state: valid"));
         assert!(joined.contains("Request counters: total=7"));
         assert!(joined.contains("Last refresh: success for `primary`"));
@@ -774,5 +810,34 @@ mod tests {
             "Selected account: primary (static)"
         );
         assert_eq!(account_selection_hint(None), "Selected account: none");
+    }
+
+    #[test]
+    fn runtime_refresh_target_prefers_runtime_active_account_over_disk_state() {
+        let target =
+            runtime_refresh_target(Some(&sample_runtime_stats()), None, "disk-selected").unwrap();
+
+        assert_eq!(target, "primary");
+    }
+
+    #[test]
+    fn runtime_refresh_target_reports_truthful_failure_when_runtime_is_unavailable() {
+        let message =
+            runtime_refresh_target(None, Some("connect refused"), "disk-selected").unwrap_err();
+
+        assert!(message.contains("Runtime active account unavailable"));
+        assert!(message.contains("connect refused"));
+        assert!(message.contains("disk-selected"));
+    }
+
+    #[test]
+    fn runtime_refresh_target_reports_missing_live_active_account_truthfully() {
+        let mut stats = sample_runtime_stats();
+        stats.active_account_name = None;
+
+        let message = runtime_refresh_target(Some(&stats), None, "disk-selected").unwrap_err();
+
+        assert!(message.contains("do not report a live active account"));
+        assert!(message.contains("disk-selected"));
     }
 }
