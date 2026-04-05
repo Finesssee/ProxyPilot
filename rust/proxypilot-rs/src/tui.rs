@@ -142,6 +142,10 @@ impl TuiApp {
                     .map(|account| AccountRow {
                         name: account.name.clone(),
                         email: account.email.clone().unwrap_or_else(|| "-".to_string()),
+                        account_id: account
+                            .account_id
+                            .clone()
+                            .unwrap_or_else(|| "-".to_string()),
                         source: account.source.clone().unwrap_or_else(|| "-".to_string()),
                         is_active: state.active_account.as_deref() == Some(account.name.as_str()),
                         can_refresh: account
@@ -149,6 +153,10 @@ impl TuiApp {
                             .as_deref()
                             .map(|value| !value.trim().is_empty())
                             .unwrap_or(false),
+                        expires_at: account
+                            .expires_at
+                            .clone()
+                            .unwrap_or_else(|| "-".to_string()),
                     })
                     .collect();
 
@@ -282,8 +290,8 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
             Constraint::Length(4),
             Constraint::Length(8),
             Constraint::Length(10),
-            Constraint::Length(10),
-            Constraint::Min(6),
+            Constraint::Length(12),
+            Constraint::Min(7),
             Constraint::Length(3),
         ])
         .split(frame.area());
@@ -369,13 +377,39 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
                 } else {
                     "static"
                 };
+                let expiry = account.expiry_badge();
                 Line::from(format!(
-                    "{}{} {:<14} {:<20} {:<8} {}",
-                    selector, active, account.name, account.email, refresh, account.source
+                    "{}{} {:<14} {:<20} {:<8} {:<9} {}",
+                    selector, active, account.name, account.email, refresh, expiry, account.source
                 ))
             })
             .collect()
     };
+    let selected_lines = if let Some(selected) = app.accounts.get(app.selected_account_idx) {
+        vec![
+            Line::from(format!("Name: {}", selected.name)),
+            Line::from(format!("Email: {}", selected.email)),
+            Line::from(format!("Account ID: {}", selected.account_id)),
+            Line::from(format!("Token mode: {}", selected.token_mode())),
+            Line::from(format!("Expiry: {}", selected.expiry_detail())),
+            Line::from(format!("Source: {}", selected.source)),
+        ]
+    } else {
+        vec![
+            Line::from("No Codex account selected yet."),
+            Line::from("Save or import an account, then reopen or press r."),
+        ]
+    };
+    let mut account_lines = account_lines;
+    account_lines.push(Line::from(""));
+    account_lines.push(Line::from(Span::styled(
+        "Selected Account",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )));
+    account_lines.extend(selected_lines);
+
     let accounts = Paragraph::new(account_lines)
         .block(Block::default().borders(Borders::ALL).title("Accounts"))
         .wrap(Wrap { trim: false });
@@ -412,7 +446,147 @@ struct ModelEntry {
 struct AccountRow {
     name: String,
     email: String,
+    account_id: String,
     source: String,
     is_active: bool,
     can_refresh: bool,
+    expires_at: String,
+}
+
+impl AccountRow {
+    fn token_mode(&self) -> &'static str {
+        if self.can_refresh {
+            "refreshable"
+        } else {
+            "static access token"
+        }
+    }
+
+    fn expiry_badge(&self) -> &'static str {
+        match expiry_state(&self.expires_at) {
+            ExpiryState::Unknown => "unknown",
+            ExpiryState::Expired => "expired",
+            ExpiryState::Valid => "valid",
+        }
+    }
+
+    fn expiry_detail(&self) -> String {
+        match expiry_state(&self.expires_at) {
+            ExpiryState::Unknown => {
+                if self.expires_at == "-" {
+                    "not recorded".to_string()
+                } else {
+                    format!("unparsed ({})", self.expires_at)
+                }
+            }
+            ExpiryState::Expired => format!("expired at {}", self.expires_at),
+            ExpiryState::Valid => format!("valid until {}", self.expires_at),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExpiryState {
+    Unknown,
+    Expired,
+    Valid,
+}
+
+fn expiry_state(expires_at: &str) -> ExpiryState {
+    let trimmed = expires_at.trim();
+    if trimmed.is_empty() || trimmed == "-" {
+        return ExpiryState::Unknown;
+    }
+
+    match parse_rfc3339_z(trimmed) {
+        Some(expires_secs) => {
+            if expires_secs <= now_unix_secs() {
+                ExpiryState::Expired
+            } else {
+                ExpiryState::Valid
+            }
+        }
+        None => ExpiryState::Unknown,
+    }
+}
+
+fn now_unix_secs() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or_default()
+}
+
+fn parse_rfc3339_z(value: &str) -> Option<i64> {
+    if value.len() != 20 || !value.ends_with('Z') {
+        return None;
+    }
+
+    let year = value.get(0..4)?.parse::<i64>().ok()?;
+    let month = value.get(5..7)?.parse::<i64>().ok()?;
+    let day = value.get(8..10)?.parse::<i64>().ok()?;
+    let hour = value.get(11..13)?.parse::<i64>().ok()?;
+    let minute = value.get(14..16)?.parse::<i64>().ok()?;
+    let second = value.get(17..19)?.parse::<i64>().ok()?;
+
+    if value.as_bytes().get(4) != Some(&b'-')
+        || value.as_bytes().get(7) != Some(&b'-')
+        || value.as_bytes().get(10) != Some(&b'T')
+        || value.as_bytes().get(13) != Some(&b':')
+        || value.as_bytes().get(16) != Some(&b':')
+    {
+        return None;
+    }
+
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || !(0..=23).contains(&hour)
+        || !(0..=59).contains(&minute)
+        || !(0..=59).contains(&second)
+    {
+        return None;
+    }
+
+    let days = days_from_civil(year, month, day)?;
+    Some(days * 86_400 + hour * 3_600 + minute * 60 + second)
+}
+
+fn days_from_civil(year: i64, month: i64, day: i64) -> Option<i64> {
+    if day <= 0 {
+        return None;
+    }
+
+    let adjusted_year = year - if month <= 2 { 1 } else { 0 };
+    let era = if adjusted_year >= 0 {
+        adjusted_year
+    } else {
+        adjusted_year - 399
+    } / 400;
+    let yoe = adjusted_year - era * 400;
+    let month_prime = month + if month > 2 { -3 } else { 9 };
+    let doy = (153 * month_prime + 2) / 5 + day - 1;
+    if !(0..=365).contains(&doy) {
+        return None;
+    }
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some(era * 146_097 + doe - 719_468)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_rfc3339_z_timestamps() {
+        assert_eq!(parse_rfc3339_z("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(parse_rfc3339_z("1970-01-02T00:00:00Z"), Some(86_400));
+    }
+
+    #[test]
+    fn rejects_non_rfc3339_z_timestamps() {
+        assert_eq!(parse_rfc3339_z("2026-04-05 12:00:00"), None);
+        assert_eq!(parse_rfc3339_z("2026-13-05T12:00:00Z"), None);
+    }
 }
