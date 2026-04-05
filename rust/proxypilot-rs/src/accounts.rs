@@ -7,6 +7,70 @@ use crate::codex;
 use crate::config::AppConfig;
 use crate::state::{AccountState, ImportedCodexAuth};
 
+fn saved_account_message(name: &str, active: bool) -> String {
+    if active {
+        format!(
+            "saved Codex account `{}` in local state and marked it active",
+            name
+        )
+    } else {
+        format!("saved Codex account `{}` in local state", name)
+    }
+}
+
+fn imported_account_message(name: &str, active: bool) -> String {
+    if active {
+        format!(
+            "imported Codex auth `{}` into local state and marked it active",
+            name
+        )
+    } else {
+        format!("imported Codex auth `{}` into local state", name)
+    }
+}
+
+fn device_login_message(name: &str, active: bool) -> String {
+    if active {
+        format!(
+            "saved Codex device login `{}` in local state and marked it active",
+            name
+        )
+    } else {
+        format!("saved Codex device login `{}` in local state", name)
+    }
+}
+
+fn refresh_message(name: &str) -> String {
+    format!("refreshed saved Codex account `{}` in local state", name)
+}
+
+fn refresh_mode_label(refresh_token: Option<&str>) -> &'static str {
+    if refresh_token
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+    {
+        "refreshable"
+    } else {
+        "static"
+    }
+}
+
+fn account_list_row(account: &crate::state::AccountEntry, active_name: Option<&str>) -> String {
+    let marker = if active_name == Some(account.name.as_str()) {
+        "*"
+    } else {
+        "-"
+    };
+    let email = account.email.as_deref().unwrap_or("-");
+    let source = account.source.as_deref().unwrap_or("-");
+    let plan = account.plan_type.as_deref().unwrap_or("-");
+    let refresh = refresh_mode_label(account.refresh_token.as_deref());
+    format!(
+        "{marker} {:<16} provider={} email={} plan={} refresh={} source={}",
+        account.name, account.provider, email, plan, refresh, source
+    )
+}
+
 pub fn add_codex_account(
     config: &AppConfig,
     config_path: &Path,
@@ -19,11 +83,13 @@ pub fn add_codex_account(
     state.add_or_replace_codex_account(name.clone(), api_key, activate)?;
     state.save(&state_path)?;
 
-    if state.active_account.as_deref() == Some(name.as_str()) {
-        println!("saved Codex account `{}` and marked it active", name);
-    } else {
-        println!("saved Codex account `{}`", name);
-    }
+    println!(
+        "{}",
+        saved_account_message(
+            &name,
+            state.active_account.as_deref() == Some(name.as_str())
+        )
+    );
     println!("state file: {}", state_path.display());
     Ok(())
 }
@@ -38,21 +104,13 @@ pub fn list_accounts(config: &AppConfig, config_path: &Path) -> Result<()> {
         return Ok(());
     }
 
-    println!("ProxyPilot Rust accounts");
+    println!("ProxyPilot Rust local account state");
     println!("state file: {}", state_path.display());
     println!();
     for account in &state.accounts {
-        let marker = if state.active_account.as_deref() == Some(account.name.as_str()) {
-            "*"
-        } else {
-            "-"
-        };
-        let email = account.email.as_deref().unwrap_or("-");
-        let source = account.source.as_deref().unwrap_or("-");
-        let plan = account.plan_type.as_deref().unwrap_or("-");
         println!(
-            "{marker} {:<16} provider={} email={} plan={} source={}",
-            account.name, account.provider, email, plan, source
+            "{}",
+            account_list_row(account, state.active_account.as_deref())
         );
     }
 
@@ -64,7 +122,7 @@ pub fn activate_account(config: &AppConfig, config_path: &Path, name: String) ->
     let mut state = AccountState::load_or_default(&state_path)?;
     state.activate(&name)?;
     state.save(&state_path)?;
-    println!("active account set to `{}`", name);
+    println!("local active account set to `{}`", name);
     println!("state file: {}", state_path.display());
     Ok(())
 }
@@ -75,10 +133,10 @@ pub fn remove_account(config: &AppConfig, config_path: &Path, name: String) -> R
     state.remove_account(&name)?;
     state.save(&state_path)?;
 
-    println!("removed account `{}`", name);
+    println!("removed account `{}` from local state", name);
     match state.active_account.as_deref() {
-        Some(active) => println!("active account is now `{}`", active),
-        None => println!("no active account remains"),
+        Some(active) => println!("local active account is now `{}`", active),
+        None => println!("no local active account remains"),
     }
     println!("state file: {}", state_path.display());
     Ok(())
@@ -122,14 +180,13 @@ pub fn import_codex_account(
     )?;
     state.save(&state_path)?;
 
-    if state.active_account.as_deref() == Some(resolved_name.as_str()) {
-        println!(
-            "imported Codex auth `{}` and marked it active",
-            resolved_name
-        );
-    } else {
-        println!("imported Codex auth `{}`", resolved_name);
-    }
+    println!(
+        "{}",
+        imported_account_message(
+            &resolved_name,
+            state.active_account.as_deref() == Some(resolved_name.as_str())
+        )
+    );
     println!("source file: {}", auth_file.display());
     println!("state file: {}", state_path.display());
     Ok(())
@@ -153,14 +210,13 @@ pub async fn login_codex_device(
     state.add_device_codex_account(resolved_name.clone(), result, activate)?;
     state.save(&state_path)?;
 
-    if state.active_account.as_deref() == Some(resolved_name.as_str()) {
-        println!(
-            "saved Codex device login `{}` and marked it active",
-            resolved_name
-        );
-    } else {
-        println!("saved Codex device login `{}`", resolved_name);
-    }
+    println!(
+        "{}",
+        device_login_message(
+            &resolved_name,
+            state.active_account.as_deref() == Some(resolved_name.as_str())
+        )
+    );
     println!("state file: {}", state_path.display());
     Ok(())
 }
@@ -183,17 +239,140 @@ pub async fn refresh_codex_account(
             .ok_or_else(|| anyhow::anyhow!("no active Codex account to refresh"))?
     };
 
-    let refresh_token = target
-        .refresh_token
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("account `{}` has no refresh token", target.name))?;
+    let refresh_token = target.refresh_token.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "account `{}` is static and has no refresh token",
+            target.name
+        )
+    })?;
 
     let result = codex::refresh_with_refresh_token(refresh_token).await?;
     let refreshed_name = target.name.clone();
     state.update_codex_account_tokens(&refreshed_name, result)?;
     state.save(&state_path)?;
 
-    println!("refreshed Codex account `{}`", refreshed_name);
+    println!("{}", refresh_message(&refreshed_name));
     println!("state file: {}", state_path.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::*;
+
+    fn temp_paths(label: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let base = std::env::temp_dir().join(format!("proxypilot-rs-{label}-{stamp}"));
+        let config_path = base.with_extension("toml");
+        let state_path = base.with_extension("state.toml");
+        (config_path, state_path)
+    }
+
+    #[test]
+    fn list_accounts_marks_refreshability_in_operator_copy() {
+        assert_eq!(refresh_mode_label(Some("token")), "refreshable");
+        assert_eq!(refresh_mode_label(None), "static");
+        assert_eq!(refresh_mode_label(Some("   ")), "static");
+    }
+
+    #[test]
+    fn account_list_row_marks_active_and_static_accounts_readably() {
+        let account = crate::state::AccountEntry {
+            name: "primary".to_string(),
+            provider: "codex".to_string(),
+            api_key: "key".to_string(),
+            refresh_token: None,
+            id_token: None,
+            email: Some("dev@example.com".to_string()),
+            account_id: None,
+            plan_type: Some("pro".to_string()),
+            expires_at: None,
+            source: Some("manual".to_string()),
+        };
+
+        let row = account_list_row(&account, Some("primary"));
+        assert!(row.starts_with("* primary"));
+        assert!(row.contains("refresh=static"));
+        assert!(row.contains("source=manual"));
+    }
+
+    #[test]
+    fn saved_account_messages_stay_explicit_about_local_state() {
+        assert_eq!(
+            saved_account_message("primary", true),
+            "saved Codex account `primary` in local state and marked it active"
+        );
+        assert_eq!(
+            saved_account_message("backup", false),
+            "saved Codex account `backup` in local state"
+        );
+        assert_eq!(
+            imported_account_message("imported", true),
+            "imported Codex auth `imported` into local state and marked it active"
+        );
+        assert_eq!(
+            device_login_message("device", false),
+            "saved Codex device login `device` in local state"
+        );
+        assert_eq!(
+            refresh_message("primary"),
+            "refreshed saved Codex account `primary` in local state"
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_codex_account_reports_static_accounts_clearly() {
+        let (config_path, state_path) = temp_paths("static-refresh");
+        let config = AppConfig {
+            state: crate::config::StateConfig {
+                path: state_path.display().to_string(),
+            },
+            ..AppConfig::default()
+        };
+        fs::write(&config_path, AppConfig::example_toml()).unwrap();
+
+        let mut state = AccountState::default();
+        state
+            .add_or_replace_codex_account("primary".to_string(), "sk-test".to_string(), true)
+            .unwrap();
+        state.save(&state_path).unwrap();
+
+        let error = refresh_codex_account(&config, &config_path, Some("primary".to_string()))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("static"));
+        assert!(error.contains("no refresh token"));
+
+        let _ = fs::remove_file(config_path);
+        let _ = fs::remove_file(state_path);
+    }
+
+    #[tokio::test]
+    async fn refresh_codex_account_reports_missing_targets_clearly() {
+        let (config_path, state_path) = temp_paths("missing-refresh");
+        let config = AppConfig {
+            state: crate::config::StateConfig {
+                path: state_path.display().to_string(),
+            },
+            ..AppConfig::default()
+        };
+        fs::write(&config_path, AppConfig::example_toml()).unwrap();
+        AccountState::default().save(&state_path).unwrap();
+
+        let error = refresh_codex_account(&config, &config_path, Some("missing".to_string()))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("no saved Codex account named missing"));
+
+        let _ = fs::remove_file(config_path);
+        let _ = fs::remove_file(state_path);
+    }
 }

@@ -350,10 +350,12 @@ impl TuiApp {
             let target = state
                 .codex_account_by_name(&account_name)
                 .ok_or_else(|| anyhow::anyhow!("account `{}` no longer exists", account_name))?;
-            let refresh_token = target
-                .refresh_token
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("account `{}` has no refresh token", target.name))?;
+            let refresh_token = target.refresh_token.as_deref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "account `{}` is static and has no refresh token",
+                    target.name
+                )
+            })?;
             let refreshed = codex::refresh_with_refresh_token(refresh_token).await?;
             state.update_codex_account_tokens(&target.name, refreshed)?;
             state.save(&state_path)?;
@@ -525,6 +527,10 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
             app.feedback.as_str(),
             Style::default().fg(app.feedback_color),
         )]),
+        Line::from(account_selection_hint(
+            app.accounts.get(app.selected_account_idx),
+        )),
+        Line::from(runtime_action_hint(app.runtime_stats.is_some())),
         Line::from(footer_help_text()),
     ])
     .block(Block::default().borders(Borders::ALL).title("Keys"))
@@ -564,7 +570,7 @@ impl AccountRow {
         if self.can_refresh {
             "refreshable"
         } else {
-            "static access token"
+            "static"
         }
     }
 
@@ -586,10 +592,11 @@ fn runtime_panel_lines(
         Some(stats) => vec![
             "Runtime stats: live".to_string(),
             format!(
-                "Active account: {} ({} accounts)",
-                stats.active_account_name.as_deref().unwrap_or("none"),
-                stats.account_count
+                "Runtime active account: {}",
+                stats.active_account_name.as_deref().unwrap_or("none")
             ),
+            format!("Local disk active account: {}", disk_active_account),
+            format!("Saved accounts on disk: {}", stats.account_count),
             format!("Auth state: {}", stats.auth_health.summary_label()),
             format!(
                 "Request counters: total={} success={} 401={} refresh_attempts={} refresh_failures={}",
@@ -611,7 +618,7 @@ fn runtime_panel_lines(
             runtime_error
                 .map(ToOwned::to_owned)
                 .unwrap_or_else(|| "Runtime stats endpoint is unavailable.".to_string()),
-            format!("Local disk-backed active account: {}", disk_active_account),
+            format!("Local disk active account: {}", disk_active_account),
             "Local disk-backed account list is still available.".to_string(),
         ],
     }
@@ -638,6 +645,25 @@ fn refresh_status_summary(status: &crate::auth_runtime::RefreshStatusSnapshot) -
 
 fn footer_help_text() -> String {
     "q quit  |  r reload/poll  |  arrows move  |  a activate  |  f refresh selected  |  R refresh active  |  d delete  |  c clear feedback".to_string()
+}
+
+fn runtime_action_hint(runtime_available: bool) -> &'static str {
+    if runtime_available {
+        "runtime live"
+    } else {
+        "runtime unavailable"
+    }
+}
+
+fn account_selection_hint(selected: Option<&AccountRow>) -> String {
+    match selected {
+        Some(account) => format!(
+            "Selected account: {} ({})",
+            account.name,
+            account.token_mode()
+        ),
+        None => "Selected account: none".to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -685,6 +711,8 @@ mod tests {
         let joined = lines.join("\n");
 
         assert!(joined.contains("Runtime stats: live"));
+        assert!(joined.contains("Runtime active account: primary"));
+        assert!(joined.contains("Local disk active account: primary"));
         assert!(joined.contains("Auth state: valid"));
         assert!(joined.contains("Request counters: total=7"));
         assert!(joined.contains("Last refresh: success for `primary`"));
@@ -698,6 +726,7 @@ mod tests {
 
         assert!(joined.contains("Runtime unavailable"));
         assert!(joined.contains("connect refused"));
+        assert!(joined.contains("Local disk active account: primary"));
         assert!(joined.contains("Local disk-backed account list is still available."));
     }
 
@@ -712,5 +741,38 @@ mod tests {
         assert!(help.contains("R refresh active"));
         assert!(help.contains("d delete"));
         assert!(help.contains("c clear feedback"));
+    }
+
+    #[test]
+    fn runtime_action_hint_distinguishes_runtime_status() {
+        assert_eq!(runtime_action_hint(true), "runtime live");
+        assert_eq!(runtime_action_hint(false), "runtime unavailable");
+    }
+
+    #[test]
+    fn account_selection_hint_reports_selected_account_mode() {
+        let account = AccountRow {
+            name: "primary".to_string(),
+            email: "-".to_string(),
+            account_id: "-".to_string(),
+            plan_type: "-".to_string(),
+            source: "manual".to_string(),
+            is_active: false,
+            auth_health: AuthHealthSnapshot {
+                state: AuthHealthState::Static,
+                source: AuthCredentialSource::ActiveAccount,
+                metadata_state: AuthMetadataState::Missing,
+                expires_at: None,
+                expires_at_unix_secs: None,
+                expires_in_secs: None,
+            },
+            can_refresh: false,
+        };
+
+        assert_eq!(
+            account_selection_hint(Some(&account)),
+            "Selected account: primary (static)"
+        );
+        assert_eq!(account_selection_hint(None), "Selected account: none");
     }
 }
