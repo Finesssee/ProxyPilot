@@ -384,18 +384,25 @@ impl TuiApp {
 }
 
 fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
-    let chunks = Layout::default()
+    let footer = footer_widget(app);
+    let footer_height = footer_render_height(app, frame.area().width).max(6);
+
+    let outer_chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
+        .constraints([Constraint::Min(1), Constraint::Length(footer_height)])
+        .split(frame.area());
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(4),
             Constraint::Min(6),
             Constraint::Min(7),
-            Constraint::Min(4),
+            Constraint::Min(3),
             Constraint::Min(7),
-            Constraint::Length(6),
         ])
-        .split(frame.area());
+        .split(outer_chunks[0]);
 
     let title = Paragraph::new(vec![
         Line::from(Span::styled(
@@ -527,27 +534,12 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
         .block(Block::default().borders(Borders::ALL).title("Accounts"))
         .wrap(Wrap { trim: false });
 
-    let footer = Paragraph::new(vec![
-        Line::from(vec![Span::styled(
-            app.feedback.as_str(),
-            Style::default().fg(app.feedback_color),
-        )]),
-        Line::from(footer_status_hint(
-            app.accounts.get(app.selected_account_idx),
-            app.runtime_stats.is_some(),
-        )),
-        Line::from(footer_help_text_primary()),
-        Line::from(footer_help_text_secondary()),
-    ])
-    .block(Block::default().borders(Borders::ALL).title("Keys"))
-    .wrap(Wrap { trim: false });
-
     frame.render_widget(title, chunks[0]);
     frame.render_widget(health, chunks[1]);
     frame.render_widget(runtime, chunks[2]);
     frame.render_widget(models, chunks[3]);
     frame.render_widget(accounts, chunks[4]);
-    frame.render_widget(footer, chunks[5]);
+    frame.render_widget(footer, outer_chunks[1]);
 }
 
 #[derive(Debug, Deserialize)]
@@ -647,6 +639,81 @@ fn refresh_status_summary(status: &crate::auth_runtime::RefreshStatusSnapshot) -
         parts.push(format!("- {message}"));
     }
     parts.join(" ")
+}
+
+fn footer_widget(app: &TuiApp) -> Paragraph<'_> {
+    Paragraph::new(vec![
+        Line::from(vec![Span::styled(
+            app.feedback.as_str(),
+            Style::default().fg(app.feedback_color),
+        )]),
+        Line::from(footer_status_hint(
+            app.accounts.get(app.selected_account_idx),
+            app.runtime_stats.is_some(),
+        )),
+        Line::from(footer_help_text_primary()),
+        Line::from(footer_help_text_secondary()),
+    ])
+    .block(Block::default().borders(Borders::ALL).title("Keys"))
+    .wrap(Wrap { trim: false })
+}
+
+fn footer_render_height(app: &TuiApp, total_width: u16) -> u16 {
+    let content_width = total_width.saturating_sub(4).max(1);
+    footer_content_lines(app)
+        .into_iter()
+        .map(|line| wrapped_line_count(&line, content_width))
+        .sum::<usize>()
+        .saturating_add(2)
+        .min(u16::MAX as usize) as u16
+}
+
+fn footer_content_lines(app: &TuiApp) -> Vec<String> {
+    vec![
+        app.feedback.clone(),
+        footer_status_hint(
+            app.accounts.get(app.selected_account_idx),
+            app.runtime_stats.is_some(),
+        ),
+        footer_help_text_primary().to_string(),
+        footer_help_text_secondary().to_string(),
+    ]
+}
+
+fn wrapped_line_count(text: &str, width: u16) -> usize {
+    let width = width.max(1) as usize;
+    if text.trim().is_empty() {
+        return 1;
+    }
+
+    let mut lines = 1usize;
+    let mut current_width = 0usize;
+
+    for word in text.split_whitespace() {
+        let word_width = word.chars().count();
+        if word_width > width {
+            if current_width != 0 {
+                lines += 1;
+            }
+            let mut remaining = word_width;
+            while remaining > width {
+                lines += 1;
+                remaining -= width;
+            }
+            current_width = remaining;
+            continue;
+        }
+
+        let separator = usize::from(current_width != 0);
+        if current_width + separator + word_width > width {
+            lines += 1;
+            current_width = word_width;
+        } else {
+            current_width += separator + word_width;
+        }
+    }
+
+    lines
 }
 
 fn footer_help_text_primary() -> &'static str {
@@ -949,7 +1016,7 @@ mod tests {
             AppConfig::default(),
             Path::new("/tmp/proxypilot-tui-test.toml"),
         );
-        app.feedback = "Feedback line".to_string();
+        app.feedback = "Failed to refresh account `primary`: Runtime active account unavailable; runtime stats do not report a live active account. Disk active account remains `primary`.".to_string();
         app.feedback_color = Color::Green;
 
         let backend = TestBackend::new(120, 36);
@@ -966,12 +1033,17 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(snapshot.contains("Feedback line"));
+        assert!(snapshot.contains("Failed to refresh account `primary`:"));
+        assert!(snapshot.contains("Runtime active account unavailable;"));
+        assert!(snapshot.contains("runtime stats do not report a live active"));
+        assert!(snapshot.contains("account. Disk active account remains `primary`."));
+        assert!(snapshot.contains("Disk active account remains `primary`."));
         assert!(snapshot.contains("Selected account: none"));
         assert!(snapshot.contains("runtime live") || snapshot.contains("runtime unavailable"));
         assert!(snapshot.contains("q quit"));
         assert!(snapshot.contains("R refresh active"));
         assert!(snapshot.contains("c clear feedback"));
         assert!(!snapshot.contains("Use arrows to select an account"));
+        assert!(footer_render_height(&app, 120) >= 7);
     }
 }
