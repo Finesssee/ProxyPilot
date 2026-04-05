@@ -20,6 +20,7 @@ This branch carries the Rust rewrite line for ProxyPilot.
 - CLI account commands for adding, importing, device-login, refresh, listing, activating, and removing Codex accounts
 - a TUI account/operator panel that shows models, local accounts, active account state, terminal actions for activate/refresh/delete, and selected-account token expiry and plan metadata
 - runtime credential resolution that prefers the active saved account over the config fallback key
+- proactive Codex token refresh when the active saved account is already expired or within the refresh window, plus the existing 401-retry refresh fallback
 - end-to-end tests against a mocked upstream server
 
 ## Design defaults

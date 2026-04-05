@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use axum::body::{Body, Bytes};
@@ -22,6 +23,7 @@ pub struct AppState {
     config: Arc<AppConfig>,
     accounts: Arc<RwLock<AccountState>>,
     client: Client,
+    device_endpoints: Arc<crate::codex::DeviceEndpoints>,
 }
 
 impl AppState {
@@ -30,6 +32,7 @@ impl AppState {
             config: Arc::new(config),
             accounts: Arc::new(RwLock::new(accounts)),
             client: Client::new(),
+            device_endpoints: Arc::new(crate::codex::DeviceEndpoints::default()),
         }
     }
 }
@@ -155,6 +158,10 @@ async fn forward_upstream(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response<Body>, ProxyError> {
+    if active_account_needs_refresh(state).await {
+        let _ = try_refresh_active_codex_account(state).await?;
+    }
+
     let token = {
         let accounts = state.accounts.read().await;
         accounts.effective_codex_api_key(&state.config)
@@ -246,9 +253,13 @@ async fn try_refresh_active_codex_account(state: &AppState) -> Result<Option<Str
         return Ok(None);
     };
 
-    let refreshed = crate::codex::refresh_with_refresh_token(refresh_token)
-        .await
-        .map_err(ProxyError::from)?;
+    let refreshed = crate::codex::refresh_with_refresh_token_for_test(
+        state.client.clone(),
+        (*state.device_endpoints).clone(),
+        refresh_token,
+    )
+    .await
+    .map_err(ProxyError::from)?;
 
     {
         let mut accounts = state.accounts.write().await;
@@ -265,6 +276,35 @@ async fn try_refresh_active_codex_account(state: &AppState) -> Result<Option<Str
     };
 
     Ok(refreshed_token)
+}
+
+async fn active_account_needs_refresh(state: &AppState) -> bool {
+    let active = {
+        let accounts = state.accounts.read().await;
+        accounts.active_codex_account()
+    };
+
+    let Some(active) = active else {
+        return false;
+    };
+    if active
+        .refresh_token
+        .as_deref()
+        .map(|value| value.trim().is_empty())
+        .unwrap_or(true)
+    {
+        return false;
+    }
+
+    let Some(expires_at) = active.expires_at.as_deref() else {
+        return false;
+    };
+
+    let Some(expires_secs) = parse_rfc3339_z(expires_at) else {
+        return false;
+    };
+
+    expires_secs <= now_unix_secs() + 300
 }
 
 fn build_upstream_url(base_url: &str, original_uri: &OriginalUri) -> Result<String, ProxyError> {
@@ -296,6 +336,61 @@ fn should_skip_response_header(name: &str) -> bool {
     )
 }
 
+fn now_unix_secs() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or_default()
+}
+
+fn parse_rfc3339_z(value: &str) -> Option<i64> {
+    if value.len() != 20 || !value.ends_with('Z') {
+        return None;
+    }
+
+    if value.as_bytes().get(4) != Some(&b'-')
+        || value.as_bytes().get(7) != Some(&b'-')
+        || value.as_bytes().get(10) != Some(&b'T')
+        || value.as_bytes().get(13) != Some(&b':')
+        || value.as_bytes().get(16) != Some(&b':')
+    {
+        return None;
+    }
+
+    let year = value.get(0..4)?.parse::<i64>().ok()?;
+    let month = value.get(5..7)?.parse::<i64>().ok()?;
+    let day = value.get(8..10)?.parse::<i64>().ok()?;
+    let hour = value.get(11..13)?.parse::<i64>().ok()?;
+    let minute = value.get(14..16)?.parse::<i64>().ok()?;
+    let second = value.get(17..19)?.parse::<i64>().ok()?;
+
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || !(0..=23).contains(&hour)
+        || !(0..=59).contains(&minute)
+        || !(0..=59).contains(&second)
+    {
+        return None;
+    }
+
+    let adjusted_year = year - if month <= 2 { 1 } else { 0 };
+    let era = if adjusted_year >= 0 {
+        adjusted_year
+    } else {
+        adjusted_year - 399
+    } / 400;
+    let yoe = adjusted_year - era * 400;
+    let month_prime = month + if month > 2 { -3 } else { 9 };
+    let doy = (153 * month_prime + 2) / 5 + day - 1;
+    if !(0..=365).contains(&doy) {
+        return None;
+    }
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some(days * 86_400 + hour * 3_600 + minute * 60 + second)
+}
+
+#[derive(Debug)]
 pub struct ProxyError {
     status: StatusCode,
     message: String,
@@ -680,16 +775,17 @@ mod tests {
             config: std::sync::Arc::new(config),
             accounts: std::sync::Arc::new(tokio::sync::RwLock::new(accounts)),
             client: Client::new(),
+            device_endpoints: std::sync::Arc::new(crate::codex::DeviceEndpoints {
+                oauth_token_url: format!("{refresh_url}/oauth/token"),
+                ..crate::codex::DeviceEndpoints::default()
+            }),
         };
 
         let refreshed = {
             let active = state.accounts.read().await.active_codex_account().unwrap();
             let response = crate::codex::refresh_with_refresh_token_for_test(
                 Client::new(),
-                crate::codex::DeviceEndpoints {
-                    oauth_token_url: format!("{refresh_url}/oauth/token"),
-                    ..crate::codex::DeviceEndpoints::default()
-                },
+                (*state.device_endpoints).clone(),
                 active.refresh_token.as_deref().unwrap(),
             )
             .await
@@ -734,5 +830,117 @@ mod tests {
 
         let _ = upstream_shutdown.send(());
         let _ = refresh_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn refreshes_expired_active_account_before_first_request() {
+        async fn upstream_handler(headers: HeaderMap) -> impl IntoResponse {
+            let auth = headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+
+            Json(json!({
+                "received_authorization": auth
+            }))
+        }
+
+        async fn refresh_handler() -> impl IntoResponse {
+            Json(json!({
+                "access_token": "preemptive-fresh-token",
+                "refresh_token": "fresh-refresh-token",
+                "id_token": format!("header.{}.sig", encoded_claims_placeholder("team")),
+                "expires_in": 3600
+            }))
+        }
+
+        fn encoded_claims_placeholder(plan: &str) -> String {
+            let payload = serde_json::json!({
+                "email": "refresh@example.com",
+                "exp": 1767225600_i64,
+                "https://api.openai.com/auth": {
+                    "chatgpt_account_id": "acct_refresh",
+                    "chatgpt_plan_type": plan
+                }
+            });
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(serde_json::to_vec(&payload).unwrap())
+        }
+
+        let upstream_app = Router::new().route("/v1/models", get(upstream_handler));
+        let refresh_app = Router::new().route("/oauth/token", post(refresh_handler));
+        let (upstream_url, upstream_shutdown) = start_listener(upstream_app).await;
+        let (refresh_url, refresh_shutdown) = start_listener(refresh_app).await;
+
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            state: crate::config::StateConfig::default(),
+            codex: crate::config::CodexConfig {
+                upstream_base_url: upstream_url,
+                api_key: "".to_string(),
+            },
+        };
+
+        let mut accounts = AccountState::default();
+        accounts
+            .add_device_codex_account(
+                "primary".to_string(),
+                crate::codex::DeviceAuthResult {
+                    access_token: "expired-token".to_string(),
+                    refresh_token: "old-refresh-token".to_string(),
+                    id_token: "".to_string(),
+                    email: Some("refresh@example.com".to_string()),
+                    account_id: Some("acct_refresh".to_string()),
+                    plan_type: Some("pro".to_string()),
+                    expires_at: Some("1970-01-01T00:00:00Z".to_string()),
+                },
+                true,
+            )
+            .unwrap();
+
+        let state = AppState {
+            config: std::sync::Arc::new(config),
+            accounts: std::sync::Arc::new(tokio::sync::RwLock::new(accounts)),
+            client: Client::new(),
+            device_endpoints: std::sync::Arc::new(crate::codex::DeviceEndpoints {
+                oauth_token_url: format!("{refresh_url}/oauth/token"),
+                ..crate::codex::DeviceEndpoints::default()
+            }),
+        };
+
+        let response = forward_upstream(
+            &state,
+            Method::GET,
+            format!("{}/v1/models", state.config.codex.upstream_base_url),
+            HeaderMap::new(),
+            Bytes::new(),
+        )
+        .await
+        .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(
+            payload["received_authorization"],
+            "Bearer preemptive-fresh-token"
+        );
+        let active = state.accounts.read().await.active_codex_account().unwrap();
+        assert_eq!(active.api_key, "preemptive-fresh-token");
+        assert_eq!(active.plan_type.as_deref(), Some("team"));
+
+        let _ = upstream_shutdown.send(());
+        let _ = refresh_shutdown.send(());
+    }
+
+    #[test]
+    fn parses_proxy_rfc3339_z_timestamp() {
+        assert_eq!(parse_rfc3339_z("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(parse_rfc3339_z("1970-01-02T00:00:00Z"), Some(86_400));
+        assert_eq!(parse_rfc3339_z("2026-04-05 12:00:00"), None);
     }
 }
