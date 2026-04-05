@@ -17,6 +17,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use reqwest::StatusCode;
 use serde::Deserialize;
 
+use crate::auth_runtime::{self, AuthCredentialSource, AuthHealthSnapshot};
 use crate::codex;
 use crate::config::AppConfig;
 use crate::state::AccountState;
@@ -62,6 +63,8 @@ async fn run_loop(
                 KeyCode::Char('a') => app.activate_selected_account(),
                 KeyCode::Char('d') => app.delete_selected_account(),
                 KeyCode::Char('f') => app.refresh_selected_account().await,
+                KeyCode::Char('R') => app.refresh_active_account().await,
+                KeyCode::Char('c') => app.clear_feedback(),
                 _ => {}
             }
         }
@@ -97,8 +100,7 @@ impl TuiApp {
             active_account: "none".to_string(),
             account_count: 0,
             models: Vec::new(),
-            feedback: "Use arrows to select an account, `a` to activate, `f` to refresh."
-                .replace("`f` to refresh.", "`f` to refresh, `d` to delete."),
+            feedback: "Use arrows to select an account, `a` to activate, `f` to refresh selected, `R` to refresh active, `d` to delete, `c` to clear.".to_string(),
             feedback_color: Color::DarkGray,
             last_poll: Instant::now() - Duration::from_secs(3),
         }
@@ -150,15 +152,17 @@ impl TuiApp {
                         plan_type: account.plan_type.clone().unwrap_or_else(|| "-".to_string()),
                         source: account.source.clone().unwrap_or_else(|| "-".to_string()),
                         is_active: state.active_account.as_deref() == Some(account.name.as_str()),
+                        auth_health: auth_runtime::evaluate_auth_health(
+                            AuthCredentialSource::ActiveAccount,
+                            account.refresh_token.as_deref(),
+                            account.expires_at.as_deref(),
+                            auth_runtime::now_unix_secs(),
+                        ),
                         can_refresh: account
                             .refresh_token
                             .as_deref()
                             .map(|value| !value.trim().is_empty())
                             .unwrap_or(false),
-                        expires_at: account
-                            .expires_at
-                            .clone()
-                            .unwrap_or_else(|| "-".to_string()),
                     })
                     .collect();
 
@@ -278,17 +282,45 @@ impl TuiApp {
             return;
         };
 
+        self.refresh_account_named(selected.name.clone()).await;
+    }
+
+    async fn refresh_active_account(&mut self) {
+        let state_path = self.config.resolve_state_path(Path::new(&self.config_path));
+        match AccountState::load_or_default(&state_path) {
+            Ok(state) => {
+                if let Some(active) = state.active_codex_account() {
+                    self.refresh_account_named(active.name).await;
+                } else {
+                    self.feedback = "No active Codex account to refresh.".to_string();
+                    self.feedback_color = Color::Yellow;
+                }
+            }
+            Err(err) => {
+                self.feedback = format!("Failed to read account state: {err}");
+                self.feedback_color = Color::Red;
+            }
+        }
+    }
+
+    fn clear_feedback(&mut self) {
+        self.feedback.clear();
+        self.feedback_color = Color::DarkGray;
+    }
+
+    async fn refresh_account_named(&mut self, account_name: String) {
         let state_path = self.config.resolve_state_path(Path::new(&self.config_path));
         let result = async {
             let mut state = AccountState::load_or_default(&state_path)?;
             let target = state
-                .codex_account_by_name(&selected.name)
-                .ok_or_else(|| anyhow::anyhow!("account `{}` no longer exists", selected.name))?;
-            let refresh_token = target.refresh_token.as_deref().ok_or_else(|| {
-                anyhow::anyhow!("account `{}` has no refresh token", selected.name)
-            })?;
+                .codex_account_by_name(&account_name)
+                .ok_or_else(|| anyhow::anyhow!("account `{}` no longer exists", account_name))?;
+            let refresh_token = target
+                .refresh_token
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("account `{}` has no refresh token", target.name))?;
             let refreshed = codex::refresh_with_refresh_token(refresh_token).await?;
-            state.update_codex_account_tokens(&selected.name, refreshed)?;
+            state.update_codex_account_tokens(&target.name, refreshed)?;
             state.save(&state_path)?;
             Result::<(), anyhow::Error>::Ok(())
         }
@@ -296,13 +328,13 @@ impl TuiApp {
 
         match result {
             Ok(()) => {
-                self.feedback = format!("Refreshed account `{}`.", selected.name);
+                self.feedback = format!("Refreshed account `{}`.", account_name);
                 self.feedback_color = Color::Green;
                 self.refresh_accounts();
                 self.refresh_health().await;
             }
             Err(err) => {
-                self.feedback = format!("Failed to refresh account: {err}");
+                self.feedback = format!("Failed to refresh account `{}`: {err}", account_name);
                 self.feedback_color = Color::Red;
             }
         }
@@ -399,15 +431,16 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
                     " "
                 };
                 let active = if account.is_active { "*" } else { " " };
-                let refresh = if account.can_refresh {
-                    "refresh"
-                } else {
-                    "static"
-                };
-                let expiry = account.expiry_badge();
+                let health = account.auth_health.summary_label();
                 Line::from(format!(
-                    "{}{} {:<14} {:<20} {:<8} {:<9} {}",
-                    selector, active, account.name, account.email, refresh, expiry, account.source
+                    "{}{} {:<14} {:<20} {:<14} {:<9} {}",
+                    selector,
+                    active,
+                    account.name,
+                    account.email,
+                    health,
+                    account.source,
+                    account.expiry_badge()
                 ))
             })
             .collect()
@@ -418,7 +451,15 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
             Line::from(format!("Email: {}", selected.email)),
             Line::from(format!("Account ID: {}", selected.account_id)),
             Line::from(format!("Plan: {}", selected.plan_type)),
-            Line::from(format!("Token mode: {}", selected.token_mode())),
+            Line::from(format!(
+                "Auth health: {}",
+                selected.auth_health.summary_label()
+            )),
+            Line::from(format!(
+                "Auth source: {}",
+                selected.auth_health.source_label()
+            )),
+            Line::from(format!("Refreshability: {}", selected.token_mode())),
             Line::from(format!("Expiry: {}", selected.expiry_detail())),
             Line::from(format!("Source: {}", selected.source)),
         ]
@@ -448,7 +489,7 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
             Style::default().fg(app.feedback_color),
         )]),
         Line::from(
-            "q quit  |  r refresh health  |  arrows move  |  a activate  |  f refresh  |  d delete",
+            "q quit  |  r reload  |  arrows move  |  a activate  |  f refresh selected  |  R refresh active  |  d delete  |  c clear feedback",
         ),
     ])
     .block(Block::default().borders(Borders::ALL).title("Keys"));
@@ -478,8 +519,8 @@ struct AccountRow {
     plan_type: String,
     source: String,
     is_active: bool,
+    auth_health: AuthHealthSnapshot,
     can_refresh: bool,
-    expires_at: String,
 }
 
 impl AccountRow {
@@ -492,130 +533,10 @@ impl AccountRow {
     }
 
     fn expiry_badge(&self) -> &'static str {
-        match expiry_state(&self.expires_at) {
-            ExpiryState::Unknown => "unknown",
-            ExpiryState::Expired => "expired",
-            ExpiryState::Valid => "valid",
-        }
+        self.auth_health.summary_label()
     }
 
     fn expiry_detail(&self) -> String {
-        match expiry_state(&self.expires_at) {
-            ExpiryState::Unknown => {
-                if self.expires_at == "-" {
-                    "not recorded".to_string()
-                } else {
-                    format!("unparsed ({})", self.expires_at)
-                }
-            }
-            ExpiryState::Expired => format!("expired at {}", self.expires_at),
-            ExpiryState::Valid => format!("valid until {}", self.expires_at),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ExpiryState {
-    Unknown,
-    Expired,
-    Valid,
-}
-
-fn expiry_state(expires_at: &str) -> ExpiryState {
-    let trimmed = expires_at.trim();
-    if trimmed.is_empty() || trimmed == "-" {
-        return ExpiryState::Unknown;
-    }
-
-    match parse_rfc3339_z(trimmed) {
-        Some(expires_secs) => {
-            if expires_secs <= now_unix_secs() {
-                ExpiryState::Expired
-            } else {
-                ExpiryState::Valid
-            }
-        }
-        None => ExpiryState::Unknown,
-    }
-}
-
-fn now_unix_secs() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs() as i64)
-        .unwrap_or_default()
-}
-
-fn parse_rfc3339_z(value: &str) -> Option<i64> {
-    if value.len() != 20 || !value.ends_with('Z') {
-        return None;
-    }
-
-    let year = value.get(0..4)?.parse::<i64>().ok()?;
-    let month = value.get(5..7)?.parse::<i64>().ok()?;
-    let day = value.get(8..10)?.parse::<i64>().ok()?;
-    let hour = value.get(11..13)?.parse::<i64>().ok()?;
-    let minute = value.get(14..16)?.parse::<i64>().ok()?;
-    let second = value.get(17..19)?.parse::<i64>().ok()?;
-
-    if value.as_bytes().get(4) != Some(&b'-')
-        || value.as_bytes().get(7) != Some(&b'-')
-        || value.as_bytes().get(10) != Some(&b'T')
-        || value.as_bytes().get(13) != Some(&b':')
-        || value.as_bytes().get(16) != Some(&b':')
-    {
-        return None;
-    }
-
-    if !(1..=12).contains(&month)
-        || !(1..=31).contains(&day)
-        || !(0..=23).contains(&hour)
-        || !(0..=59).contains(&minute)
-        || !(0..=59).contains(&second)
-    {
-        return None;
-    }
-
-    let days = days_from_civil(year, month, day)?;
-    Some(days * 86_400 + hour * 3_600 + minute * 60 + second)
-}
-
-fn days_from_civil(year: i64, month: i64, day: i64) -> Option<i64> {
-    if day <= 0 {
-        return None;
-    }
-
-    let adjusted_year = year - if month <= 2 { 1 } else { 0 };
-    let era = if adjusted_year >= 0 {
-        adjusted_year
-    } else {
-        adjusted_year - 399
-    } / 400;
-    let yoe = adjusted_year - era * 400;
-    let month_prime = month + if month > 2 { -3 } else { 9 };
-    let doy = (153 * month_prime + 2) / 5 + day - 1;
-    if !(0..=365).contains(&doy) {
-        return None;
-    }
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    Some(era * 146_097 + doe - 719_468)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_rfc3339_z_timestamps() {
-        assert_eq!(parse_rfc3339_z("1970-01-01T00:00:00Z"), Some(0));
-        assert_eq!(parse_rfc3339_z("1970-01-02T00:00:00Z"), Some(86_400));
-    }
-
-    #[test]
-    fn rejects_non_rfc3339_z_timestamps() {
-        assert_eq!(parse_rfc3339_z("2026-04-05 12:00:00"), None);
-        assert_eq!(parse_rfc3339_z("2026-13-05T12:00:00Z"), None);
+        self.auth_health.expiry_detail()
     }
 }

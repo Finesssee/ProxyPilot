@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use axum::body::{Body, Bytes};
@@ -15,6 +14,7 @@ use serde_json::json;
 use tokio::sync::RwLock;
 use tracing::info;
 
+use crate::auth_runtime::{self, AuthCredentialSource};
 use crate::config::AppConfig;
 use crate::state::AccountState;
 
@@ -287,24 +287,14 @@ async fn active_account_needs_refresh(state: &AppState) -> bool {
     let Some(active) = active else {
         return false;
     };
-    if active
-        .refresh_token
-        .as_deref()
-        .map(|value| value.trim().is_empty())
-        .unwrap_or(true)
-    {
-        return false;
-    }
+    let auth_health = auth_runtime::evaluate_auth_health(
+        AuthCredentialSource::ActiveAccount,
+        active.refresh_token.as_deref(),
+        active.expires_at.as_deref(),
+        auth_runtime::now_unix_secs(),
+    );
 
-    let Some(expires_at) = active.expires_at.as_deref() else {
-        return false;
-    };
-
-    let Some(expires_secs) = parse_rfc3339_z(expires_at) else {
-        return false;
-    };
-
-    expires_secs <= now_unix_secs() + 300
+    auth_health.state.is_refresh_worthy()
 }
 
 fn build_upstream_url(base_url: &str, original_uri: &OriginalUri) -> Result<String, ProxyError> {
@@ -334,60 +324,6 @@ fn should_skip_response_header(name: &str) -> bool {
         name.to_ascii_lowercase().as_str(),
         "content-length" | "transfer-encoding" | "connection"
     )
-}
-
-fn now_unix_secs() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs() as i64)
-        .unwrap_or_default()
-}
-
-fn parse_rfc3339_z(value: &str) -> Option<i64> {
-    if value.len() != 20 || !value.ends_with('Z') {
-        return None;
-    }
-
-    if value.as_bytes().get(4) != Some(&b'-')
-        || value.as_bytes().get(7) != Some(&b'-')
-        || value.as_bytes().get(10) != Some(&b'T')
-        || value.as_bytes().get(13) != Some(&b':')
-        || value.as_bytes().get(16) != Some(&b':')
-    {
-        return None;
-    }
-
-    let year = value.get(0..4)?.parse::<i64>().ok()?;
-    let month = value.get(5..7)?.parse::<i64>().ok()?;
-    let day = value.get(8..10)?.parse::<i64>().ok()?;
-    let hour = value.get(11..13)?.parse::<i64>().ok()?;
-    let minute = value.get(14..16)?.parse::<i64>().ok()?;
-    let second = value.get(17..19)?.parse::<i64>().ok()?;
-
-    if !(1..=12).contains(&month)
-        || !(1..=31).contains(&day)
-        || !(0..=23).contains(&hour)
-        || !(0..=59).contains(&minute)
-        || !(0..=59).contains(&second)
-    {
-        return None;
-    }
-
-    let adjusted_year = year - if month <= 2 { 1 } else { 0 };
-    let era = if adjusted_year >= 0 {
-        adjusted_year
-    } else {
-        adjusted_year - 399
-    } / 400;
-    let yoe = adjusted_year - era * 400;
-    let month_prime = month + if month > 2 { -3 } else { 9 };
-    let doy = (153 * month_prime + 2) / 5 + day - 1;
-    if !(0..=365).contains(&doy) {
-        return None;
-    }
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-    Some(days * 86_400 + hour * 3_600 + minute * 60 + second)
 }
 
 #[derive(Debug)]
@@ -426,6 +362,7 @@ impl IntoResponse for ProxyError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth_runtime::parse_rfc3339_z;
     use axum::routing::{get, post};
     use base64::Engine;
     use serde_json::Value;
