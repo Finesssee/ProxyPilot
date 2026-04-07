@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use anyhow::{Result, bail};
 use tokio::sync::RwLock;
 
+use crate::claude::ClaudeProvider;
 use crate::codex::CodexProvider;
 use crate::config::AppConfig;
 use crate::provider::{Provider, ProviderId};
@@ -16,6 +16,7 @@ impl ProviderRegistry {
     pub fn new(config: &AppConfig) -> Self {
         let providers: Vec<Arc<dyn Provider>> = vec![
             Arc::new(CodexProvider::from_config(config)),
+            Arc::new(ClaudeProvider::from_config(config)),
         ];
         Self { providers }
     }
@@ -67,6 +68,10 @@ pub async fn resolve_active_provider(
             .or_else(|| match tag {
                 crate::provider::CODEX_PROVIDER => {
                     let fallback = config.codex.api_key.trim();
+                    if fallback.is_empty() { None } else { Some(fallback.to_string()) }
+                }
+                crate::provider::CLAUDE_PROVIDER => {
+                    let fallback = config.claude.api_key.trim();
                     if fallback.is_empty() { None } else { Some(fallback.to_string()) }
                 }
                 _ => None,

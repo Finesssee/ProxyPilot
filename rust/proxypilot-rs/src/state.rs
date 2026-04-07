@@ -73,8 +73,9 @@ impl AccountState {
         Ok(())
     }
 
-    pub fn add_or_replace_codex_account(
+    pub fn add_or_replace_manual_account(
         &mut self,
+        provider: &str,
         name: String,
         api_key: String,
         activate: bool,
@@ -91,7 +92,7 @@ impl AccountState {
         self.accounts.retain(|account| account.name != trimmed_name);
         self.accounts.push(AccountEntry {
             name: trimmed_name.to_string(),
-            provider: "codex".to_string(),
+            provider: provider.to_string(),
             api_key: trimmed_key.to_string(),
             refresh_token: None,
             id_token: None,
@@ -107,6 +108,15 @@ impl AccountState {
         }
         self.accounts.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(())
+    }
+
+    pub fn add_or_replace_codex_account(
+        &mut self,
+        name: String,
+        api_key: String,
+        activate: bool,
+    ) -> Result<()> {
+        self.add_or_replace_manual_account(crate::provider::CODEX_PROVIDER, name, api_key, activate)
     }
 
     pub fn activate(&mut self, name: &str) -> Result<()> {
@@ -472,6 +482,23 @@ mod tests {
     }
 
     #[test]
+
+
+    #[test]
+    fn manual_claude_account_uses_provider_generic_path() {
+        let mut state = AccountState::default();
+        state
+            .add_or_replace_manual_account(crate::provider::CLAUDE_PROVIDER, "claude-main".to_string(), "claude-key".to_string(), true)
+            .unwrap();
+
+        let account = state
+            .active_account_for_provider(crate::provider::CLAUDE_PROVIDER)
+            .unwrap();
+        assert_eq!(account.name, "claude-main");
+        assert_eq!(account.api_key, "claude-key");
+        assert_eq!(state.runtime_usable_account_count_for_provider(crate::provider::CLAUDE_PROVIDER), 1);
+    }
+
     fn runtime_usable_codex_account_count_ignores_mixed_provider_and_empty_key_entries() {
         let mut state = AccountState::default();
         state.accounts.push(AccountEntry {

@@ -13,6 +13,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub codex: CodexConfig,
     #[serde(default)]
+    pub claude: ClaudeConfig,
+    #[serde(default)]
     pub providers: ProvidersConfig,
 }
 
@@ -44,6 +46,14 @@ pub struct CodexConfig {
     pub refresh_token_url: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeConfig {
+    #[serde(default = "default_claude_base_url")]
+    pub upstream_base_url: String,
+    #[serde(default)]
+    pub api_key: String,
+}
+
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
@@ -66,6 +76,15 @@ impl Default for CodexConfig {
             upstream_base_url: default_codex_base_url(),
             api_key: "set-me".to_string(),
             refresh_token_url: String::new(),
+        }
+    }
+}
+
+impl Default for ClaudeConfig {
+    fn default() -> Self {
+        Self {
+            upstream_base_url: default_claude_base_url(),
+            api_key: String::new(),
         }
     }
 }
@@ -119,7 +138,7 @@ impl AppConfig {
     }
 
     pub fn config_summary(&self, path: &Path) -> Vec<String> {
-        let mut lines = vec![
+        let lines = vec![
             format!("config: {}", path.display()),
             format!("listen: {}", self.server.bind),
             format!("state path: {}", self.resolve_state_path(path).display()),
@@ -144,6 +163,15 @@ impl AppConfig {
                     "configured"
                 }
             ),
+            format!("claude upstream: {}", self.claude.upstream_base_url),
+            format!(
+                "claude fallback api key: {}",
+                if self.claude.api_key.trim().is_empty() {
+                    "missing"
+                } else {
+                    "configured"
+                }
+            ),
         ];
         lines
     }
@@ -159,6 +187,7 @@ impl AppConfig {
         let tag = self.active_provider();
         match tag {
             crate::provider::CODEX_PROVIDER => "codex (default)".to_string(),
+            crate::provider::CLAUDE_PROVIDER => "claude".to_string(),
             other => other.to_string(),
         }
     }
@@ -181,6 +210,10 @@ path = "proxypilot-rs.state.toml"
 upstream_base_url = "https://api.openai.com"
 api_key = ""
 # refresh_token_url = "http://127.0.0.1:18319/oauth/token"
+
+[claude]
+upstream_base_url = "https://api.anthropic.com"
+api_key = ""
 "#
     }
 
@@ -208,6 +241,10 @@ fn default_codex_base_url() -> String {
     "https://api.openai.com".to_string()
 }
 
+fn default_claude_base_url() -> String {
+    "https://api.anthropic.com".to_string()
+}
+
 fn default_state_path() -> String {
     "proxypilot-rs.state.toml".to_string()
 }
@@ -223,5 +260,6 @@ mod tests {
         assert_eq!(config.state.path, "proxypilot-rs.state.toml");
         assert_eq!(config.codex.upstream_base_url, "https://api.openai.com");
         assert!(config.codex.refresh_token_url.is_empty());
+        assert_eq!(config.claude.upstream_base_url, "https://api.anthropic.com");
     }
 }

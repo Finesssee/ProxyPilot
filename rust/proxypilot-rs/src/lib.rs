@@ -1,5 +1,6 @@
 pub mod accounts;
 pub mod auth_runtime;
+pub mod claude;
 pub mod cli;
 pub mod codex;
 pub mod config;

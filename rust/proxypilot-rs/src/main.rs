@@ -48,6 +48,18 @@ async fn main() -> Result<()> {
                     &config, &path, name, api_key, activate,
                 )?;
             }
+            AccountCommand::AddClaude {
+                shared,
+                name,
+                api_key,
+                activate,
+            } => {
+                let path = resolve_config_path(shared.config);
+                let config = AppConfig::load(&path)?;
+                proxypilot_rs::accounts::add_claude_account(
+                    &config, &path, name, api_key, activate,
+                )?;
+            }
             AccountCommand::List { shared } => {
                 let path = resolve_config_path(shared.config);
                 let config = AppConfig::load(&path)?;
@@ -78,6 +90,11 @@ async fn main() -> Result<()> {
                 let path = resolve_config_path(shared.config);
                 let config = AppConfig::load(&path)?;
                 proxypilot_rs::accounts::refresh_codex_account(&config, &path, name).await?;
+            }
+            AccountCommand::RefreshClaude { shared, name } => {
+                let path = resolve_config_path(shared.config);
+                let config = AppConfig::load(&path)?;
+                proxypilot_rs::accounts::refresh_claude_account(&config, &path, name).await?;
             }
             AccountCommand::Activate { shared, name } => {
                 let path = resolve_config_path(shared.config);

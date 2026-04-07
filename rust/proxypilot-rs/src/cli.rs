@@ -58,6 +58,17 @@ pub enum AccountCommand {
         #[arg(long, default_value_t = false)]
         activate: bool,
     },
+    /// Add or replace a Claude account in the local state file.
+    AddClaude {
+        #[command(flatten)]
+        shared: SharedConfig,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        api_key: String,
+        #[arg(long, default_value_t = false)]
+        activate: bool,
+    },
     /// Import a Codex auth JSON file from the Go/ProxyPilot world.
     ImportCodex {
         #[command(flatten)]
@@ -80,6 +91,13 @@ pub enum AccountCommand {
     },
     /// Refresh a saved Codex account using its refresh token.
     RefreshCodex {
+        #[command(flatten)]
+        shared: SharedConfig,
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Refresh a saved Claude account.
+    RefreshClaude {
         #[command(flatten)]
         shared: SharedConfig,
         #[arg(long)]

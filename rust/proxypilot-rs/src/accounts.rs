@@ -7,14 +7,14 @@ use crate::codex;
 use crate::config::AppConfig;
 use crate::state::{AccountState, ImportedCodexAuth};
 
-fn saved_account_message(name: &str, active: bool) -> String {
+fn saved_account_message(provider_label: &str, name: &str, active: bool) -> String {
     if active {
         format!(
-            "saved Codex account `{}` in local state and marked it active",
-            name
+            "saved {} account `{}` in local state and marked it active",
+            provider_label, name
         )
     } else {
-        format!("saved Codex account `{}` in local state", name)
+        format!("saved {} account `{}` in local state", provider_label, name)
     }
 }
 
@@ -86,12 +86,59 @@ pub fn add_codex_account(
     println!(
         "{}",
         saved_account_message(
+            "Codex",
             &name,
             state.active_account.as_deref() == Some(name.as_str())
         )
     );
     println!("state file: {}", state_path.display());
     Ok(())
+}
+
+pub fn add_claude_account(
+    config: &AppConfig,
+    config_path: &Path,
+    name: String,
+    api_key: String,
+    activate: bool,
+) -> Result<()> {
+    let state_path = config.resolve_state_path(config_path);
+    let mut state = AccountState::load_or_default(&state_path)?;
+    state.add_or_replace_manual_account(crate::provider::CLAUDE_PROVIDER, name.clone(), api_key, activate)?;
+    state.save(&state_path)?;
+
+    println!(
+        "{}",
+        saved_account_message(
+            "Claude",
+            &name,
+            state.active_account.as_deref() == Some(name.as_str())
+        )
+    );
+    println!("state file: {}", state_path.display());
+    Ok(())
+}
+
+pub async fn refresh_claude_account(
+    config: &AppConfig,
+    config_path: &Path,
+    name: Option<String>,
+) -> Result<()> {
+    let state_path = config.resolve_state_path(config_path);
+    let state = AccountState::load_or_default(&state_path)?;
+
+    let target = if let Some(name) = name.filter(|value| !value.trim().is_empty()) {
+        state
+            .account_by_name_and_provider(&name, crate::provider::CLAUDE_PROVIDER)
+            .ok_or_else(|| anyhow::anyhow!("no saved Claude account named {}", name))?
+    } else {
+        state
+            .active_account_for_provider(crate::provider::CLAUDE_PROVIDER)
+            .ok_or_else(|| anyhow::anyhow!("no active Claude account to refresh"))?
+    };
+
+    let _ = target;
+    anyhow::bail!("Claude refresh is not implemented yet")
 }
 
 pub fn list_accounts(config: &AppConfig, config_path: &Path) -> Result<()> {
@@ -305,11 +352,11 @@ mod tests {
     #[test]
     fn saved_account_messages_stay_explicit_about_local_state() {
         assert_eq!(
-            saved_account_message("primary", true),
+            saved_account_message("Codex", "primary", true),
             "saved Codex account `primary` in local state and marked it active"
         );
         assert_eq!(
-            saved_account_message("backup", false),
+            saved_account_message("Codex", "backup", false),
             "saved Codex account `backup` in local state"
         );
         assert_eq!(
@@ -324,6 +371,36 @@ mod tests {
             refresh_message("primary"),
             "refreshed saved Codex account `primary` in local state"
         );
+    }
+
+
+
+    #[test]
+    fn saved_account_messages_can_describe_claude_accounts() {
+        assert_eq!(
+            saved_account_message("Claude", "claude-main", true),
+            "saved Claude account `claude-main` in local state and marked it active"
+        );
+    }
+
+    #[test]
+    fn account_list_row_includes_provider_name_for_claude() {
+        let account = crate::state::AccountEntry {
+            name: "claude-main".to_string(),
+            provider: crate::provider::CLAUDE_PROVIDER.to_string(),
+            api_key: "key".to_string(),
+            refresh_token: None,
+            id_token: None,
+            email: Some("dev@example.com".to_string()),
+            account_id: None,
+            plan_type: Some("max".to_string()),
+            expires_at: None,
+            source: Some("manual".to_string()),
+        };
+
+        let row = account_list_row(&account, Some("claude-main"));
+        assert!(row.contains("provider=claude"));
+        assert!(row.contains("plan=max"));
     }
 
     #[tokio::test]
