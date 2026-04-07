@@ -554,6 +554,7 @@ mod tests {
                 api_key: "test-token".to_string(),
                 refresh_token_url: String::new(),
             },
+            ..AppConfig::default()
         };
 
         let proxy_app = build_app(config, AccountState::default());
@@ -611,6 +612,7 @@ mod tests {
                 api_key: "test-token".to_string(),
                 refresh_token_url: String::new(),
             },
+            ..AppConfig::default()
         };
 
         let proxy_app = build_app(config, AccountState::default());
@@ -661,6 +663,7 @@ mod tests {
                 api_key: "test-token".to_string(),
                 refresh_token_url: String::new(),
             },
+            ..AppConfig::default()
         };
 
         let proxy_app = build_app(config, AccountState::default());
@@ -694,6 +697,7 @@ mod tests {
                 api_key: "test-token".to_string(),
                 refresh_token_url: String::new(),
             },
+            ..AppConfig::default()
         };
 
         let proxy_app = build_app(config, AccountState::default());
@@ -745,6 +749,7 @@ mod tests {
                 api_key: "fallback-token".to_string(),
                 refresh_token_url: String::new(),
             },
+            ..AppConfig::default()
         };
 
         let mut accounts = AccountState::default();
@@ -837,6 +842,7 @@ mod tests {
                 api_key: "".to_string(),
                 refresh_token_url: String::new(),
             },
+            ..AppConfig::default()
         };
 
         let mut accounts = AccountState::default();
@@ -901,6 +907,7 @@ mod tests {
                 api_key: "test-token".to_string(),
                 refresh_token_url: "http://127.0.0.1:18319/oauth/token".to_string(),
             },
+            ..AppConfig::default()
         };
 
         let endpoints = crate::codex::device_endpoints_from_config(&config);
@@ -961,6 +968,7 @@ mod tests {
                 api_key: "".to_string(),
                 refresh_token_url: format!("{refresh_url}/oauth/token"),
             },
+            ..AppConfig::default()
         };
 
         let mut accounts = AccountState::default();
@@ -1061,6 +1069,7 @@ mod tests {
                 api_key: "".to_string(),
                 refresh_token_url: String::new(),
             },
+            ..AppConfig::default()
         };
 
         let mut accounts = AccountState::default();
@@ -1131,6 +1140,7 @@ mod tests {
                 api_key: "fallback-token".to_string(),
                 refresh_token_url: String::new(),
             },
+            ..AppConfig::default()
         };
 
         let app = build_app(config, AccountState::default());
@@ -1191,6 +1201,7 @@ mod tests {
                 api_key: "".to_string(),
                 refresh_token_url: String::new(),
             },
+            ..AppConfig::default()
         };
 
         let app = build_app(config, AccountState::default());
@@ -1234,6 +1245,7 @@ mod tests {
                 api_key: "fallback-token".to_string(),
                 refresh_token_url: String::new(),
             },
+            ..AppConfig::default()
         };
 
         let mut accounts = AccountState::default();
@@ -1320,6 +1332,7 @@ mod tests {
                     api_key: "fallback-token".to_string(),
                     refresh_token_url: String::new(),
                 },
+                ..AppConfig::default()
             },
             {
                 let mut accounts = AccountState::default();
@@ -1370,6 +1383,7 @@ mod tests {
                 api_key: "".to_string(),
                 refresh_token_url: String::new(),
             },
+            ..AppConfig::default()
         };
 
         let mut accounts = AccountState::default();
@@ -1430,6 +1444,7 @@ mod tests {
                 api_key: "fallback-token".to_string(),
                 refresh_token_url: String::new(),
             },
+            ..AppConfig::default()
         };
 
         let app = build_app(config, AccountState::default());
@@ -1502,6 +1517,7 @@ mod tests {
                 api_key: "fallback-token".to_string(),
                 refresh_token_url: String::new(),
             },
+            ..AppConfig::default()
         };
 
         let mut accounts = AccountState::default();
@@ -1610,6 +1626,7 @@ mod tests {
                 api_key: "".to_string(),
                 refresh_token_url: String::new(),
             },
+            ..AppConfig::default()
         };
 
         let mut accounts = AccountState::default();
@@ -1711,6 +1728,7 @@ mod tests {
                 api_key: "".to_string(),
                 refresh_token_url: String::new(),
             },
+            ..AppConfig::default()
         };
 
         let mut accounts = AccountState::default();

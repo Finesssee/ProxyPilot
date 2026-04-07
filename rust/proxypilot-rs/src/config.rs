@@ -12,6 +12,14 @@ pub struct AppConfig {
     pub state: StateConfig,
     #[serde(default)]
     pub codex: CodexConfig,
+    #[serde(default)]
+    pub providers: ProvidersConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProvidersConfig {
+    #[serde(default)]
+    pub active: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,10 +119,14 @@ impl AppConfig {
     }
 
     pub fn config_summary(&self, path: &Path) -> Vec<String> {
-        vec![
+        let mut lines = vec![
             format!("config: {}", path.display()),
             format!("listen: {}", self.server.bind),
             format!("state path: {}", self.resolve_state_path(path).display()),
+            format!(
+                "active provider: {}",
+                self.active_provider_label()
+            ),
             format!("codex upstream: {}", self.codex.upstream_base_url),
             format!(
                 "codex refresh token endpoint: {}",
@@ -132,7 +144,23 @@ impl AppConfig {
                     "configured"
                 }
             ),
-        ]
+        ];
+        lines
+    }
+
+    pub fn active_provider(&self) -> &str {
+        self.providers
+            .active
+            .as_deref()
+            .unwrap_or(crate::provider::CODEX_PROVIDER)
+    }
+
+    pub fn active_provider_label(&self) -> String {
+        let tag = self.active_provider();
+        match tag {
+            crate::provider::CODEX_PROVIDER => "codex (default)".to_string(),
+            other => other.to_string(),
+        }
     }
 
     pub fn example_toml() -> &'static str {
@@ -145,6 +173,9 @@ bind = "127.0.0.1:8318"
 
 [state]
 path = "proxypilot-rs.state.toml"
+
+[providers]
+# active = "codex"  # default; change to "claude" or "gemini" when available
 
 [codex]
 upstream_base_url = "https://api.openai.com"
