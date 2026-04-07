@@ -390,7 +390,7 @@ mod tests {
             Json(json!({
                 "access_token": "refreshed-access",
                 "refresh_token": "refreshed-refresh",
-                "id_token": "header.eyJlbWFpbCI6ImFkbWluQGV4YW1wbGUuY29tIiwiZXhwIjoxODkzNDU2MDAwfQ.sig",
+                "id_token": "TEST_ID_TOKEN_PLACEHOLDER",
                 "expires_in": 3600
             }))
         }
