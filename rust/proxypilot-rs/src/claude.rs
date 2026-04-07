@@ -36,6 +36,16 @@ impl Provider for ClaudeProvider {
         "https://api.anthropic.com"
     }
 
+    fn apply_auth_headers(
+        &self,
+        request: reqwest::RequestBuilder,
+        api_key: &str,
+    ) -> reqwest::RequestBuilder {
+        request
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01")
+    }
+
     fn refresh_token<'a>(
         &'a self,
         _refresh_token: &'a str,

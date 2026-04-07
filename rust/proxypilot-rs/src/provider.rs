@@ -2,6 +2,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 use anyhow::Result;
+use reqwest;
 use serde::{Deserialize, Serialize};
 
 use crate::state::AccountEntry;
@@ -113,6 +114,14 @@ pub trait Provider: Send + Sync + 'static {
 
     fn responses_path(&self) -> &str {
         "/v1/responses"
+    }
+
+    fn apply_auth_headers(
+        &self,
+        request: reqwest::RequestBuilder,
+        api_key: &str,
+    ) -> reqwest::RequestBuilder {
+        request.bearer_auth(api_key)
     }
 }
 

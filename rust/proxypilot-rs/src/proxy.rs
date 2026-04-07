@@ -333,6 +333,7 @@ async fn send_upstream_request(
     body: &Bytes,
     token: Option<String>,
 ) -> Result<reqwest::Response> {
+    let provider = state.providers.active_provider(&state.config);
     let mut request = state.client.request(method.clone(), target);
 
     for (name, value) in headers {
@@ -345,7 +346,7 @@ async fn send_upstream_request(
     if let Some(api_key) = token
         && !api_key.trim().is_empty()
     {
-        request = request.bearer_auth(api_key);
+        request = provider.apply_auth_headers(request, &api_key);
     }
 
     request
@@ -1444,10 +1445,22 @@ mod tests {
                     .and_then(|value| value.to_str().ok())
                     .unwrap_or_default()
                     .to_string();
+                let x_api_key = headers
+                    .get("x-api-key")
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or_default()
+                    .to_string();
+                let anthropic_version = headers
+                    .get("anthropic-version")
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or_default()
+                    .to_string();
                 Json(json!({
                     "object": "list",
                     "data": [],
                     "received_authorization": auth,
+                    "received_x_api_key": x_api_key,
+                    "received_anthropic_version": anthropic_version,
                 }))
             }),
         );
@@ -1502,7 +1515,9 @@ mod tests {
             .json()
             .await
             .unwrap();
-        assert_eq!(models["received_authorization"], "Bearer claude-fallback-token");
+        assert_eq!(models["received_authorization"], "");
+        assert_eq!(models["received_x_api_key"], "claude-fallback-token");
+        assert_eq!(models["received_anthropic_version"], "2023-06-01");
 
         let _ = proxy_shutdown.send(());
         let _ = upstream_shutdown.send(());
