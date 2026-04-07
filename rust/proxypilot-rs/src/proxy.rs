@@ -1432,6 +1432,82 @@ mod tests {
         let _ = upstream_shutdown.send(());
     }
 
+
+
+    #[tokio::test]
+    async fn active_claude_provider_routes_models_and_reports_health() {
+        let upstream_app = Router::new().route(
+            "/v1/models",
+            get(|headers: HeaderMap| async move {
+                let auth = headers
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or_default()
+                    .to_string();
+                Json(json!({
+                    "object": "list",
+                    "data": [],
+                    "received_authorization": auth,
+                }))
+            }),
+        );
+        let (upstream_url, upstream_shutdown) = start_listener(upstream_app).await;
+
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            claude: crate::config::ClaudeConfig {
+                upstream_base_url: upstream_url.clone(),
+                api_key: "claude-fallback-token".to_string(),
+            },
+            providers: crate::config::ProvidersConfig {
+                active: Some(crate::provider::CLAUDE_PROVIDER.to_string()),
+            },
+            ..AppConfig::default()
+        };
+
+        let app = build_app(config, AccountState::default());
+        let (proxy_url, proxy_shutdown) = start_listener(app).await;
+
+        let health: Value = Client::new()
+            .get(format!("{proxy_url}/healthz"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(health["provider"], "claude");
+        assert_eq!(health["upstream"], upstream_url);
+        assert_eq!(health["active_account"], Value::Null);
+
+        let runtime: Value = Client::new()
+            .get(format!("{proxy_url}/v0/runtime/stats"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(runtime["upstream_base_url"], upstream_url);
+        assert_eq!(runtime["auth_health"]["source"], "no_credential");
+        assert_eq!(runtime["account_count"], 0);
+
+        let models: Value = Client::new()
+            .get(format!("{proxy_url}/v1/models"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(models["received_authorization"], "Bearer claude-fallback-token");
+
+        let _ = proxy_shutdown.send(());
+        let _ = upstream_shutdown.send(());
+    }
+
     #[tokio::test]
     async fn runtime_stats_uses_fallback_key_without_implying_active_saved_account() {
         let upstream_app = Router::new().route(
