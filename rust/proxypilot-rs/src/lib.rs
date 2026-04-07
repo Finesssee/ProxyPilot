@@ -5,5 +5,6 @@ pub mod codex;
 pub mod config;
 pub mod proxy;
 pub mod provider;
+pub mod provider_registry;
 pub mod state;
 pub mod tui;

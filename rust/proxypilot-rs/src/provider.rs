@@ -1,3 +1,6 @@
+use std::future::Future;
+use std::pin::Pin;
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
@@ -42,7 +45,7 @@ impl AuthResult {
         self,
         name: String,
         source: String,
-        activate: bool,
+        _activate: bool,
     ) -> AccountEntry {
         AccountEntry {
             name,
@@ -59,7 +62,6 @@ impl AuthResult {
     }
 
     fn access_token_provider_name(&self) -> &str {
-        // Default to codex for existing results; providers override as needed.
         CODEX_PROVIDER
     }
 }
@@ -69,6 +71,9 @@ pub struct RefreshResult {
     pub access_token: String,
     pub refresh_token: Option<String>,
     pub id_token: Option<String>,
+    pub email: Option<String>,
+    pub account_id: Option<String>,
+    pub plan_type: Option<String>,
     pub expires_at: Option<String>,
 }
 
@@ -78,7 +83,6 @@ pub struct ModelInfo {
     pub owned_by: Option<String>,
 }
 
-#[allow(async_fn_in_trait)]
 pub trait Provider: Send + Sync + 'static {
     fn id(&self) -> ProviderId;
 
@@ -90,12 +94,14 @@ pub trait Provider: Send + Sync + 'static {
 
     fn upstream_base_url(&self) -> &str;
 
-    fn default_upstream_base_url() -> &'static str;
+    fn default_upstream_base_url() -> &'static str
+    where
+        Self: Sized;
 
-    async fn refresh_token(
-        &self,
-        refresh_token: &str,
-    ) -> Result<RefreshResult>;
+    fn refresh_token<'a>(
+        &'a self,
+        refresh_token: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<RefreshResult>> + Send + 'a>>;
 
     fn models_path(&self) -> &str {
         "/v1/models"

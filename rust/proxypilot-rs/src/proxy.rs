@@ -18,6 +18,7 @@ use crate::auth_runtime::{
     self, AuthCredentialSource, RefreshStatusSnapshot, RuntimeRequestCounters, RuntimeStatsSnapshot,
 };
 use crate::config::AppConfig;
+use crate::provider_registry::{ProviderRegistry, resolve_active_provider};
 use crate::state::AccountState;
 
 #[derive(Clone)]
@@ -26,7 +27,7 @@ pub struct AppState {
     accounts: Arc<RwLock<AccountState>>,
     runtime: Arc<RwLock<RuntimeTelemetry>>,
     client: Client,
-    device_endpoints: Arc<crate::codex::DeviceEndpoints>,
+    providers: Arc<ProviderRegistry>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -39,14 +40,14 @@ struct RuntimeTelemetry {
 
 impl AppState {
     pub fn new(config: AppConfig, accounts: AccountState) -> Self {
-        let runtime = runtime_telemetry_from_state(&accounts);
-        let device_endpoints = Arc::new(crate::codex::device_endpoints_from_config(&config));
+        let runtime = runtime_telemetry_from_state(&config, &accounts);
+        let providers = Arc::new(ProviderRegistry::new(&config));
         Self {
             config: Arc::new(config),
             accounts: Arc::new(RwLock::new(accounts)),
             runtime: Arc::new(RwLock::new(runtime)),
             client: Client::new(),
-            device_endpoints,
+            providers,
         }
     }
 
@@ -54,9 +55,10 @@ impl AppState {
         let runtime = self.runtime.read().await;
         let accounts = self.accounts.read().await;
         let auth_health = runtime_auth_health_from_state(&self.config, &accounts);
+        let provider = self.providers.active_provider(&self.config);
         let mut snapshot = RuntimeStatsSnapshot::new(
             self.config.server.bind.clone(),
-            self.config.codex.upstream_base_url.clone(),
+            provider.upstream_base_url().to_string(),
             runtime.active_account_name.clone(),
             runtime.account_count,
             auth_health,
@@ -100,10 +102,11 @@ impl AppState {
     }
 }
 
-fn runtime_telemetry_from_state(accounts: &AccountState) -> RuntimeTelemetry {
+fn runtime_telemetry_from_state(config: &AppConfig, accounts: &AccountState) -> RuntimeTelemetry {
+    let provider = config.active_provider();
     RuntimeTelemetry {
-        active_account_name: accounts.active_codex_account().map(|account| account.name),
-        account_count: accounts.runtime_usable_codex_account_count(),
+        active_account_name: accounts.active_account_for_provider(provider).map(|account| account.name),
+        account_count: accounts.runtime_usable_account_count_for_provider(provider),
         request_counters: RuntimeRequestCounters::default(),
         last_refresh: RefreshStatusSnapshot::default(),
     }
@@ -113,13 +116,16 @@ fn runtime_auth_health_from_state(
     config: &AppConfig,
     accounts: &AccountState,
 ) -> auth_runtime::AuthHealthSnapshot {
-    let active_account = accounts.active_codex_account();
+    let provider = config.active_provider();
+    let active_account = accounts.active_account_for_provider(provider);
     let source = if active_account.is_some() {
         AuthCredentialSource::ActiveAccount
-    } else if config.codex.api_key.trim().is_empty() {
+    } else if provider == crate::provider::CODEX_PROVIDER && config.codex.api_key.trim().is_empty() {
         AuthCredentialSource::NoCredential
-    } else {
+    } else if provider == crate::provider::CODEX_PROVIDER {
         AuthCredentialSource::ConfigFallbackKey
+    } else {
+        AuthCredentialSource::NoCredential
     };
     let refresh_token = active_account
         .as_ref()
@@ -164,7 +170,8 @@ pub async fn run(config: AppConfig, config_path: &Path) -> Result<()> {
         .with_context(|| format!("failed to bind {}", bind_addr))?;
     info!(
         bind = %config.server.bind,
-        upstream = %config.codex.upstream_base_url,
+        upstream = %ProviderRegistry::new(&config).active_provider(&config).upstream_base_url(),
+        provider = %config.active_provider(),
         "proxypilot-rs listening"
     );
     axum::serve(listener, app)
@@ -174,15 +181,16 @@ pub async fn run(config: AppConfig, config_path: &Path) -> Result<()> {
 }
 
 async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
+    let provider = state.providers.active_provider(&state.config);
     let account_state = state.accounts.read().await;
     let active_account = account_state
-        .active_codex_account()
+        .active_account_for_provider(provider.provider_tag())
         .map(|account| account.name);
     Json(json!({
         "status": "ok",
-        "provider": "codex",
+        "provider": provider.provider_tag(),
         "listen": state.config.server.bind,
-        "upstream": state.config.codex.upstream_base_url,
+        "upstream": provider.upstream_base_url(),
         "active_account": active_account,
     }))
 }
@@ -199,7 +207,7 @@ async fn list_models(
     forward_upstream(
         &state,
         Method::GET,
-        build_upstream_url(&state.config.codex.upstream_base_url, &original_uri)?,
+build_upstream_url(state.providers.active_provider(&state.config).upstream_base_url(), &original_uri)?,
         headers,
         Bytes::new(),
     )
@@ -215,7 +223,7 @@ async fn chat_completions(
     forward_upstream(
         &state,
         Method::POST,
-        build_upstream_url(&state.config.codex.upstream_base_url, &original_uri)?,
+build_upstream_url(state.providers.active_provider(&state.config).upstream_base_url(), &original_uri)?,
         headers,
         body,
     )
@@ -231,7 +239,7 @@ async fn responses(
     forward_upstream(
         &state,
         Method::POST,
-        build_upstream_url(&state.config.codex.upstream_base_url, &original_uri)?,
+build_upstream_url(state.providers.active_provider(&state.config).upstream_base_url(), &original_uri)?,
         headers,
         body,
     )
@@ -265,20 +273,17 @@ async fn forward_upstream(
     state.record_supported_request().await;
 
     if active_account_needs_refresh(state).await {
-        let _ = try_refresh_active_codex_account(state).await?;
+        let _ = try_refresh_active_account(state).await?;
     }
 
-    let token = {
-        let accounts = state.accounts.read().await;
-        accounts.effective_codex_api_key(&state.config)
-    };
+    let token = resolve_active_provider(&state.config, &state.providers, &state.accounts).await.api_key;
     let upstream = send_upstream_request(state, &method, &target, &headers, &body, token)
         .await
-        .context("failed to reach upstream Codex endpoint")?;
+        .context("failed to reach upstream provider endpoint")?;
 
     let upstream = if upstream.status() == StatusCode::UNAUTHORIZED {
         state.record_upstream_401().await;
-        if let Some(refreshed_token) = try_refresh_active_codex_account(state).await? {
+        if let Some(refreshed_token) = try_refresh_active_account(state).await? {
             send_upstream_request(
                 state,
                 &method,
@@ -288,7 +293,7 @@ async fn forward_upstream(
                 Some(refreshed_token),
             )
             .await
-            .context("failed to retry upstream Codex endpoint after refresh")?
+            .context("failed to retry upstream provider endpoint after refresh")?
         } else {
             upstream
         }
@@ -350,32 +355,23 @@ async fn send_upstream_request(
         .context("upstream request failed")
 }
 
-async fn try_refresh_active_codex_account(state: &AppState) -> Result<Option<String>, ProxyError> {
-    let active = {
-        let accounts = state.accounts.read().await;
-        accounts.active_codex_account()
-    };
+async fn try_refresh_active_account(state: &AppState) -> Result<Option<String>, ProxyError> {
+    let resolved = resolve_active_provider(&state.config, &state.providers, &state.accounts).await;
 
-    let Some(active) = active else {
+    let Some(account_name) = resolved.account_name.clone() else {
         return Ok(None);
     };
-    let Some(refresh_token) = active.refresh_token.as_deref() else {
+    let Some(refresh_token) = resolved.refresh_token.as_deref() else {
         return Ok(None);
     };
 
     state.record_refresh_attempt().await;
 
-    let refreshed = match crate::codex::refresh_with_refresh_token_for_test(
-        state.client.clone(),
-        (*state.device_endpoints).clone(),
-        refresh_token,
-    )
-    .await
-    {
+    let refreshed = match resolved.provider.refresh_token(refresh_token).await {
         Ok(value) => value,
         Err(err) => {
             state
-                .record_refresh_failure(Some(active.name.clone()), err.to_string())
+                .record_refresh_failure(Some(account_name.clone()), err.to_string())
                 .await;
             return Err(ProxyError::from(err));
         }
@@ -383,19 +379,29 @@ async fn try_refresh_active_codex_account(state: &AppState) -> Result<Option<Str
 
     {
         let mut accounts = state.accounts.write().await;
-        if let Err(err) = accounts.update_codex_account_tokens(&active.name, refreshed) {
+        if let Err(err) = accounts.update_account_tokens_for_provider(
+            &account_name,
+            resolved.provider.provider_tag(),
+            refreshed.access_token,
+            refreshed.refresh_token,
+            refreshed.id_token,
+            refreshed.email,
+            refreshed.account_id,
+            refreshed.plan_type,
+            refreshed.expires_at,
+        ) {
             state
-                .record_refresh_failure(Some(active.name.clone()), err.to_string())
+                .record_refresh_failure(Some(account_name.clone()), err.to_string())
                 .await;
             return Err(ProxyError::from(err));
         }
     }
 
-    state.record_refresh_success(active.name.clone()).await;
+    state.record_refresh_success(account_name.clone()).await;
     let refreshed_token = {
         let accounts = state.accounts.read().await;
         accounts
-            .active_codex_account()
+            .active_account_for_provider(resolved.provider.provider_tag())
             .map(|account| account.api_key)
     };
 
@@ -403,9 +409,10 @@ async fn try_refresh_active_codex_account(state: &AppState) -> Result<Option<Str
 }
 
 async fn active_account_needs_refresh(state: &AppState) -> bool {
+    let provider = state.config.active_provider().to_string();
     let active = {
         let accounts = state.accounts.read().await;
-        accounts.active_codex_account()
+        accounts.active_account_for_provider(&provider)
     };
 
     let Some(active) = active else {
@@ -510,16 +517,15 @@ mod tests {
         accounts: AccountState,
         oauth_token_url: String,
     ) -> AppState {
-        let runtime = runtime_telemetry_from_state(&accounts);
+        let runtime = runtime_telemetry_from_state(&config, &accounts);
+        let mut provider_config = config.clone();
+        provider_config.codex.refresh_token_url = oauth_token_url;
         AppState {
             config: std::sync::Arc::new(config),
             accounts: std::sync::Arc::new(tokio::sync::RwLock::new(accounts)),
             runtime: std::sync::Arc::new(tokio::sync::RwLock::new(runtime)),
             client: Client::new(),
-            device_endpoints: std::sync::Arc::new(crate::codex::DeviceEndpoints {
-                oauth_token_url,
-                ..crate::codex::DeviceEndpoints::default()
-            }),
+            providers: std::sync::Arc::new(ProviderRegistry::new(&provider_config)),
         }
     }
 

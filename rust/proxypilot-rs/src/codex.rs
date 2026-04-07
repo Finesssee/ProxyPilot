@@ -71,30 +71,35 @@ impl Provider for CodexProvider {
         "https://api.openai.com"
     }
 
-    async fn refresh_token(
-        &self,
-        refresh_token: &str,
-    ) -> Result<RefreshResult> {
-        let endpoints = if self.refresh_token_url.trim().is_empty() {
-            DeviceEndpoints::default()
-        } else {
-            DeviceEndpoints {
-                oauth_token_url: self.refresh_token_url.clone(),
-                ..DeviceEndpoints::default()
-            }
-        };
-        let result = refresh_with_refresh_token_for_test(
-            self.client.clone(),
-            endpoints,
-            refresh_token,
-        )
-        .await?;
+    fn refresh_token<'a>(
+        &'a self,
+        refresh_token: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<RefreshResult>> + Send + 'a>> {
+        Box::pin(async move {
+            let endpoints = if self.refresh_token_url.trim().is_empty() {
+                DeviceEndpoints::default()
+            } else {
+                DeviceEndpoints {
+                    oauth_token_url: self.refresh_token_url.clone(),
+                    ..DeviceEndpoints::default()
+                }
+            };
+            let result = refresh_with_refresh_token_for_test(
+                self.client.clone(),
+                endpoints,
+                refresh_token,
+            )
+            .await?;
 
-        Ok(RefreshResult {
-            access_token: result.access_token,
-            refresh_token: Some(result.refresh_token),
-            id_token: Some(result.id_token),
-            expires_at: result.expires_at,
+            Ok(RefreshResult {
+                access_token: result.access_token,
+                refresh_token: Some(result.refresh_token),
+                id_token: Some(result.id_token),
+                email: result.email,
+                account_id: result.account_id,
+                plan_type: result.plan_type,
+                expires_at: result.expires_at,
+            })
         })
     }
 }
