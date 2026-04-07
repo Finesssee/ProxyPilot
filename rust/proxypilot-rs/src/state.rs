@@ -137,20 +137,18 @@ impl AccountState {
         if self.active_account.as_deref() == Some(trimmed) {
             self.active_account = self
                 .accounts
-                .iter()
-                .find(|account| account.provider == "codex")
-                .map(|account| account.name.clone())
-                .or_else(|| self.accounts.first().map(|account| account.name.clone()));
+                .first()
+                .map(|account| account.name.clone());
         }
 
         Ok(())
     }
 
-    pub fn active_codex_account(&self) -> Option<ActiveCodexAccount> {
+    pub fn active_account_for_provider(&self, provider: &str) -> Option<ActiveCodexAccount> {
         let active_name = self.active_account.as_deref()?;
         self.accounts
             .iter()
-            .find(|account| account.provider == "codex" && account.name == active_name)
+            .find(|account| account.provider == provider && account.name == active_name)
             .map(|account| ActiveCodexAccount {
                 name: account.name.clone(),
                 api_key: account.api_key.clone(),
@@ -163,18 +161,11 @@ impl AccountState {
             })
     }
 
-    pub fn runtime_usable_codex_account_count(&self) -> usize {
-        self.accounts
-            .iter()
-            .filter(|account| account.provider == "codex" && !account.api_key.trim().is_empty())
-            .count()
-    }
-
-    pub fn codex_account_by_name(&self, name: &str) -> Option<ActiveCodexAccount> {
+    pub fn account_by_name_and_provider(&self, name: &str, provider: &str) -> Option<ActiveCodexAccount> {
         let trimmed = name.trim();
         self.accounts
             .iter()
-            .find(|account| account.provider == "codex" && account.name == trimmed)
+            .find(|account| account.provider == provider && account.name == trimmed)
             .map(|account| ActiveCodexAccount {
                 name: account.name.clone(),
                 api_key: account.api_key.clone(),
@@ -185,6 +176,56 @@ impl AccountState {
                 plan_type: account.plan_type.clone(),
                 expires_at: account.expires_at.clone(),
             })
+    }
+
+    pub fn runtime_usable_account_count_for_provider(&self, provider: &str) -> usize {
+        self.accounts
+            .iter()
+            .filter(|account| account.provider == provider && !account.api_key.trim().is_empty())
+            .count()
+    }
+
+    pub fn update_account_tokens_for_provider(
+        &mut self,
+        account_name: &str,
+        provider: &str,
+        access_token: String,
+        refresh_token: Option<String>,
+        id_token: Option<String>,
+        email: Option<String>,
+        account_id: Option<String>,
+        plan_type: Option<String>,
+        expires_at: Option<String>,
+    ) -> Result<()> {
+        let trimmed = account_name.trim();
+        let entry = self
+            .accounts
+            .iter_mut()
+            .find(|account| account.provider == provider && account.name == trimmed)
+            .ok_or_else(|| anyhow::anyhow!("no saved {} account named {}", provider, trimmed))?;
+
+        entry.api_key = access_token;
+        if refresh_token.is_some() { entry.refresh_token = refresh_token; }
+        if id_token.is_some() { entry.id_token = id_token; }
+        if email.is_some() { entry.email = email; }
+        if account_id.is_some() { entry.account_id = account_id; }
+        if plan_type.is_some() { entry.plan_type = plan_type; }
+        if expires_at.is_some() { entry.expires_at = expires_at; }
+        Ok(())
+    }
+
+    // Legacy codex-specific wrappers (delegate to provider-agnostic methods)
+
+    pub fn active_codex_account(&self) -> Option<ActiveCodexAccount> {
+        self.active_account_for_provider(crate::provider::CODEX_PROVIDER)
+    }
+
+    pub fn runtime_usable_codex_account_count(&self) -> usize {
+        self.runtime_usable_account_count_for_provider(crate::provider::CODEX_PROVIDER)
+    }
+
+    pub fn codex_account_by_name(&self, name: &str) -> Option<ActiveCodexAccount> {
+        self.account_by_name_and_provider(name, crate::provider::CODEX_PROVIDER)
     }
 
     pub fn effective_codex_api_key(&self, config: &AppConfig) -> Option<String> {
@@ -300,29 +341,17 @@ impl AccountState {
         account_name: &str,
         result: crate::codex::DeviceAuthResult,
     ) -> Result<()> {
-        let trimmed = account_name.trim();
-        let entry = self
-            .accounts
-            .iter_mut()
-            .find(|account| account.provider == "codex" && account.name == trimmed)
-            .ok_or_else(|| anyhow::anyhow!("no saved Codex account named {}", trimmed))?;
-
-        entry.api_key = result.access_token;
-        entry.refresh_token = optional_trimmed(result.refresh_token);
-        entry.id_token = optional_trimmed(result.id_token);
-        if result.email.is_some() {
-            entry.email = result.email;
-        }
-        if result.account_id.is_some() {
-            entry.account_id = result.account_id;
-        }
-        if result.plan_type.is_some() {
-            entry.plan_type = result.plan_type;
-        }
-        if result.expires_at.is_some() {
-            entry.expires_at = result.expires_at;
-        }
-        Ok(())
+        self.update_account_tokens_for_provider(
+            account_name,
+            crate::provider::CODEX_PROVIDER,
+            result.access_token,
+            optional_trimmed(result.refresh_token),
+            optional_trimmed(result.id_token),
+            result.email,
+            result.account_id,
+            result.plan_type,
+            result.expires_at,
+        )
     }
 }
 

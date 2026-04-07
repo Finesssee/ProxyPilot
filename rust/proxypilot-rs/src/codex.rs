@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::time::sleep;
 
+use crate::provider::{Provider, ProviderId, RefreshResult};
+
 pub const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 pub const DEVICE_USER_CODE_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/usercode";
 pub const DEVICE_TOKEN_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/token";
@@ -27,6 +29,74 @@ pub struct DeviceAuthResult {
     pub account_id: Option<String>,
     pub plan_type: Option<String>,
     pub expires_at: Option<String>,
+}
+
+pub struct CodexProvider {
+    upstream_base_url: String,
+    refresh_token_url: String,
+    client: Client,
+}
+
+impl CodexProvider {
+    pub fn new(upstream_base_url: String, refresh_token_url: String) -> Self {
+        Self {
+            upstream_base_url,
+            refresh_token_url,
+            client: Client::new(),
+        }
+    }
+
+    pub fn from_config(config: &crate::config::AppConfig) -> Self {
+        Self::new(
+            config.codex.upstream_base_url.clone(),
+            config.codex.refresh_token_url.clone(),
+        )
+    }
+}
+
+impl Provider for CodexProvider {
+    fn id(&self) -> ProviderId {
+        ProviderId::CODEX
+    }
+
+    fn display_name(&self) -> &'static str {
+        "Codex (OpenAI)"
+    }
+
+    fn upstream_base_url(&self) -> &str {
+        &self.upstream_base_url
+    }
+
+    fn default_upstream_base_url() -> &'static str {
+        "https://api.openai.com"
+    }
+
+    async fn refresh_token(
+        &self,
+        refresh_token: &str,
+    ) -> Result<RefreshResult> {
+        let endpoints = if self.refresh_token_url.trim().is_empty() {
+            DeviceEndpoints::default()
+        } else {
+            DeviceEndpoints {
+                oauth_token_url: self.refresh_token_url.clone(),
+                ..DeviceEndpoints::default()
+            }
+        };
+        let result = refresh_with_refresh_token_for_test(
+            self.client.clone(),
+            endpoints,
+            refresh_token,
+        )
+        .await?;
+
+        Ok(RefreshResult {
+            access_token: result.access_token,
+            refresh_token: Some(result.refresh_token),
+            id_token: Some(result.id_token),
+            expires_at: result.expires_at,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
