@@ -196,6 +196,17 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	for i := range opts {
 		opts[i](optionState)
 	}
+	cache.SetPromptCacheMetricHooks(cache.PromptCacheMetricHooks{
+		RecordHit:         middleware.RecordPromptCacheHit,
+		RecordMiss:        middleware.RecordPromptCacheMiss,
+		SetSize:           middleware.SetPromptCacheSize,
+		RecordTokensSaved: middleware.RecordPromptCacheTokensSaved,
+	})
+	cache.SetResponseCacheMetricHooks(cache.ResponseCacheMetricHooks{
+		RecordHit:  middleware.RecordResponseCacheHit,
+		RecordMiss: middleware.RecordResponseCacheMiss,
+		SetSize:    middleware.SetResponseCacheSize,
+	})
 	// Set gin mode
 	if !cfg.Debug {
 		gin.SetMode(gin.ReleaseMode)

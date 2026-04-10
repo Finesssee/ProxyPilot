@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/api/middleware"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -108,9 +107,38 @@ func NewPromptCache(cfg PromptCacheConfig) *PromptCache {
 
 // defaultPromptCache is the package-level cache instance.
 var (
-	defaultPromptCache     *PromptCache
-	defaultPromptCacheOnce sync.Once
+	defaultPromptCache      *PromptCache
+	defaultPromptCacheOnce  sync.Once
+	recordPromptCacheHit    = func() {}
+	recordPromptCacheMiss   = func() {}
+	setPromptCacheSize      = func(int) {}
+	recordPromptTokensSaved = func(int) {}
 )
+
+// PromptCacheMetricHooks allows callers to connect prompt cache activity to
+// external metrics collectors without introducing package cycles.
+type PromptCacheMetricHooks struct {
+	RecordHit         func()
+	RecordMiss        func()
+	SetSize           func(int)
+	RecordTokensSaved func(int)
+}
+
+// SetPromptCacheMetricHooks installs metric callbacks for prompt cache events.
+func SetPromptCacheMetricHooks(hooks PromptCacheMetricHooks) {
+	if hooks.RecordHit != nil {
+		recordPromptCacheHit = hooks.RecordHit
+	}
+	if hooks.RecordMiss != nil {
+		recordPromptCacheMiss = hooks.RecordMiss
+	}
+	if hooks.SetSize != nil {
+		setPromptCacheSize = hooks.SetSize
+	}
+	if hooks.RecordTokensSaved != nil {
+		recordPromptTokensSaved = hooks.RecordTokensSaved
+	}
+}
 
 // GetDefaultPromptCache returns the package-level prompt cache.
 func GetDefaultPromptCache() *PromptCache {
@@ -182,8 +210,8 @@ func (pc *PromptCache) CacheSystemPrompt(prompt string, provider string) (string
 		pc.stats.Hits++
 		pc.stats.EstimatedTokensSaved += int64(entry.TokenEstimate)
 		pc.moveToEndLocked(hash)
-		middleware.RecordPromptCacheHit()
-		middleware.RecordPromptCacheTokensSaved(entry.TokenEstimate)
+		recordPromptCacheHit()
+		recordPromptTokensSaved(entry.TokenEstimate)
 
 		log.Debugf("prompt cache HIT hash=%s provider=%s hits=%d", hash[:8], provider, entry.HitCount)
 		return hash, false
@@ -191,7 +219,7 @@ func (pc *PromptCache) CacheSystemPrompt(prompt string, provider string) (string
 
 	pc.stats.Misses++
 	pc.stats.UniquePrompts++
-	middleware.RecordPromptCacheMiss()
+	recordPromptCacheMiss()
 
 	// Evict if at capacity
 	entrySize := estimatePromptEntrySize(prompt, hash)
@@ -225,7 +253,7 @@ func (pc *PromptCache) CacheSystemPrompt(prompt string, provider string) (string
 	pc.order = append(pc.order, hash)
 	pc.totalBytes += entrySize
 	pc.stats.Size = len(pc.entries)
-	middleware.SetPromptCacheSize(len(pc.entries))
+	setPromptCacheSize(len(pc.entries))
 
 	log.Debugf("prompt cache SET hash=%s provider=%s tokens~%d size=%d/%d",
 		hash[:8], provider, tokenEst, len(pc.entries), pc.config.MaxSize)
@@ -324,7 +352,7 @@ func (pc *PromptCache) Clear() {
 	pc.order = make([]string, 0, pc.config.MaxSize)
 	pc.totalBytes = 0
 	pc.stats.Size = 0
-	middleware.SetPromptCacheSize(0)
+	setPromptCacheSize(0)
 }
 
 // GetStats returns current cache statistics.
@@ -404,7 +432,7 @@ func (pc *PromptCache) EvictExpired() int {
 
 	pc.order = newOrder
 	pc.stats.Size = len(pc.entries)
-	middleware.SetPromptCacheSize(len(pc.entries))
+	setPromptCacheSize(len(pc.entries))
 	return evicted
 }
 

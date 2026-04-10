@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/api/middleware"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -96,7 +95,31 @@ func NewResponseCache(cfg ResponseCacheConfig) *ResponseCache {
 var (
 	defaultResponseCache     *ResponseCache
 	defaultResponseCacheOnce sync.Once
+	recordResponseCacheHit   = func() {}
+	recordResponseCacheMiss  = func() {}
+	setResponseCacheSize     = func(int) {}
 )
+
+// ResponseCacheMetricHooks allows callers to connect response cache activity to
+// external metrics collectors without introducing package cycles.
+type ResponseCacheMetricHooks struct {
+	RecordHit  func()
+	RecordMiss func()
+	SetSize    func(int)
+}
+
+// SetResponseCacheMetricHooks installs metric callbacks for response cache events.
+func SetResponseCacheMetricHooks(hooks ResponseCacheMetricHooks) {
+	if hooks.RecordHit != nil {
+		recordResponseCacheHit = hooks.RecordHit
+	}
+	if hooks.RecordMiss != nil {
+		recordResponseCacheMiss = hooks.RecordMiss
+	}
+	if hooks.SetSize != nil {
+		setResponseCacheSize = hooks.SetSize
+	}
+}
 
 // GetDefaultResponseCache returns the package-level response cache.
 func GetDefaultResponseCache() *ResponseCache {
@@ -143,7 +166,7 @@ func (rc *ResponseCache) Get(model string, payload []byte) *CachedResponse {
 		rc.mu.Lock()
 		rc.stats.Misses++
 		rc.mu.Unlock()
-		middleware.RecordResponseCacheMiss()
+		recordResponseCacheMiss()
 		return nil
 	}
 
@@ -153,9 +176,9 @@ func (rc *ResponseCache) Get(model string, payload []byte) *CachedResponse {
 		rc.removeEntryLocked(key)
 		rc.stats.Evictions++
 		rc.stats.Misses++
-		middleware.SetResponseCacheSize(len(rc.entries))
+		setResponseCacheSize(len(rc.entries))
 		rc.mu.Unlock()
-		middleware.RecordResponseCacheMiss()
+		recordResponseCacheMiss()
 		return nil
 	}
 
@@ -164,7 +187,7 @@ func (rc *ResponseCache) Get(model string, payload []byte) *CachedResponse {
 	rc.stats.Hits++
 	rc.moveToEnd(key)
 	rc.mu.Unlock()
-	middleware.RecordResponseCacheHit()
+	recordResponseCacheHit()
 
 	log.Debugf("response cache HIT for model %s (hits: %d)", model, entry.HitCount)
 	return entry
@@ -224,7 +247,7 @@ func (rc *ResponseCache) Set(model string, payload []byte, response []byte, cont
 	rc.order = append(rc.order, key)
 	rc.totalBytes += entrySize
 	rc.stats.Size = len(rc.entries)
-	middleware.SetResponseCacheSize(len(rc.entries))
+	setResponseCacheSize(len(rc.entries))
 
 	log.Debugf("response cache SET for model %s (size: %d/%d)", model, len(rc.entries), rc.config.MaxSize)
 }
@@ -295,7 +318,7 @@ func (rc *ResponseCache) Clear() {
 	rc.order = make([]string, 0, rc.config.MaxSize)
 	rc.totalBytes = 0
 	rc.stats.Size = 0
-	middleware.SetResponseCacheSize(0)
+	setResponseCacheSize(0)
 }
 
 // GetStats returns current cache statistics.
@@ -367,7 +390,7 @@ func (rc *ResponseCache) EvictExpired() int {
 
 	rc.order = newOrder
 	rc.stats.Size = len(rc.entries)
-	middleware.SetResponseCacheSize(len(rc.entries))
+	setResponseCacheSize(len(rc.entries))
 	return evicted
 }
 
