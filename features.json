@@ -1,7 +1,7 @@
 {
   "project": "ProxyPilot",
   "version": "0.3.0",
-  "upstream": "CLIProxyAPI v6.9.22",
+  "upstream": "CLIProxyAPI v6.9.23",
   "features": [
     {
       "id": 1,
