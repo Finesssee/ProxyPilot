@@ -2182,10 +2182,8 @@ func (h *Handler) RequestQwenToken(c *gin.Context) {
 	fmt.Println("Initializing Qwen authentication...")
 
 	state := fmt.Sprintf("gem-%d", time.Now().UnixNano())
-	// Initialize Qwen auth service
 	qwenAuth := qwen.NewQwenAuth(h.cfg)
 
-	// Generate authorization URL
 	deviceFlow, err := qwenAuth.InitiateDeviceFlow(ctx)
 	if err != nil {
 		log.Errorf("Failed to generate authorization URL: %v", err)
@@ -2205,9 +2203,7 @@ func (h *Handler) RequestQwenToken(c *gin.Context) {
 			return
 		}
 
-		// Create token storage
 		tokenStorage := qwenAuth.CreateTokenStorage(tokenData)
-
 		tokenStorage.Email = fmt.Sprintf("%d", time.Now().UnixMilli())
 		record := &coreauth.Auth{
 			ID:       fmt.Sprintf("qwen-%s.json", tokenStorage.Email),
