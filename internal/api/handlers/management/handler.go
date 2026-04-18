@@ -113,6 +113,9 @@ func NewHandlerWithoutConfigFilePath(cfg *config.Config, manager *coreauth.Manag
 // SetConfig updates the in-memory config reference when the server hot-reloads.
 func (h *Handler) SetConfig(cfg *config.Config) {
 	clonedCfg := cloneConfig(cfg)
+	if h == nil {
+		return
+	}
 	h.mu.Lock()
 	h.cfg = clonedCfg
 	h.committedCfg = cloneConfig(clonedCfg)
@@ -120,7 +123,14 @@ func (h *Handler) SetConfig(cfg *config.Config) {
 }
 
 // SetAuthManager updates the auth manager reference used by management endpoints.
-func (h *Handler) SetAuthManager(manager *coreauth.Manager) { h.authManager = manager }
+func (h *Handler) SetAuthManager(manager *coreauth.Manager) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.authManager = manager
+	h.mu.Unlock()
+}
 
 // SetUsageStatistics allows replacing the usage statistics reference.
 func (h *Handler) SetUsageStatistics(stats *usage.RequestStatistics) { h.usageStats = stats }
@@ -307,6 +317,25 @@ func (h *Handler) persistConfig(c *gin.Context, next *config.Config) bool {
 	}
 	h.cfg = next
 	h.committedCfg = cloneConfig(next)
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	return true
+}
+
+// persistLocked saves the current in-memory config to disk.
+// It expects the caller to hold h.mu.
+func (h *Handler) persistLocked(c *gin.Context) bool {
+	if h.cfg == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "config unavailable"})
+		return false
+	}
+	current := cloneConfig(h.cfg)
+	if err := saveConfigAtomically(h.configFilePath, current); err != nil {
+		h.cfg = cloneConfig(h.committedCfg)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save config: %v", err)})
+		return false
+	}
+	h.cfg = current
+	h.committedCfg = cloneConfig(current)
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	return true
 }
