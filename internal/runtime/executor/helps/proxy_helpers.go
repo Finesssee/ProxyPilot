@@ -31,6 +31,23 @@ func NewProxyAwareHTTPClient(ctx context.Context, cfg *config.Config, auth *clip
 		proxyURL = strings.TrimSpace(cfg.ProxyURL)
 	}
 
+	var ctxTransport http.RoundTripper
+	if ctx != nil {
+		if rt, ok := ctx.Value("cliproxy.roundtripper").(http.RoundTripper); ok && rt != nil {
+			ctxTransport = rt
+		}
+	}
+
+	// Context-bound round trippers are request-scoped and must not be served
+	// from or written into the shared empty-proxy cache.
+	if proxyURL == "" && ctxTransport != nil {
+		httpClient := &http.Client{Transport: ctxTransport}
+		if timeout > 0 {
+			httpClient.Timeout = timeout
+		}
+		return httpClient
+	}
+
 	cacheKey := proxyURL
 
 	httpClientCacheMutex.RLock()
@@ -63,8 +80,8 @@ func NewProxyAwareHTTPClient(ctx context.Context, cfg *config.Config, auth *clip
 		log.Debugf("failed to setup proxy from URL: %s, falling back to context transport", proxyURL)
 	}
 
-	if rt, ok := ctx.Value("cliproxy.roundtripper").(http.RoundTripper); ok && rt != nil {
-		httpClient.Transport = rt
+	if ctxTransport != nil {
+		httpClient.Transport = ctxTransport
 	}
 
 	if proxyURL == "" {
