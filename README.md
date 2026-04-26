@@ -251,6 +251,15 @@ prompt-cache:
 
 ---
 
+## Ecosystem
+
+### [CPA Usage Keeper](https://github.com/Willxup/cpa-usage-keeper)
+
+Standalone persistence and visualization service for CLIProxyAPI, with periodic data sync, SQLite storage, aggregate APIs, and a built-in dashboard for usage and statistics.
+
+> [!NOTE]
+> If you developed a project based on CLIProxyAPI, please open a PR to add it to this list.
+
 ## Auto-Updates
 
 ProxyPilot includes a built-in auto-update system that checks for new releases and allows one-click installation.
