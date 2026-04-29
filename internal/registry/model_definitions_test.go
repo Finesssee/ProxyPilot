@@ -3,17 +3,14 @@ package registry
 import "testing"
 
 func TestCodexStaticModelsIncludeGPT55(t *testing.T) {
-	if model := findModelInfo(GetCodexFreeModels(), "gpt-5.5"); model != nil {
-		t.Fatalf("expected codex free tier to exclude gpt-5.5, got %+v", model)
-	}
-
-	paidTierModels := map[string][]*ModelInfo{
+	tierModels := map[string][]*ModelInfo{
+		"free": GetCodexFreeModels(),
 		"team": GetCodexTeamModels(),
 		"plus": GetCodexPlusModels(),
 		"pro":  GetCodexProModels(),
 	}
 
-	for tier, models := range paidTierModels {
+	for tier, models := range tierModels {
 		t.Run(tier, func(t *testing.T) {
 			model := findModelInfo(models, "gpt-5.5")
 			if model == nil {
