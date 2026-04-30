@@ -7,11 +7,11 @@ import (
 )
 
 func applyPayloadConfig(cfg *config.Config, model string, payload []byte) []byte {
-	return helps.ApplyPayloadConfigWithRoot(cfg, model, "", "", payload, nil, "")
+	return helps.ApplyPayloadConfigWithRoot(cfg, model, "", "", payload, nil, "", "")
 }
 
 func applyPayloadConfigWithRoot(cfg *config.Config, model, protocol, root string, payload, original []byte, requestedModel string) []byte {
-	return helps.ApplyPayloadConfigWithRoot(cfg, model, protocol, root, payload, original, requestedModel)
+	return helps.ApplyPayloadConfigWithRoot(cfg, model, protocol, root, payload, original, requestedModel, "")
 }
 
 func payloadRequestedModel(opts cliproxyexecutor.Options, fallback string) string {

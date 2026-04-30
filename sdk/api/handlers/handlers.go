@@ -199,16 +199,23 @@ func requestExecutionMetadata(ctx context.Context) map[string]any {
 	// Idempotency-Key is an optional client-supplied header used to correlate retries.
 	// It is forwarded as execution metadata; when absent we generate a UUID.
 	key := ""
+	requestPath := ""
 	if ctx != nil {
 		if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil && ginCtx.Request != nil {
 			key = strings.TrimSpace(ginCtx.GetHeader("Idempotency-Key"))
+			requestPath = strings.TrimSpace(ginCtx.FullPath())
+			if requestPath == "" && ginCtx.Request.URL != nil {
+				requestPath = strings.TrimSpace(ginCtx.Request.URL.Path)
+			}
 		}
 	}
 	if key == "" {
 		key = uuid.NewString()
 	}
-
 	meta := map[string]any{idempotencyKeyMetadataKey: key}
+	if requestPath != "" {
+		meta[coreexecutor.RequestPathMetadataKey] = requestPath
+	}
 	if pinnedAuthID := pinnedAuthIDFromContext(ctx); pinnedAuthID != "" {
 		meta[coreexecutor.PinnedAuthMetadataKey] = pinnedAuthID
 	}
