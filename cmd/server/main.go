@@ -25,6 +25,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/managementasset"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/redisqueue"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/startupconfig"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/store"
@@ -604,7 +605,6 @@ func main() {
 			configFileExists = true
 		}
 	}
-
 	// Perform basic semantic validation of the loaded configuration.
 	if warnings, errValidate := config.ValidateConfig(cfg); errValidate != nil {
 		log.Errorf("invalid configuration: %v", errValidate)
@@ -616,6 +616,8 @@ func main() {
 	}
 
 	usage.SetStatisticsEnabled(cfg.UsageStatisticsEnabled)
+	redisqueue.SetUsageStatisticsEnabled(cfg.UsageStatisticsEnabled)
+	redisqueue.SetRetentionSeconds(cfg.RedisUsageQueueRetentionSeconds)
 	coreauth.SetQuotaCooldownDisabled(cfg.DisableCooling)
 	// AntigravityPrimaryEmail removed - field does not exist
 

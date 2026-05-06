@@ -38,6 +38,8 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
+require github.com/atotto/clipboard v0.1.4 // indirect
+
 require (
 	cloud.google.com/go/compute/metadata v0.3.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect

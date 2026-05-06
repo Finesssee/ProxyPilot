@@ -85,6 +85,7 @@ tui-ttyd.png
 # macOS
 .DS_Store
 ._*
+.gocache/
 
 # Windows artifacts
 nul
