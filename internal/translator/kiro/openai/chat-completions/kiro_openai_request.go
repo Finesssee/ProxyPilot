@@ -6,7 +6,7 @@ package chat_completions
 import (
 	"bytes"
 
-	claudechatcompletions "github.com/router-for-me/CLIProxyAPI/v6/internal/translator/claude/openai/chat-completions"
+	claudechatcompletions "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/claude/openai/chat-completions"
 )
 
 // ConvertOpenAIRequestToKiro converts an OpenAI Chat Completions API request to Kiro-compatible format.

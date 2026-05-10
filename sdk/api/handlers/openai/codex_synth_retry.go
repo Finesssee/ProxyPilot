@@ -3,7 +3,7 @@ package openai
 import (
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )

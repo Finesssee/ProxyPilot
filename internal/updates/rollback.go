@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/buildinfo"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/buildinfo"
 )
 
 // RollbackInfo contains metadata about a backup that can be restored.

@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	copilotauth "github.com/router-for-me/CLIProxyAPI/v6/internal/auth/copilot"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
-	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
-	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
-	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
+	copilotauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/copilot"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/sjson"
 )

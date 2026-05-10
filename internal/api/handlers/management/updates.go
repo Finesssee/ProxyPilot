@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/updates"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/updates"
 )
 
 // updateState tracks the current update operation state.

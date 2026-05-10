@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/buildinfo"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/embedded"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/buildinfo"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/embedded"
 )
 
 var (

@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/agents"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/agents"
 )
 
 // AgentsV2Handler provides the new unified agent configuration API

@@ -12,12 +12,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	kiroauth "github.com/router-for-me/CLIProxyAPI/v6/internal/auth/kiro"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
-	kiroclaude "github.com/router-for-me/CLIProxyAPI/v6/internal/translator/kiro/claude"
-	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
-	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
-	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
+	kiroauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/kiro"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	kiroclaude "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/kiro/claude"
+	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 	log "github.com/sirupsen/logrus"
 )
 

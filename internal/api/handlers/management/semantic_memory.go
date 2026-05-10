@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/memory"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/memory"
 )
 
 func (h *Handler) GetSemanticHealth(c *gin.Context) {

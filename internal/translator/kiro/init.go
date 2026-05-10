@@ -4,7 +4,7 @@
 package kiro
 
 import (
-	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/translator/kiro/claude"
-	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/translator/kiro/openai/chat-completions"
-	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/translator/kiro/openai/responses"
+	_ "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/kiro/claude"
+	_ "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/kiro/openai/chat-completions"
+	_ "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/kiro/openai/responses"
 )

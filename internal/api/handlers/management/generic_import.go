@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
+	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 )
 
 // ImportCredential handles uploading a text file with credentials for a specific provider.

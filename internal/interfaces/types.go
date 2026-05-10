@@ -6,7 +6,7 @@ package interfaces
 import (
 	"time"
 
-	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 )
 
 // Backwards compatible aliases for translator function types.

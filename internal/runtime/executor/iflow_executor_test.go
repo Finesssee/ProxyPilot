@@ -3,7 +3,7 @@ package executor
 import (
 	"testing"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/thinking"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/thinking"
 )
 
 func TestIFlowExecutorParseSuffix(t *testing.T) {

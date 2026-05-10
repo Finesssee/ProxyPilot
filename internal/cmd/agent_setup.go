@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/pelletier/go-toml/v2"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 )
 
 // SetupResult contains the result of a setup operation

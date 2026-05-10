@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/cache"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/cache"
 )
 
 // CacheStatsResponse represents the response for cache statistics.

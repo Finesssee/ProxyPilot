@@ -4,9 +4,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/memory"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/runtime/executor"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/memory"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )

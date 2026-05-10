@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
-	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
-	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
+	sdkAuth "github.com/router-for-me/CLIProxyAPI/v7/sdk/auth"
+	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 )
 
 // ExportBundle represents exported accounts

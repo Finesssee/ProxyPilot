@@ -1,4 +1,4 @@
-module github.com/router-for-me/CLIProxyAPI/v6
+module github.com/router-for-me/CLIProxyAPI/v7
 
 go 1.26.0
 
@@ -22,6 +22,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.2
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/prometheus/client_golang v1.23.2
+	github.com/redis/go-redis/v9 v9.19.0
 	github.com/refraction-networking/utls v1.8.2
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.11.1
@@ -38,7 +39,10 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require github.com/atotto/clipboard v0.1.4 // indirect
+require (
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
+)
 
 require (
 	cloud.google.com/go/compute/metadata v0.3.0 // indirect
@@ -47,7 +51,6 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
-	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc // indirect
 	github.com/charmbracelet/x/ansi v0.10.1 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.13-0.20250311204145-2c3ea96c31dd // indirect
@@ -116,6 +119,6 @@ require (
 	golang.org/x/arch v0.8.0 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
 	golang.org/x/text v0.31.0 // indirect
-	google.golang.org/protobuf v1.36.8 // indirect
+	google.golang.org/protobuf v1.36.8
 	gopkg.in/ini.v1 v1.67.0 // indirect
 )

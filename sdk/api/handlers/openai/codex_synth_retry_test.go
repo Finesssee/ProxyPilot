@@ -3,7 +3,7 @@ package openai
 import (
 	"testing"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
 )
 
 func TestCodexDetThinkingModel(t *testing.T) {

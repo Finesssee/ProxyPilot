@@ -14,11 +14,11 @@ import (
 	"golang.org/x/sys/windows/svc/eventlog"
 	"golang.org/x/sys/windows/svc/mgr"
 
-	configaccess "github.com/router-for-me/CLIProxyAPI/v6/internal/access/config_access"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
-	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
-	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy"
+	configaccess "github.com/router-for-me/CLIProxyAPI/v7/internal/access/config_access"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
+	sdkAuth "github.com/router-for-me/CLIProxyAPI/v7/sdk/auth"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy"
 )
 
 const serviceName = "ProxyPilot"

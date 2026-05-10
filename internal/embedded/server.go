@@ -13,13 +13,13 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
-	configaccess "github.com/router-for-me/CLIProxyAPI/v6/internal/access/config_access"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/api"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
-	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
-	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy"
+	configaccess "github.com/router-for-me/CLIProxyAPI/v7/internal/access/config_access"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/api"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
+	sdkAuth "github.com/router-for-me/CLIProxyAPI/v7/sdk/auth"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy"
 	log "github.com/sirupsen/logrus"
 )
 

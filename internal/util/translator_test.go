@@ -3,7 +3,7 @@ package util_test
 import (
 	"testing"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
 )
 
 func TestNormalizeNullableTypes(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
-	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/auth"
+	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 )
 
 func TestFileStore_Save_CreatesFile(t *testing.T) {

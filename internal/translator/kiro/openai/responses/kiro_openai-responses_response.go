@@ -6,7 +6,7 @@ package responses
 import (
 	"context"
 
-	clauderesponses "github.com/router-for-me/CLIProxyAPI/v6/internal/translator/claude/openai/responses"
+	clauderesponses "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/claude/openai/responses"
 )
 
 // ConvertKiroResponseToOpenAIResponses converts Kiro streaming response format to OpenAI Responses API format.

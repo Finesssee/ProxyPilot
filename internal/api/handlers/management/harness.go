@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/memory"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/memory"
 )
 
 // GetHarnessFiles returns the list of harness files for a session.

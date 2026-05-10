@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/integrations"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/integrations"
 )
 
 // GetIntegrationsStatus returns the list of detected tools and their configuration status.

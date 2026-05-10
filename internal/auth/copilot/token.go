@@ -6,7 +6,7 @@ package copilot
 import (
 	"fmt"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/misc"
 )
 
 // CopilotTokenStorage stores OAuth2 token information for GitHub Copilot API authentication.

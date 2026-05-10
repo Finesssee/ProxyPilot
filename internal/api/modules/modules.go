@@ -4,8 +4,8 @@ package modules
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers"
 )
 
 // Context encapsulates the dependencies exposed to routing modules during

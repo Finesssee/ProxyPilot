@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v6/cmd/proxypilotui/assets"
+	"github.com/router-for-me/CLIProxyAPI/v7/cmd/proxypilotui/assets"
 )
 
 // ppMgmtKeyRegex matches existing pp-mgmt-key meta tags to be replaced

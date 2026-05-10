@@ -6,7 +6,7 @@ package qwen
 import (
 	"fmt"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/misc"
 )
 
 // QwenTokenStorage stores OAuth2 token information for Alibaba Qwen API authentication.

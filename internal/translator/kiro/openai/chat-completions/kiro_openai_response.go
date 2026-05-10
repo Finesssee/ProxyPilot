@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 
-	claudechatcompletions "github.com/router-for-me/CLIProxyAPI/v6/internal/translator/claude/openai/chat-completions"
+	claudechatcompletions "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/claude/openai/chat-completions"
 )
 
 // ConvertKiroResponseToOpenAI converts Kiro streaming response format to OpenAI Chat Completions API format.

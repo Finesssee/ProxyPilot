@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/buildinfo"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/buildinfo"
 )
 
 type UpdateInfo struct {

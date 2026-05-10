@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
 )
 
 // DefaultLogLines is the default number of log lines to show

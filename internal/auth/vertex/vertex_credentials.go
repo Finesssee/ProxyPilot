@@ -5,7 +5,7 @@ package vertex
 import (
 	"fmt"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/misc"
 )
 
 // VertexCredentialStorage stores the service account JSON for Vertex AI access.

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/misc"
 )
 
 // Resolution describes the config path the server should use at startup.
