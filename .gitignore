@@ -1,6 +1,6 @@
 # Binaries
-cli-proxy-api
-cliproxy
+/cli-proxy-api
+/cliproxy
 proxypilot-linux
 proxypilot-darwin
 proxypilot-windows

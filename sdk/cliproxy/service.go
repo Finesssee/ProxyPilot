@@ -429,6 +429,8 @@ func (s *Service) ensureExecutorsForAuthWithMode(a *coreauth.Auth, forceReplace 
 		s.coreManager.RegisterExecutor(executor.NewAntigravityExecutor(s.cfg))
 	case "claude":
 		s.coreManager.RegisterExecutor(executor.NewClaudeExecutor(s.cfg))
+	case "kiro":
+		s.coreManager.RegisterExecutor(executor.NewKiroExecutor(s.cfg))
 	case "kimi":
 		s.coreManager.RegisterExecutor(executor.NewKimiExecutor(s.cfg))
 	default:
@@ -1100,6 +1102,9 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 				excluded = entry.ExcludedModels
 			}
 		}
+		models = applyExcludedModels(models, excluded)
+	case "kiro":
+		models = registry.GetKiroModels()
 		models = applyExcludedModels(models, excluded)
 	case "codex":
 		codexPlanType := ""

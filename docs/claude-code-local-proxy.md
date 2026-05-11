@@ -32,6 +32,19 @@ Important:
 - Avoid Claude Code “Auth conflict”: do **not** set both `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_API_KEY` at the same time.
 - Restart Claude Code after editing settings so the new env vars take effect.
 
+## Claude OAuth quota limitation
+
+Anthropic currently treats third-party app traffic differently from regular Claude.ai or Claude Code subscription usage. If a Claude OAuth request fails with:
+
+```text
+Third-party apps now draw from your extra usage, not your plan limits.
+Add more at claude.ai/settings/usage and keep going.
+```
+
+that response is coming from Anthropic, not ProxyPilot. It means the OAuth credential is valid, but Anthropic is requiring paid extra usage for this third-party API path. ProxyPilot cannot make those requests draw from normal Claude.ai subscription quota.
+
+For Claude through ProxyPilot, either add extra usage in Anthropic settings, use a supported API-key billing path, or route the client to another provider/model alias such as Antigravity, Codex, Gemini, or Kiro.
+
 ## Server-side model aliasing (Claude handler)
 
 CLIProxyAPI rewrites common Claude Code model aliases to locally-available models before routing:

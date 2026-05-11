@@ -222,61 +222,7 @@ func (a *KiroAuthenticator) LoginWithGoogle(ctx context.Context, cfg *config.Con
 	if cfg == nil {
 		return nil, fmt.Errorf("kiro auth: configuration is required")
 	}
-
-	oauth := kiroauth.NewKiroOAuth(cfg)
-
-	// Use Google OAuth flow with protocol handler
-	tokenData, err := oauth.LoginWithGoogle(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("google login failed: %w", err)
-	}
-
-	// Parse expires_at
-	expiresAt, err := time.Parse(time.RFC3339, tokenData.ExpiresAt)
-	if err != nil {
-		expiresAt = time.Now().Add(1 * time.Hour)
-	}
-
-	// Extract identifier for file naming
-	idPart := extractKiroIdentifier(tokenData.Email, tokenData.ProfileArn)
-
-	now := time.Now()
-	fileName := fmt.Sprintf("kiro-google-%s.json", idPart)
-
-	record := &coreauth.Auth{
-		ID:        fileName,
-		Provider:  "kiro",
-		FileName:  fileName,
-		Label:     "kiro-google",
-		Status:    coreauth.StatusActive,
-		CreatedAt: now,
-		UpdatedAt: now,
-		Metadata: map[string]any{
-			"type":          "kiro",
-			"access_token":  tokenData.AccessToken,
-			"refresh_token": tokenData.RefreshToken,
-			"profile_arn":   tokenData.ProfileArn,
-			"expires_at":    tokenData.ExpiresAt,
-			"auth_method":   tokenData.AuthMethod,
-			"provider":      tokenData.Provider,
-			"email":         tokenData.Email,
-		},
-		Attributes: map[string]string{
-			"profile_arn": tokenData.ProfileArn,
-			"source":      "google-oauth",
-			"email":       tokenData.Email,
-		},
-		// NextRefreshAfter is aligned with RefreshLead (5min)
-		NextRefreshAfter: expiresAt.Add(-5 * time.Minute),
-	}
-
-	if tokenData.Email != "" {
-		fmt.Printf("\n✓ Kiro Google authentication completed successfully! (Account: %s)\n", tokenData.Email)
-	} else {
-		fmt.Println("\n✓ Kiro Google authentication completed successfully!")
-	}
-
-	return record, nil
+	return nil, fmt.Errorf("kiro google login is not supported: AWS Cognito rejects third-party localhost callbacks; use AWS Builder ID or import from Kiro IDE")
 }
 
 // LoginWithGitHub performs OAuth login for Kiro with GitHub.
@@ -285,61 +231,7 @@ func (a *KiroAuthenticator) LoginWithGitHub(ctx context.Context, cfg *config.Con
 	if cfg == nil {
 		return nil, fmt.Errorf("kiro auth: configuration is required")
 	}
-
-	oauth := kiroauth.NewKiroOAuth(cfg)
-
-	// Use GitHub OAuth flow with protocol handler
-	tokenData, err := oauth.LoginWithGitHub(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("github login failed: %w", err)
-	}
-
-	// Parse expires_at
-	expiresAt, err := time.Parse(time.RFC3339, tokenData.ExpiresAt)
-	if err != nil {
-		expiresAt = time.Now().Add(1 * time.Hour)
-	}
-
-	// Extract identifier for file naming
-	idPart := extractKiroIdentifier(tokenData.Email, tokenData.ProfileArn)
-
-	now := time.Now()
-	fileName := fmt.Sprintf("kiro-github-%s.json", idPart)
-
-	record := &coreauth.Auth{
-		ID:        fileName,
-		Provider:  "kiro",
-		FileName:  fileName,
-		Label:     "kiro-github",
-		Status:    coreauth.StatusActive,
-		CreatedAt: now,
-		UpdatedAt: now,
-		Metadata: map[string]any{
-			"type":          "kiro",
-			"access_token":  tokenData.AccessToken,
-			"refresh_token": tokenData.RefreshToken,
-			"profile_arn":   tokenData.ProfileArn,
-			"expires_at":    tokenData.ExpiresAt,
-			"auth_method":   tokenData.AuthMethod,
-			"provider":      tokenData.Provider,
-			"email":         tokenData.Email,
-		},
-		Attributes: map[string]string{
-			"profile_arn": tokenData.ProfileArn,
-			"source":      "github-oauth",
-			"email":       tokenData.Email,
-		},
-		// NextRefreshAfter is aligned with RefreshLead (5min)
-		NextRefreshAfter: expiresAt.Add(-5 * time.Minute),
-	}
-
-	if tokenData.Email != "" {
-		fmt.Printf("\n✓ Kiro GitHub authentication completed successfully! (Account: %s)\n", tokenData.Email)
-	} else {
-		fmt.Println("\n✓ Kiro GitHub authentication completed successfully!")
-	}
-
-	return record, nil
+	return nil, fmt.Errorf("kiro github login is not supported: AWS Cognito rejects third-party localhost callbacks; use AWS Builder ID or import from Kiro IDE")
 }
 
 // ImportFromKiroIDE imports token from Kiro IDE's token file.

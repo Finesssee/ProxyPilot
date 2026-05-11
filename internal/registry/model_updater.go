@@ -179,6 +179,7 @@ func fetchModelsFromRemote(ctx context.Context) (*staticModelsJSON, string) {
 			log.Warnf("models parse failed from %s: %v", url, err)
 			continue
 		}
+		mergeMissingForkModelSections(&parsed, getModels())
 		if err := validateModelsCatalog(&parsed); err != nil {
 			log.Warnf("models validate failed from %s: %v", url, err)
 			continue
@@ -347,6 +348,18 @@ func validateModelsCatalog(data *staticModelsJSON) error {
 		}
 	}
 	return nil
+}
+
+func mergeMissingForkModelSections(data, fallback *staticModelsJSON) {
+	if data == nil || fallback == nil {
+		return
+	}
+	if len(data.Qwen) == 0 {
+		data.Qwen = cloneModelInfos(fallback.Qwen)
+	}
+	if len(data.IFlow) == 0 {
+		data.IFlow = cloneModelInfos(fallback.IFlow)
+	}
 }
 
 func validateModelSection(section string, models []*ModelInfo) error {

@@ -107,8 +107,8 @@ Run OAuth login for your provider:
 ./proxypilot --claude-login        # Claude
 ./proxypilot --codex-login         # OpenAI/Codex
 ./proxypilot --login               # Gemini
-./proxypilot --kiro-login          # Kiro (Google OAuth)
-./proxypilot --kiro-aws-login      # Kiro (AWS Builder ID)
+./proxypilot --kiro-login          # Kiro (AWS Builder ID)
+./proxypilot --kiro-aws-login      # Kiro (AWS Builder ID device code)
 ./proxypilot --qwen-login          # Qwen
 ./proxypilot --antigravity-login   # Antigravity
 
@@ -121,6 +121,8 @@ Run OAuth login for your provider:
 ```
 
 OAuth tokens are stored locally and auto-refreshed before expiry.
+
+Kiro Google/GitHub OAuth is not currently supported because AWS Cognito rejects third-party localhost callbacks. Use AWS Builder ID (`--kiro-login` / `--kiro-aws-login`) or import from the official Kiro IDE.
 
 ### Security Defaults (Auth + CORS)
 

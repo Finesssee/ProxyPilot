@@ -9,63 +9,28 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// DoKiroLogin triggers the Kiro authentication flow with Google OAuth.
-// This is the default login method (same as --kiro-google-login).
+// DoKiroLogin triggers the Kiro authentication flow with AWS Builder ID.
 //
 // Parameters:
 //   - cfg: The application configuration
 //   - options: Login options including Prompt field
 func DoKiroLogin(cfg *config.Config, options *LoginOptions) {
-	// Use Google login as default
-	DoKiroGoogleLogin(cfg, options)
+	DoKiroAWSLogin(cfg, options)
 }
 
 // DoKiroGoogleLogin triggers Kiro authentication with Google OAuth.
-// This uses a custom protocol handler (kiro://) to receive the callback.
 //
 // Parameters:
 //   - cfg: The application configuration
 //   - options: Login options including prompts
 func DoKiroGoogleLogin(cfg *config.Config, options *LoginOptions) {
-	if options == nil {
-		options = &LoginOptions{}
-	}
-
-	// Note: Kiro defaults to incognito mode for multi-account support.
-	// Users can override with --no-incognito if they want to use existing browser sessions.
-
-	manager := newAuthManager()
-
-	// Use KiroAuthenticator with Google login
-	authenticator := sdkAuth.NewKiroAuthenticator()
-	record, err := authenticator.LoginWithGoogle(context.Background(), cfg, &sdkAuth.LoginOptions{
-		NoBrowser: options.NoBrowser,
-		Metadata:  map[string]string{},
-		Prompt:    options.Prompt,
-	})
-	if err != nil {
-		log.Errorf("Kiro Google authentication failed: %v", err)
-		fmt.Println("\nTroubleshooting:")
-		fmt.Println("1. Make sure the protocol handler is installed")
-		fmt.Println("2. Complete the Google login in the browser")
-		fmt.Println("3. If callback fails, try: --kiro-import (after logging in via Kiro IDE)")
-		return
-	}
-
-	// Save the auth record
-	savedPath, err := manager.SaveAuth(record, cfg)
-	if err != nil {
-		log.Errorf("Failed to save auth: %v", err)
-		return
-	}
-
-	if savedPath != "" {
-		fmt.Printf("Authentication saved to %s\n", savedPath)
-	}
-	if record != nil && record.Label != "" {
-		fmt.Printf("Authenticated as %s\n", record.Label)
-	}
-	fmt.Println("Kiro Google authentication successful!")
+	log.Warn("Kiro Google OAuth is disabled because AWS Cognito rejects third-party localhost callbacks")
+	fmt.Println("\nKiro Google login is not currently supported by ProxyPilot.")
+	fmt.Println("AWS Cognito rejects ProxyPilot's localhost redirect URI with redirect_mismatch.")
+	fmt.Println("\nUse one of these supported alternatives:")
+	fmt.Println("1. --kiro-aws-login for AWS Builder ID device authorization")
+	fmt.Println("2. --kiro-aws-authcode for AWS Builder ID browser callback")
+	fmt.Println("3. --kiro-import after signing in with the official Kiro IDE")
 }
 
 // DoKiroAWSLogin triggers Kiro authentication with AWS Builder ID.

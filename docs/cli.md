@@ -57,11 +57,13 @@ proxypilot --codex-login             # Login to Codex using OAuth
 proxypilot --claude-login            # Login to Claude using OAuth
 proxypilot --qwen-login              # Login to Qwen using OAuth
 proxypilot --antigravity-login       # Login to Antigravity using OAuth
-proxypilot --kiro-login              # Login to Kiro using Google OAuth
-proxypilot --kiro-aws-login          # Login to Kiro using AWS Builder ID
+proxypilot --kiro-login              # Login to Kiro using AWS Builder ID
+proxypilot --kiro-aws-login          # Login to Kiro using AWS Builder ID device code
 proxypilot --minimax-login           # Add MiniMax API key
 proxypilot --zhipu-login             # Add Zhipu AI API key
 ```
+
+Kiro Google/GitHub OAuth is not currently supported because AWS Cognito rejects third-party localhost callbacks. Use AWS Builder ID or import a token from the official Kiro IDE instead.
 
 ### Login Options
 
@@ -309,8 +311,8 @@ proxypilot --codex-login             # Codex OAuth
 proxypilot --claude-login            # Claude OAuth
 proxypilot --qwen-login              # Qwen OAuth
 proxypilot --antigravity-login       # Antigravity OAuth
-proxypilot --kiro-login              # Kiro Google OAuth
-proxypilot --kiro-aws-login          # Kiro AWS Builder ID
+proxypilot --kiro-login              # Kiro AWS Builder ID
+proxypilot --kiro-aws-login          # Kiro AWS Builder ID device code
 
 # Agent Detection & Setup
 proxypilot --detect-agents           # Detect installed agents
