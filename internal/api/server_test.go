@@ -147,6 +147,34 @@ func TestManagementUsageRequiresManagementAuthAndPopsArray(t *testing.T) {
 	}
 }
 
+func TestManagementRoutesDoNotEmitWildcardCORS(t *testing.T) {
+	t.Setenv("MANAGEMENT_PASSWORD", "test-management-key")
+
+	server := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/v0/management/config", nil)
+	req.Header.Set("Origin", "https://evil.example")
+	req.Header.Set("Authorization", "Bearer test-management-key")
+	rr := httptest.NewRecorder()
+	server.engine.ServeHTTP(rr, req)
+
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want empty", got)
+	}
+
+	preflight := httptest.NewRequest(http.MethodOptions, "/v0/management/config", nil)
+	preflight.Header.Set("Origin", "https://evil.example")
+	preflight.Header.Set("Access-Control-Request-Method", http.MethodPut)
+	preflightRR := httptest.NewRecorder()
+	server.engine.ServeHTTP(preflightRR, preflight)
+	if preflightRR.Code != http.StatusForbidden {
+		t.Fatalf("preflight status = %d, want %d", preflightRR.Code, http.StatusForbidden)
+	}
+	if got := preflightRR.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("preflight Access-Control-Allow-Origin = %q, want empty", got)
+	}
+}
+
 func TestHomeEnabledHidesManagementEndpointsAndControlPanel(t *testing.T) {
 	t.Setenv("MANAGEMENT_PASSWORD", "test-management-key")
 

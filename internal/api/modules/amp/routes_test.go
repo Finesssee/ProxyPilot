@@ -86,6 +86,80 @@ func TestRegisterManagementRoutes(t *testing.T) {
 	}
 }
 
+func TestRootManagementRoutesRequireAuthExceptAuthFlow(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	m := &AmpModule{
+		restrictToLocalhost: false,
+	}
+
+	mockProxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("proxied"))
+	}))
+	defer mockProxy.Close()
+
+	proxy, err := createReverseProxy(mockProxy.URL, NewStaticSecretSource(""))
+	if err != nil {
+		t.Fatalf("create proxy: %v", err)
+	}
+	m.setProxy(proxy)
+
+	authMiddleware := func(c *gin.Context) {
+		if c.GetHeader("Authorization") != "Bearer good-key" {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+		c.Set("userApiKey", "good-key")
+		c.Next()
+	}
+
+	m.registerManagementRoutes(r, &handlers.BaseAPIHandler{}, authMiddleware)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	for _, path := range []string{"/threads", "/threads/abc", "/settings", "/settings/profile", "/docs"} {
+		t.Run(path+" without key", func(t *testing.T) {
+			resp, err := http.Get(srv.URL + path)
+			if err != nil {
+				t.Fatalf("request failed: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+			}
+		})
+	}
+
+	t.Run("auth flow bypasses key", func(t *testing.T) {
+		resp, err := http.Get(srv.URL + "/auth/callback")
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+		}
+	})
+
+	t.Run("threads accepts valid key", func(t *testing.T) {
+		req, err := http.NewRequest(http.MethodGet, srv.URL+"/threads", nil)
+		if err != nil {
+			t.Fatalf("build request: %v", err)
+		}
+		req.Header.Set("Authorization", "Bearer good-key")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+		}
+	})
+}
+
 func TestRegisterProviderAliases_AllProvidersRegistered(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

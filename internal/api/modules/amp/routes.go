@@ -158,7 +158,7 @@ func (m *AmpModule) registerManagementRoutes(engine *gin.Engine, baseHandler *ha
 	var authWithBypass gin.HandlerFunc
 	if auth != nil {
 		ampAPI.Use(auth)
-		authWithBypass = wrapManagementAuth(auth, "/threads", "/auth", "/docs", "/settings")
+		authWithBypass = wrapManagementAuth(auth, "/auth")
 	}
 
 	// Inject client API key into request context for per-client upstream routing

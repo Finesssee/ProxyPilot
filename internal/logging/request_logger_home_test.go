@@ -85,8 +85,11 @@ func TestFileRequestLogger_HomeEnabled_ForwardsWhenRequestLogEnabled(t *testing.
 	if got.Headers == nil || got.Headers["Content-Type"][0] != "application/json" {
 		t.Fatalf("headers.content-type = %+v, want application/json", got.Headers["Content-Type"])
 	}
-	if got.Headers == nil || got.Headers["Authorization"][0] != "Bearer secret" {
-		t.Fatalf("headers.authorization = %+v, want Bearer secret", got.Headers["Authorization"])
+	if got.Headers == nil || got.Headers["Authorization"][0] == "Bearer secret" {
+		t.Fatalf("headers.authorization = %+v, want redacted value", got.Headers["Authorization"])
+	}
+	if got.Headers["Authorization"][0] == "" || got.Headers["Authorization"][0] == "Bearer " {
+		t.Fatalf("headers.authorization = %+v, want non-empty redacted value", got.Headers["Authorization"])
 	}
 	if got.RequestLog == "" {
 		t.Fatalf("request_log empty, want non-empty")

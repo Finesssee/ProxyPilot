@@ -192,6 +192,16 @@ func cloneHeaders(headers map[string][]string) map[string][]string {
 	return out
 }
 
+func cloneMaskedHeaders(headers map[string][]string) map[string][]string {
+	out := cloneHeaders(headers)
+	for key, values := range out {
+		for i, value := range values {
+			values[i] = util.MaskSensitiveHeaderValue(key, value)
+		}
+	}
+	return out
+}
+
 func (l *FileRequestLogger) forwardRequestLogToHome(ctx context.Context, headers map[string][]string, logText string) error {
 	if l == nil || !l.homeEnabled {
 		return nil
@@ -201,7 +211,7 @@ func (l *FileRequestLogger) forwardRequestLogToHome(ctx context.Context, headers
 		return nil
 	}
 	payload := homeRequestLogPayload{
-		Headers:    cloneHeaders(headers),
+		Headers:    cloneMaskedHeaders(headers),
 		RequestLog: logText,
 	}
 	raw, errMarshal := json.Marshal(&payload)
