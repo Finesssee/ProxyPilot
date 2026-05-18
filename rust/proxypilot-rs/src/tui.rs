@@ -173,19 +173,21 @@ impl TuiApp {
 
     fn refresh_accounts(&mut self) {
         let state_path = self.config.resolve_state_path(Path::new(&self.config_path));
+        let active_provider = self.config.active_provider().to_string();
         match AccountState::load_or_default(&state_path) {
             Ok(state) => {
                 self.account_count = state.accounts.len();
                 self.active_account = state
-                    .active_codex_account()
+                    .active_account_for_provider(&active_provider)
                     .map(|account| account.name)
                     .unwrap_or_else(|| "none".to_string());
                 self.accounts = state
                     .accounts
                     .iter()
-                    .filter(|account| account.provider == "codex")
+                    .filter(|account| account.provider == active_provider)
                     .map(|account| AccountRow {
                         name: account.name.clone(),
+                        provider: account.provider.clone(),
                         email: account.email.clone().unwrap_or_else(|| "-".to_string()),
                         account_id: account
                             .account_id
@@ -269,7 +271,10 @@ impl TuiApp {
 
     fn activate_selected_account(&mut self) {
         let Some(selected) = self.accounts.get(self.selected_account_idx) else {
-            self.feedback = "No saved Codex account to activate.".to_string();
+            self.feedback = format!(
+                "No saved {} account to activate.",
+                self.config.active_provider()
+            );
             self.feedback_color = Color::Yellow;
             return;
         };
@@ -294,7 +299,10 @@ impl TuiApp {
 
     fn delete_selected_account(&mut self) {
         let Some(selected) = self.accounts.get(self.selected_account_idx) else {
-            self.feedback = "No saved Codex account to delete.".to_string();
+            self.feedback = format!(
+                "No saved {} account to delete.",
+                self.config.active_provider()
+            );
             self.feedback_color = Color::Yellow;
             return;
         };
@@ -319,7 +327,10 @@ impl TuiApp {
 
     async fn refresh_selected_account(&mut self) {
         let Some(selected) = self.accounts.get(self.selected_account_idx) else {
-            self.feedback = "No saved Codex account to refresh.".to_string();
+            self.feedback = format!(
+                "No saved {} account to refresh.",
+                self.config.active_provider()
+            );
             self.feedback_color = Color::Yellow;
             return;
         };
@@ -352,8 +363,15 @@ impl TuiApp {
         let state_path = self.config.resolve_state_path(Path::new(&self.config_path));
         let result = async {
             let mut state = AccountState::load_or_default(&state_path)?;
+            let active_provider = self.config.active_provider().to_string();
+            if active_provider != crate::provider::CODEX_PROVIDER {
+                anyhow::bail!(
+                    "{} account refresh is not implemented yet",
+                    self.config.active_provider_label()
+                );
+            }
             let target = state
-                .codex_account_by_name(&account_name)
+                .account_by_name_and_provider(&account_name, &active_provider)
                 .ok_or_else(|| anyhow::anyhow!("account `{}` no longer exists", account_name))?;
             let refresh_token = target.refresh_token.as_deref().ok_or_else(|| {
                 anyhow::anyhow!(
@@ -407,7 +425,7 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
 
     let title = Paragraph::new(vec![
         Line::from(Span::styled(
-            "Codex Operator Console",
+            "ProxyPilot Rust Operator Console",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
@@ -426,9 +444,16 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
                     .add_modifier(Modifier::BOLD),
             ),
         ]),
+        Line::from(format!(
+            "Active provider: {}",
+            app.config.active_provider_label()
+        )),
         Line::from(format!("Disk active account: {}", app.active_account)),
         Line::from(format!("Bind: {}", app.config.server.bind)),
-        Line::from(format!("Upstream: {}", app.config.codex.upstream_base_url)),
+        Line::from(format!(
+            "Upstream: {}",
+            active_provider_upstream(&app.config)
+        )),
         Line::from(format!("Saved accounts: {}", app.account_count)),
         Line::from(format!("Config: {}", app.config_path)),
     ])
@@ -438,6 +463,7 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
         app.runtime_stats.as_ref(),
         app.runtime_error.as_deref(),
         &app.active_account,
+        app.config.active_provider(),
     )
     .into_iter()
     .map(Line::from)
@@ -469,9 +495,10 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
         .wrap(Wrap { trim: false });
 
     let account_lines = if app.accounts.is_empty() {
-        vec![Line::from(
-            "No saved Codex accounts yet. Use the CLI account commands first.",
-        )]
+        vec![Line::from(format!(
+            "No saved {} accounts yet. Use the CLI account commands first.",
+            app.config.active_provider()
+        ))]
     } else {
         app.accounts
             .iter()
@@ -500,6 +527,7 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
     let selected_lines = if let Some(selected) = app.accounts.get(app.selected_account_idx) {
         vec![
             Line::from(format!("Name: {}", selected.name)),
+            Line::from(format!("Provider: {}", selected.provider)),
             Line::from(format!("Email: {}", selected.email)),
             Line::from(format!("Account ID: {}", selected.account_id)),
             Line::from(format!("Plan: {}", selected.plan_type)),
@@ -517,7 +545,10 @@ fn render(frame: &mut ratatui::Frame<'_>, app: &TuiApp) {
         ]
     } else {
         vec![
-            Line::from("No Codex account selected yet."),
+            Line::from(format!(
+                "No {} account selected yet.",
+                app.config.active_provider()
+            )),
             Line::from("Save or import an account, then reopen or press r."),
         ]
     };
@@ -555,6 +586,7 @@ struct ModelEntry {
 
 struct AccountRow {
     name: String,
+    provider: String,
     email: String,
     account_id: String,
     plan_type: String,
@@ -586,6 +618,7 @@ fn runtime_panel_lines(
     runtime_stats: Option<&RuntimeStatsSnapshot>,
     runtime_error: Option<&str>,
     disk_active_account: &str,
+    provider: &str,
 ) -> Vec<String> {
     match runtime_stats {
         Some(stats) => vec![
@@ -595,7 +628,10 @@ fn runtime_panel_lines(
                 stats.active_account_name.as_deref().unwrap_or("none")
             ),
             format!("Local disk active account: {}", disk_active_account),
-            format!("Runtime-usable Codex accounts: {}", stats.account_count),
+            format!(
+                "Runtime-usable {} accounts: {}",
+                provider, stats.account_count
+            ),
             format!("Auth state: {}", stats.auth_health.summary_label()),
             format!(
                 "Request counters: total={} success={} 401={} refresh_attempts={} refresh_failures={}",
@@ -620,6 +656,13 @@ fn runtime_panel_lines(
             format!("Local disk active account: {}", disk_active_account),
             "Local disk-backed account list is still available.".to_string(),
         ],
+    }
+}
+
+fn active_provider_upstream(config: &AppConfig) -> &str {
+    match config.active_provider() {
+        crate::provider::CLAUDE_PROVIDER => &config.claude.upstream_base_url,
+        _ => &config.codex.upstream_base_url,
     }
 }
 
@@ -829,13 +872,18 @@ mod tests {
 
     #[test]
     fn runtime_panel_lines_include_counters_and_last_refresh_outcome() {
-        let lines = runtime_panel_lines(Some(&sample_runtime_stats()), None, "primary");
+        let lines = runtime_panel_lines(
+            Some(&sample_runtime_stats()),
+            None,
+            "primary",
+            crate::provider::CODEX_PROVIDER,
+        );
         let joined = lines.join("\n");
 
         assert!(joined.contains("Runtime stats: live"));
         assert!(joined.contains("Runtime active account: primary"));
         assert!(joined.contains("Local disk active account: primary"));
-        assert!(joined.contains("Runtime-usable Codex accounts: 2"));
+        assert!(joined.contains("Runtime-usable codex accounts: 2"));
         assert!(!joined.contains("Saved accounts on disk: 2"));
         assert!(joined.contains("Auth state: valid"));
         assert!(joined.contains("Request counters: total=7"));
@@ -845,7 +893,12 @@ mod tests {
 
     #[test]
     fn runtime_panel_lines_show_unavailable_copy_when_runtime_is_down() {
-        let lines = runtime_panel_lines(None, Some("connect refused"), "primary");
+        let lines = runtime_panel_lines(
+            None,
+            Some("connect refused"),
+            "primary",
+            crate::provider::CODEX_PROVIDER,
+        );
         let joined = lines.join("\n");
 
         assert!(joined.contains("Runtime unavailable"));
@@ -878,6 +931,7 @@ mod tests {
     fn account_selection_hint_reports_selected_account_mode() {
         let account = AccountRow {
             name: "primary".to_string(),
+            provider: crate::provider::CODEX_PROVIDER.to_string(),
             email: "-".to_string(),
             account_id: "-".to_string(),
             plan_type: "-".to_string(),
@@ -899,6 +953,55 @@ mod tests {
             "Selected account: primary (static)"
         );
         assert_eq!(account_selection_hint(None), "Selected account: none");
+    }
+
+    #[test]
+    fn refresh_accounts_uses_active_provider_not_codex_only() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "proxypilot-tui-provider-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let config_path = temp_dir.join("proxypilot-rs.toml");
+        let state_path = temp_dir.join("state.toml");
+
+        let mut config = AppConfig {
+            state: crate::config::StateConfig {
+                path: state_path.to_string_lossy().to_string(),
+            },
+            providers: crate::config::ProvidersConfig {
+                active: Some(crate::provider::CLAUDE_PROVIDER.to_string()),
+            },
+            ..AppConfig::default()
+        };
+        config.claude.api_key = "claude-config-key".to_string();
+
+        let mut state = AccountState::default();
+        state
+            .add_or_replace_codex_account("codex-main".to_string(), "codex-key".to_string(), true)
+            .unwrap();
+        state
+            .add_or_replace_manual_account(
+                crate::provider::CLAUDE_PROVIDER,
+                "claude-main".to_string(),
+                "claude-key".to_string(),
+                true,
+            )
+            .unwrap();
+        state.save(&state_path).unwrap();
+
+        let mut app = TuiApp::new(config, &config_path);
+        app.refresh_accounts();
+
+        assert_eq!(app.active_account, "claude-main");
+        assert_eq!(app.account_count, 2);
+        assert_eq!(app.accounts.len(), 1);
+        assert_eq!(app.accounts[0].name, "claude-main");
+        assert_eq!(app.accounts[0].provider, crate::provider::CLAUDE_PROVIDER);
+        assert!(app.accounts[0].is_active);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
