@@ -61,6 +61,8 @@ ProxyPilot tray app includes:
 - One-click login launchers: Antigravity, Gemini CLI, Codex, Claude, Qwen
 - `Open Auth Folder` shortcut
 
+Account risk warning: Antigravity, Gemini/Gemini CLI, and Claude login launchers use unofficial compatibility OAuth paths. Providers may treat proxy, automation, shared-token, or third-party OAuth traffic as abnormal usage or a policy violation. These flows can risk quota loss, account restriction, or account suspension. Use disposable or non-critical accounts only if you accept that risk; prefer official API keys or officially supported developer access for important accounts.
+
 ## Logs / diagnostics
 
 Useful paths:

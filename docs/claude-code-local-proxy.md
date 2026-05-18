@@ -32,6 +32,12 @@ Important:
 - Avoid Claude Code “Auth conflict”: do **not** set both `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_API_KEY` at the same time.
 - Restart Claude Code after editing settings so the new env vars take effect.
 
+## Account risk warning
+
+Claude/Anthropic OAuth, Google/Gemini OAuth, Gemini CLI OAuth, and Antigravity OAuth are unofficial compatibility paths. Providers may treat proxy, automation, shared-token, or third-party OAuth traffic as abnormal usage or a policy violation. These flows can risk quota loss, account restriction, or account suspension.
+
+Do not use production, billing-critical, school/work, or irreplaceable personal accounts with these OAuth paths unless you accept that risk. Prefer official API keys or officially supported developer access for important accounts.
+
 ## Claude OAuth quota limitation
 
 Anthropic currently treats third-party app traffic differently from regular Claude.ai or Claude Code subscription usage. If a Claude OAuth request fails with:

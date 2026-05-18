@@ -67,6 +67,8 @@
 | Zhipu AI | API Key | GLM-4.5, GLM-4.6, GLM-4.7 |
 | Custom | API Key | Any OpenAI-compatible endpoint |
 
+> **Account risk warning:** Claude/Anthropic OAuth, Google/Gemini OAuth, Gemini CLI OAuth, and Antigravity OAuth are unofficial compatibility paths. Providers may treat proxy, automation, shared-token, or third-party OAuth traffic as a policy violation or abnormal usage. Using these login flows can risk quota loss, account restriction, or account suspension. Prefer official API-key or officially supported developer access for important accounts.
+
 ---
 
 ## Installation
@@ -121,6 +123,8 @@ Run OAuth login for your provider:
 ```
 
 OAuth tokens are stored locally and auto-refreshed before expiry.
+
+**High-risk OAuth providers:** `--claude-login`, `--login` / Gemini, Gemini CLI OAuth, and `--antigravity-login` may violate provider expectations or trigger anti-abuse/account-protection systems. Do not use production, billing-critical, school/work, or irreplaceable personal accounts with these flows unless you accept the account-risk tradeoff. Prefer official API keys where available.
 
 Kiro Google/GitHub OAuth is not currently supported because AWS Cognito rejects third-party localhost callbacks. Use AWS Builder ID (`--kiro-login` / `--kiro-aws-login`) or import from the official Kiro IDE.
 

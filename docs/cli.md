@@ -63,6 +63,8 @@ proxypilot --minimax-login           # Add MiniMax API key
 proxypilot --zhipu-login             # Add Zhipu AI API key
 ```
 
+Account risk warning: `--claude-login`, `--login` / Gemini, Gemini CLI OAuth, and `--antigravity-login` are unofficial compatibility login paths. Providers may treat proxy, automation, shared-token, or third-party OAuth traffic as abnormal usage or a policy violation. These flows can risk quota loss, account restriction, or account suspension. Prefer official API-key or officially supported developer access for accounts you cannot afford to lose.
+
 Kiro Google/GitHub OAuth is not currently supported because AWS Cognito rejects third-party localhost callbacks. Use AWS Builder ID or import a token from the official Kiro IDE instead.
 
 ### Login Options
