@@ -1,0 +1,33 @@
+name: rust-replatform
+
+on:
+  pull_request:
+    paths:
+      - "rust/**"
+      - "docs/rust-replatform.md"
+      - ".github/workflows/rust-replatform.yml"
+  push:
+    branches:
+      - rust-replatform-v2
+    paths:
+      - "rust/**"
+      - "docs/rust-replatform.md"
+      - ".github/workflows/rust-replatform.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Test
+        working-directory: rust
+        run: cargo test -p proxypilot-rs
