@@ -210,14 +210,24 @@ pub fn build_app(config: AppConfig, accounts: AccountState) -> Router {
 
     Router::new()
         .route("/healthz", get(healthz))
+        .route("/health", get(healthz))
         .route("/v0/runtime/stats", get(runtime_stats))
         .route("/v0/management/status", get(management_status))
         .route("/v0/management/config", get(management_config))
         .route("/v0/management/accounts", get(management_accounts))
         .route("/v1/models", get(list_models))
         .route("/v1/chat/completions", post(chat_completions))
-        .route("/v1/responses", post(responses))
+        .route("/v1/responses", get(responses_websocket).post(responses))
+        .route("/v1/responses/compact", post(responses_compact))
         .route("/v1/messages", post(messages))
+        .route(
+            "/backend-api/codex/responses",
+            get(codex_responses_websocket).post(codex_responses),
+        )
+        .route(
+            "/backend-api/codex/responses/compact",
+            post(codex_responses_compact),
+        )
         .route("/v1/{*path}", get(unsupported_v1).post(unsupported_v1))
         .with_state(state)
 }
@@ -418,6 +428,36 @@ async fn responses(
     .await
 }
 
+async fn responses_compact(
+    State(state): State<AppState>,
+    original_uri: OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response<Body>, ProxyError> {
+    forward_upstream(
+        &state,
+        Method::POST,
+        build_upstream_url(
+            state
+                .providers
+                .active_provider(&state.config)
+                .upstream_base_url(),
+            &original_uri,
+        )?,
+        headers,
+        body,
+    )
+    .await
+}
+
+async fn responses_websocket(original_uri: OriginalUri) -> impl IntoResponse {
+    unsupported_known_route(
+        StatusCode::NOT_IMPLEMENTED,
+        original_uri.0.path().to_string(),
+        "Rust websocket responses proxying is not implemented yet",
+    )
+}
+
 async fn messages(
     State(state): State<AppState>,
     original_uri: OriginalUri,
@@ -440,6 +480,32 @@ async fn messages(
     .await
 }
 
+async fn codex_responses(
+    State(state): State<AppState>,
+    original_uri: OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response<Body>, ProxyError> {
+    forward_codex_alias(&state, original_uri, headers, body, "/v1/responses").await
+}
+
+async fn codex_responses_compact(
+    State(state): State<AppState>,
+    original_uri: OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response<Body>, ProxyError> {
+    forward_codex_alias(&state, original_uri, headers, body, "/v1/responses/compact").await
+}
+
+async fn codex_responses_websocket(original_uri: OriginalUri) -> impl IntoResponse {
+    unsupported_known_route(
+        StatusCode::NOT_IMPLEMENTED,
+        original_uri.0.path().to_string(),
+        "Rust Codex websocket responses proxying is not implemented yet",
+    )
+}
+
 async fn unsupported_v1(original_uri: OriginalUri) -> impl IntoResponse {
     (
         StatusCode::NOT_FOUND,
@@ -456,6 +522,32 @@ async fn unsupported_v1(original_uri: OriginalUri) -> impl IntoResponse {
             ]
         })),
     )
+}
+
+async fn forward_codex_alias(
+    state: &AppState,
+    original_uri: OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+    upstream_path: &str,
+) -> Result<Response<Body>, ProxyError> {
+    let provider = state.providers.active_provider(&state.config);
+    if provider.provider_tag() != crate::provider::CODEX_PROVIDER {
+        return Err(ProxyError::bad_request(format!(
+            "{} only supports the active codex provider; current provider is {}",
+            original_uri.0.path(),
+            provider.provider_tag()
+        )));
+    }
+
+    forward_upstream(
+        state,
+        Method::POST,
+        build_upstream_url_with_path(provider.upstream_base_url(), &original_uri, upstream_path)?,
+        headers,
+        body,
+    )
+    .await
 }
 
 async fn forward_upstream(
@@ -639,6 +731,38 @@ fn build_upstream_url(base_url: &str, original_uri: &OriginalUri) -> Result<Stri
     }
 
     Ok(format!("{cleaned_base}{suffix}"))
+}
+
+fn build_upstream_url_with_path(
+    base_url: &str,
+    original_uri: &OriginalUri,
+    upstream_path: &str,
+) -> Result<String, ProxyError> {
+    if !upstream_path.starts_with("/v1") {
+        return Err(ProxyError::bad_request("only /v1/* proxying is supported"));
+    }
+
+    let cleaned_base = base_url.trim_end_matches('/');
+    let query = original_uri
+        .0
+        .query()
+        .map(|value| format!("?{value}"))
+        .unwrap_or_default();
+    Ok(format!("{cleaned_base}{upstream_path}{query}"))
+}
+
+fn unsupported_known_route(
+    status: StatusCode,
+    route: String,
+    message: &'static str,
+) -> (StatusCode, Json<serde_json::Value>) {
+    (
+        status,
+        Json(json!({
+            "error": message,
+            "route": route,
+        })),
+    )
 }
 
 fn config_fallback_api_key_for_provider(config: &AppConfig, provider: &str) -> Option<String> {
@@ -871,6 +995,237 @@ mod tests {
 
         let _ = proxy_shutdown.send(());
         let _ = upstream_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn proxies_responses_compact_endpoint() {
+        async fn upstream_handler(
+            headers: HeaderMap,
+            Json(body_json): Json<Value>,
+        ) -> impl IntoResponse {
+            let auth = headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            Json(json!({
+                "received_authorization": auth,
+                "received_instructions": body_json["instructions"],
+                "object": "response.compaction"
+            }))
+        }
+
+        let upstream_app = Router::new().route("/v1/responses/compact", post(upstream_handler));
+        let (upstream_url, upstream_shutdown) = start_listener(upstream_app).await;
+
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            state: crate::config::StateConfig::default(),
+            codex: crate::config::CodexConfig {
+                upstream_base_url: upstream_url.clone(),
+                api_key: "compact-token".to_string(),
+                refresh_token_url: String::new(),
+            },
+            ..AppConfig::default()
+        };
+
+        let proxy_app = build_app(config, AccountState::default());
+        let (proxy_url, proxy_shutdown) = start_listener(proxy_app).await;
+
+        let response = Client::new()
+            .post(format!("{proxy_url}/v1/responses/compact"))
+            .json(&json!({
+                "model": "gpt-5.2-codex",
+                "instructions": "summarize this context"
+            }))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: Value = response.json().await.unwrap();
+        assert_eq!(payload["received_authorization"], "Bearer compact-token");
+        assert_eq!(payload["received_instructions"], "summarize this context");
+        assert_eq!(payload["object"], "response.compaction");
+
+        let _ = proxy_shutdown.send(());
+        let _ = upstream_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn proxies_codex_direct_responses_alias_to_v1_responses() {
+        async fn upstream_handler(
+            headers: HeaderMap,
+            Json(body_json): Json<Value>,
+        ) -> impl IntoResponse {
+            let auth = headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            Json(json!({
+                "received_authorization": auth,
+                "echo_input": body_json["input"],
+                "object": "response"
+            }))
+        }
+
+        let upstream_app = Router::new().route("/v1/responses", post(upstream_handler));
+        let (upstream_url, upstream_shutdown) = start_listener(upstream_app).await;
+
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            state: crate::config::StateConfig::default(),
+            codex: crate::config::CodexConfig {
+                upstream_base_url: upstream_url.clone(),
+                api_key: "alias-token".to_string(),
+                refresh_token_url: String::new(),
+            },
+            ..AppConfig::default()
+        };
+
+        let proxy_app = build_app(config, AccountState::default());
+        let (proxy_url, proxy_shutdown) = start_listener(proxy_app).await;
+
+        let response = Client::new()
+            .post(format!(
+                "{proxy_url}/backend-api/codex/responses?stream=false"
+            ))
+            .json(&json!({
+                "model": "gpt-5.2-codex",
+                "input": "ship alias"
+            }))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: Value = response.json().await.unwrap();
+        assert_eq!(payload["received_authorization"], "Bearer alias-token");
+        assert_eq!(payload["echo_input"], "ship alias");
+
+        let _ = proxy_shutdown.send(());
+        let _ = upstream_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn codex_direct_alias_rejects_non_codex_active_provider() {
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            providers: crate::config::ProvidersConfig {
+                active: Some(crate::provider::CLAUDE_PROVIDER.to_string()),
+            },
+            claude: crate::config::ClaudeConfig {
+                upstream_base_url: "https://api.anthropic.com".to_string(),
+                api_key: "claude-token".to_string(),
+            },
+            ..AppConfig::default()
+        };
+
+        let proxy_app = build_app(config, AccountState::default());
+        let (proxy_url, proxy_shutdown) = start_listener(proxy_app).await;
+
+        let response = Client::new()
+            .post(format!("{proxy_url}/backend-api/codex/responses"))
+            .json(&json!({ "input": "wrong provider" }))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let payload: Value = response.json().await.unwrap();
+        assert!(
+            payload["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("current provider is claude")
+        );
+
+        let _ = proxy_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn health_alias_matches_healthz() {
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            state: crate::config::StateConfig::default(),
+            codex: crate::config::CodexConfig {
+                upstream_base_url: "https://api.openai.com".to_string(),
+                api_key: "test-token".to_string(),
+                refresh_token_url: String::new(),
+            },
+            ..AppConfig::default()
+        };
+
+        let proxy_app = build_app(config, AccountState::default());
+        let (proxy_url, proxy_shutdown) = start_listener(proxy_app).await;
+
+        let client = Client::new();
+        let health: Value = client
+            .get(format!("{proxy_url}/health"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let healthz: Value = client
+            .get(format!("{proxy_url}/healthz"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+
+        assert_eq!(health, healthz);
+        assert_eq!(health["status"], "ok");
+        assert_eq!(health["provider"], crate::provider::CODEX_PROVIDER);
+
+        let _ = proxy_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn responses_websocket_get_returns_explicit_not_implemented() {
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            state: crate::config::StateConfig::default(),
+            codex: crate::config::CodexConfig {
+                upstream_base_url: "https://api.openai.com".to_string(),
+                api_key: "test-token".to_string(),
+                refresh_token_url: String::new(),
+            },
+            ..AppConfig::default()
+        };
+
+        let proxy_app = build_app(config, AccountState::default());
+        let (proxy_url, proxy_shutdown) = start_listener(proxy_app).await;
+
+        let response = Client::new()
+            .get(format!("{proxy_url}/v1/responses"))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
+        let payload: Value = response.json().await.unwrap();
+        assert_eq!(
+            payload["error"],
+            "Rust websocket responses proxying is not implemented yet"
+        );
+        assert_eq!(payload["route"], "/v1/responses");
+
+        let _ = proxy_shutdown.send(());
     }
 
     #[tokio::test]

@@ -60,6 +60,13 @@ class Handler(BaseHTTPRequestHandler):
                 "output": [{"type": "message", "content": [{"type": "output_text", "text": "ok"}]}],
             })
             return
+        if self.path == "/v1/responses/compact":
+            self._send({
+                "id": "resp_compact_smoke",
+                "object": "response.compaction",
+                "usage": {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
+            })
+            return
         self.send_error(404)
 
     def log_message(self, format, *args):
@@ -114,6 +121,7 @@ for _ in {1..100}; do
 done
 
 curl -fsS "http://127.0.0.1:${PROXY_PORT}/healthz" >/dev/null
+curl -fsS "http://127.0.0.1:${PROXY_PORT}/health" >/dev/null
 curl -fsS "http://127.0.0.1:${PROXY_PORT}/v0/runtime/stats" | grep -q '"active_account_name":"smoke"'
 curl -fsS "http://127.0.0.1:${PROXY_PORT}/v1/models" | grep -q "gpt-5.1-codex-smoke"
 curl -fsS \
@@ -124,5 +132,13 @@ curl -fsS \
   -H "content-type: application/json" \
   -d '{"model":"gpt-5.1-codex-smoke","input":"ping"}' \
   "http://127.0.0.1:${PROXY_PORT}/v1/responses" | grep -q "resp_smoke"
+curl -fsS \
+  -H "content-type: application/json" \
+  -d '{"model":"gpt-5.1-codex-smoke","instructions":"compact this"}' \
+  "http://127.0.0.1:${PROXY_PORT}/v1/responses/compact" | grep -q "resp_compact_smoke"
+curl -fsS \
+  -H "content-type: application/json" \
+  -d '{"model":"gpt-5.1-codex-smoke","input":"alias ping"}' \
+  "http://127.0.0.1:${PROXY_PORT}/backend-api/codex/responses" | grep -q "resp_smoke"
 
 echo "Codex Rust smoke passed"
