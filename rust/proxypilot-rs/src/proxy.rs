@@ -122,10 +122,7 @@ fn runtime_auth_health_from_state(
     let active_account = accounts.active_account_for_provider(provider);
     let source = if active_account.is_some() {
         AuthCredentialSource::ActiveAccount
-    } else if provider == crate::provider::CODEX_PROVIDER && config.codex.api_key.trim().is_empty()
-    {
-        AuthCredentialSource::NoCredential
-    } else if provider == crate::provider::CODEX_PROVIDER {
+    } else if config_fallback_api_key_for_provider(config, provider).is_some() {
         AuthCredentialSource::ConfigFallbackKey
     } else {
         AuthCredentialSource::NoCredential
@@ -154,6 +151,7 @@ pub fn build_app(config: AppConfig, accounts: AccountState) -> Router {
         .route("/v1/models", get(list_models))
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/responses", post(responses))
+        .route("/v1/messages", post(messages))
         .route("/v1/{*path}", get(unsupported_v1).post(unsupported_v1))
         .with_state(state)
 }
@@ -267,6 +265,28 @@ async fn responses(
     .await
 }
 
+async fn messages(
+    State(state): State<AppState>,
+    original_uri: OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response<Body>, ProxyError> {
+    forward_upstream(
+        &state,
+        Method::POST,
+        build_upstream_url(
+            state
+                .providers
+                .active_provider(&state.config)
+                .upstream_base_url(),
+            &original_uri,
+        )?,
+        headers,
+        body,
+    )
+    .await
+}
+
 async fn unsupported_v1(original_uri: OriginalUri) -> impl IntoResponse {
     (
         StatusCode::NOT_FOUND,
@@ -278,7 +298,8 @@ async fn unsupported_v1(original_uri: OriginalUri) -> impl IntoResponse {
             "supported_routes": [
                 "/v1/models",
                 "/v1/chat/completions",
-                "/v1/responses"
+                "/v1/responses",
+                "/v1/messages"
             ]
         })),
     )
@@ -465,6 +486,20 @@ fn build_upstream_url(base_url: &str, original_uri: &OriginalUri) -> Result<Stri
     }
 
     Ok(format!("{cleaned_base}{suffix}"))
+}
+
+fn config_fallback_api_key_for_provider(config: &AppConfig, provider: &str) -> Option<String> {
+    let fallback = match provider {
+        crate::provider::CODEX_PROVIDER => config.codex.api_key.trim(),
+        crate::provider::CLAUDE_PROVIDER => config.claude.api_key.trim(),
+        _ => "",
+    };
+
+    if fallback.is_empty() {
+        None
+    } else {
+        Some(fallback.to_string())
+    }
 }
 
 fn should_skip_request_header(name: &str) -> bool {
@@ -1458,33 +1493,65 @@ mod tests {
 
     #[tokio::test]
     async fn active_claude_provider_routes_models_and_reports_health() {
-        let upstream_app = Router::new().route(
-            "/v1/models",
-            get(|headers: HeaderMap| async move {
-                let auth = headers
-                    .get("authorization")
-                    .and_then(|value| value.to_str().ok())
-                    .unwrap_or_default()
-                    .to_string();
-                let x_api_key = headers
-                    .get("x-api-key")
-                    .and_then(|value| value.to_str().ok())
-                    .unwrap_or_default()
-                    .to_string();
-                let anthropic_version = headers
-                    .get("anthropic-version")
-                    .and_then(|value| value.to_str().ok())
-                    .unwrap_or_default()
-                    .to_string();
-                Json(json!({
-                    "object": "list",
-                    "data": [],
-                    "received_authorization": auth,
-                    "received_x_api_key": x_api_key,
-                    "received_anthropic_version": anthropic_version,
-                }))
-            }),
-        );
+        let upstream_app = Router::new()
+            .route(
+                "/v1/models",
+                get(|headers: HeaderMap| async move {
+                    let auth = headers
+                        .get("authorization")
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or_default()
+                        .to_string();
+                    let x_api_key = headers
+                        .get("x-api-key")
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or_default()
+                        .to_string();
+                    let anthropic_version = headers
+                        .get("anthropic-version")
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or_default()
+                        .to_string();
+                    Json(json!({
+                        "object": "list",
+                        "data": [],
+                        "received_authorization": auth,
+                        "received_x_api_key": x_api_key,
+                        "received_anthropic_version": anthropic_version,
+                    }))
+                }),
+            )
+            .route(
+                "/v1/messages",
+                post(|headers: HeaderMap, body: Bytes| async move {
+                    let auth = headers
+                        .get("authorization")
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or_default()
+                        .to_string();
+                    let x_api_key = headers
+                        .get("x-api-key")
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or_default()
+                        .to_string();
+                    let anthropic_version = headers
+                        .get("anthropic-version")
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or_default()
+                        .to_string();
+                    let payload: Value = serde_json::from_slice(&body).unwrap();
+                    Json(json!({
+                        "id": "msg_mock",
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "ok"}],
+                        "received_model": payload["model"],
+                        "received_authorization": auth,
+                        "received_x_api_key": x_api_key,
+                        "received_anthropic_version": anthropic_version,
+                    }))
+                }),
+            );
         let (upstream_url, upstream_shutdown) = start_listener(upstream_app).await;
 
         let config = AppConfig {
@@ -1525,7 +1592,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(runtime["upstream_base_url"], upstream_url);
-        assert_eq!(runtime["auth_health"]["source"], "no_credential");
+        assert_eq!(runtime["auth_health"]["source"], "config_fallback_key");
         assert_eq!(runtime["account_count"], 0);
 
         let models: Value = Client::new()
@@ -1539,6 +1606,25 @@ mod tests {
         assert_eq!(models["received_authorization"], "");
         assert_eq!(models["received_x_api_key"], "claude-fallback-token");
         assert_eq!(models["received_anthropic_version"], "2023-06-01");
+
+        let message: Value = Client::new()
+            .post(format!("{proxy_url}/v1/messages"))
+            .json(&json!({
+                "model": "claude-3-5-sonnet-20241022",
+                "max_tokens": 16,
+                "messages": [{"role": "user", "content": "ping"}]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(message["id"], "msg_mock");
+        assert_eq!(message["received_model"], "claude-3-5-sonnet-20241022");
+        assert_eq!(message["received_authorization"], "");
+        assert_eq!(message["received_x_api_key"], "claude-fallback-token");
+        assert_eq!(message["received_anthropic_version"], "2023-06-01");
 
         let _ = proxy_shutdown.send(());
         let _ = upstream_shutdown.send(());

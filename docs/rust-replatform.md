@@ -58,6 +58,17 @@ The smoke check starts a local mock upstream, saves a temporary Codex account,
 starts the Rust proxy, and verifies `/healthz`, `/v0/runtime/stats`,
 `/v1/models`, `/v1/chat/completions`, and `/v1/responses`.
 
+Run the local Claude API-key smoke check:
+
+```bash
+cd rust
+./scripts/claude-smoke.sh
+```
+
+The Claude smoke starts a local mock Anthropic-compatible upstream, starts the
+Rust proxy with `providers.active = "claude"`, and verifies Claude API-key
+headers on `/v1/models` and `/v1/messages`.
+
 ## Current Codex Gaps
 
 The Rust line is not ready to replace the Go Codex surface yet. These Go routes
