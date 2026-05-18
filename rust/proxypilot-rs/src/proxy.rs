@@ -10,6 +10,7 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use reqwest::Client;
+use serde::Serialize;
 use serde_json::json;
 use tokio::sync::RwLock;
 use tracing::info;
@@ -36,6 +37,68 @@ struct RuntimeTelemetry {
     account_count: usize,
     request_counters: RuntimeRequestCounters,
     last_refresh: RefreshStatusSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ManagementStatusResponse {
+    status: &'static str,
+    implementation: &'static str,
+    provider: String,
+    bind_address: String,
+    upstream_base_url: String,
+    active_account_name: Option<String>,
+    account_count: usize,
+    auth_health: auth_runtime::AuthHealthSnapshot,
+    request_counters: RuntimeRequestCounters,
+    last_refresh: RefreshStatusSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ManagementConfigResponse {
+    active_provider: String,
+    server: ManagementServerConfig,
+    state: ManagementStateConfig,
+    codex: ManagementProviderConfig,
+    claude: ManagementProviderConfig,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ManagementServerConfig {
+    bind: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ManagementStateConfig {
+    path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ManagementProviderConfig {
+    upstream_base_url: String,
+    api_key: &'static str,
+    refresh_token_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ManagementAccountsResponse {
+    active_account: Option<String>,
+    total_accounts: usize,
+    accounts: Vec<ManagementAccountRow>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ManagementAccountRow {
+    name: String,
+    provider: String,
+    active: bool,
+    key_state: &'static str,
+    refresh_state: &'static str,
+    email: Option<String>,
+    account_id: Option<String>,
+    plan_type: Option<String>,
+    expires_at: Option<String>,
+    source: Option<String>,
+    auth_health: auth_runtime::AuthHealthSnapshot,
 }
 
 impl AppState {
@@ -148,6 +211,9 @@ pub fn build_app(config: AppConfig, accounts: AccountState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/v0/runtime/stats", get(runtime_stats))
+        .route("/v0/management/status", get(management_status))
+        .route("/v0/management/config", get(management_config))
+        .route("/v0/management/accounts", get(management_accounts))
         .route("/v1/models", get(list_models))
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/responses", post(responses))
@@ -198,6 +264,93 @@ async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
 
 async fn runtime_stats(State(state): State<AppState>) -> impl IntoResponse {
     Json(state.runtime_stats_snapshot().await)
+}
+
+async fn management_status(State(state): State<AppState>) -> impl IntoResponse {
+    let provider = state.providers.active_provider(&state.config);
+    let snapshot = state.runtime_stats_snapshot().await;
+    Json(ManagementStatusResponse {
+        status: "ok",
+        implementation: "rust-replatform",
+        provider: provider.provider_tag().to_string(),
+        bind_address: snapshot.bind_address,
+        upstream_base_url: snapshot.upstream_base_url,
+        active_account_name: snapshot.active_account_name,
+        account_count: snapshot.account_count,
+        auth_health: snapshot.auth_health,
+        request_counters: snapshot.request_counters,
+        last_refresh: snapshot.last_refresh,
+    })
+}
+
+async fn management_config(State(state): State<AppState>) -> impl IntoResponse {
+    Json(ManagementConfigResponse {
+        active_provider: state.config.active_provider().to_string(),
+        server: ManagementServerConfig {
+            bind: state.config.server.bind.clone(),
+        },
+        state: ManagementStateConfig {
+            path: state.config.state.path.clone(),
+        },
+        codex: ManagementProviderConfig {
+            upstream_base_url: state.config.codex.upstream_base_url.clone(),
+            api_key: redacted_key_state(&state.config.codex.api_key),
+            refresh_token_url: non_empty_string(&state.config.codex.refresh_token_url),
+        },
+        claude: ManagementProviderConfig {
+            upstream_base_url: state.config.claude.upstream_base_url.clone(),
+            api_key: redacted_key_state(&state.config.claude.api_key),
+            refresh_token_url: None,
+        },
+    })
+}
+
+async fn management_accounts(State(state): State<AppState>) -> impl IntoResponse {
+    let accounts = state.accounts.read().await;
+    Json(ManagementAccountsResponse {
+        active_account: accounts.active_account.clone(),
+        total_accounts: accounts.accounts.len(),
+        accounts: accounts
+            .accounts
+            .iter()
+            .map(|account| {
+                let source = if account.name == accounts.active_account.as_deref().unwrap_or("") {
+                    AuthCredentialSource::ActiveAccount
+                } else if account.api_key.trim().is_empty() {
+                    AuthCredentialSource::NoCredential
+                } else {
+                    AuthCredentialSource::ActiveAccount
+                };
+                ManagementAccountRow {
+                    name: account.name.clone(),
+                    provider: account.provider.clone(),
+                    active: accounts.active_account.as_deref() == Some(account.name.as_str()),
+                    key_state: redacted_key_state(&account.api_key),
+                    refresh_state: if account
+                        .refresh_token
+                        .as_deref()
+                        .map(|value| !value.trim().is_empty())
+                        .unwrap_or(false)
+                    {
+                        "present"
+                    } else {
+                        "missing"
+                    },
+                    email: account.email.clone(),
+                    account_id: account.account_id.clone(),
+                    plan_type: account.plan_type.clone(),
+                    expires_at: account.expires_at.clone(),
+                    source: account.source.clone(),
+                    auth_health: auth_runtime::evaluate_auth_health(
+                        source,
+                        account.refresh_token.as_deref(),
+                        account.expires_at.as_deref(),
+                        auth_runtime::now_unix_secs(),
+                    ),
+                }
+            })
+            .collect(),
+    })
 }
 
 async fn list_models(
@@ -499,6 +652,23 @@ fn config_fallback_api_key_for_provider(config: &AppConfig, provider: &str) -> O
         None
     } else {
         Some(fallback.to_string())
+    }
+}
+
+fn redacted_key_state(value: &str) -> &'static str {
+    if value.trim().is_empty() {
+        "missing"
+    } else {
+        "configured"
+    }
+}
+
+fn non_empty_string(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
     }
 }
 
@@ -1428,6 +1598,113 @@ mod tests {
 
         let _ = upstream_shutdown.send(());
         let _ = restarted_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn management_endpoints_report_safe_runtime_config_and_accounts() {
+        let upstream_app = Router::new().route(
+            "/v1/models",
+            get(|| async { Json(json!({"object": "list", "data": []})) }),
+        );
+        let (upstream_url, upstream_shutdown) = start_listener(upstream_app).await;
+
+        let config = AppConfig {
+            server: crate::config::ServerConfig {
+                bind: "127.0.0.1:0".to_string(),
+            },
+            state: crate::config::StateConfig {
+                path: "state/proxypilot-rs.state.toml".to_string(),
+            },
+            codex: crate::config::CodexConfig {
+                upstream_base_url: upstream_url.clone(),
+                api_key: "codex-secret".to_string(),
+                refresh_token_url: "http://127.0.0.1:12345/oauth/token".to_string(),
+            },
+            claude: crate::config::ClaudeConfig {
+                upstream_base_url: "https://claude.example.com".to_string(),
+                api_key: "claude-secret".to_string(),
+            },
+            ..AppConfig::default()
+        };
+
+        let mut accounts = AccountState::default();
+        accounts
+            .add_device_codex_account(
+                "primary".to_string(),
+                crate::codex::DeviceAuthResult {
+                    access_token: "account-secret".to_string(),
+                    refresh_token: "refresh-secret".to_string(),
+                    id_token: "id-secret".to_string(),
+                    email: Some("dev@example.com".to_string()),
+                    account_id: Some("acct_123".to_string()),
+                    plan_type: Some("pro".to_string()),
+                    expires_at: Some("2099-01-01T00:00:00Z".to_string()),
+                },
+                true,
+            )
+            .unwrap();
+        accounts
+            .add_or_replace_manual_account(
+                crate::provider::CLAUDE_PROVIDER,
+                "claude".to_string(),
+                "claude-account-secret".to_string(),
+                false,
+            )
+            .unwrap();
+
+        let app = build_app(config, accounts);
+        let (proxy_url, proxy_shutdown) = start_listener(app).await;
+        let client = Client::new();
+
+        let status: Value = client
+            .get(format!("{proxy_url}/v0/management/status"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(status["status"], "ok");
+        assert_eq!(status["implementation"], "rust-replatform");
+        assert_eq!(status["provider"], "codex");
+        assert_eq!(status["active_account_name"], "primary");
+        assert_eq!(status["account_count"], 1);
+
+        let config_response = client
+            .get(format!("{proxy_url}/v0/management/config"))
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(config_response.contains("\"api_key\":\"configured\""));
+        assert!(
+            config_response
+                .contains("\"refresh_token_url\":\"http://127.0.0.1:12345/oauth/token\"")
+        );
+        assert!(!config_response.contains("codex-secret"));
+        assert!(!config_response.contains("claude-secret"));
+
+        let accounts_response = client
+            .get(format!("{proxy_url}/v0/management/accounts"))
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(accounts_response.contains("\"name\":\"primary\""));
+        assert!(accounts_response.contains("\"provider\":\"codex\""));
+        assert!(accounts_response.contains("\"key_state\":\"configured\""));
+        assert!(accounts_response.contains("\"refresh_state\":\"present\""));
+        assert!(!accounts_response.contains("account-secret"));
+        assert!(!accounts_response.contains("refresh-secret"));
+        assert!(!accounts_response.contains("id-secret"));
+        assert!(!accounts_response.contains("claude-account-secret"));
+
+        let _ = proxy_shutdown.send(());
+        let _ = upstream_shutdown.send(());
     }
 
     #[tokio::test]
