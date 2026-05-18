@@ -244,6 +244,63 @@ pub fn import_codex_account(
     Ok(())
 }
 
+pub fn export_accounts(config: &AppConfig, config_path: &Path, export_file: &Path) -> Result<()> {
+    let state_path = config.resolve_state_path(config_path);
+    let state = AccountState::load_or_default(&state_path)?;
+
+    if let Some(parent) = export_file.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create export directory {}", parent.display()))?;
+    }
+
+    let raw = toml::to_string_pretty(&state).context("failed to serialize account state export")?;
+    fs::write(export_file, raw)
+        .with_context(|| format!("failed to write account export {}", export_file.display()))?;
+
+    println!(
+        "exported {} local account(s) to {}",
+        state.accounts.len(),
+        export_file.display()
+    );
+    println!("source state file: {}", state_path.display());
+    Ok(())
+}
+
+pub fn import_accounts(
+    config: &AppConfig,
+    config_path: &Path,
+    import_file: &Path,
+    replace: bool,
+) -> Result<()> {
+    let raw = fs::read_to_string(import_file)
+        .with_context(|| format!("failed to read account import {}", import_file.display()))?;
+    let imported: AccountState = toml::from_str(&raw)
+        .with_context(|| format!("failed to parse account import {}", import_file.display()))?;
+    let imported_count = imported.accounts.len();
+
+    let state_path = config.resolve_state_path(config_path);
+    let mut state = if replace {
+        imported
+    } else {
+        let mut state = AccountState::load_or_default(&state_path)?;
+        state.merge_from(imported);
+        state
+    };
+    state.accounts.sort_by(|a, b| a.name.cmp(&b.name));
+    state.save(&state_path)?;
+
+    println!(
+        "{} {} local account(s) from {}",
+        if replace { "replaced with" } else { "imported" },
+        imported_count,
+        import_file.display()
+    );
+    println!("state file: {}", state_path.display());
+    Ok(())
+}
+
 pub async fn login_codex_device(
     config: &AppConfig,
     config_path: &Path,
@@ -454,6 +511,109 @@ mod tests {
 
         let _ = fs::remove_file(config_path);
         let _ = fs::remove_file(state_path);
+    }
+
+    #[test]
+    fn export_and_import_accounts_round_trip_full_state() {
+        let (config_path, state_path) = temp_paths("export-import");
+        let export_path = state_path.with_extension("export.toml");
+        let config = AppConfig {
+            state: crate::config::StateConfig {
+                path: state_path.display().to_string(),
+            },
+            ..AppConfig::default()
+        };
+        fs::write(&config_path, AppConfig::example_toml()).unwrap();
+
+        let mut state = AccountState::default();
+        state
+            .add_or_replace_codex_account("primary".to_string(), "codex-key".to_string(), true)
+            .unwrap();
+        state
+            .add_or_replace_manual_account(
+                crate::provider::CLAUDE_PROVIDER,
+                "claude-main".to_string(),
+                "claude-key".to_string(),
+                false,
+            )
+            .unwrap();
+        state.save(&state_path).unwrap();
+
+        export_accounts(&config, &config_path, &export_path).unwrap();
+        fs::remove_file(&state_path).unwrap();
+        import_accounts(&config, &config_path, &export_path, true).unwrap();
+
+        let imported = AccountState::load_or_default(&state_path).unwrap();
+        assert_eq!(imported.active_account.as_deref(), Some("primary"));
+        assert_eq!(imported.accounts.len(), 2);
+        assert_eq!(
+            imported.codex_account_by_name("primary").unwrap().api_key,
+            "codex-key"
+        );
+        assert_eq!(
+            imported
+                .account_by_name_and_provider("claude-main", crate::provider::CLAUDE_PROVIDER)
+                .unwrap()
+                .api_key,
+            "claude-key"
+        );
+
+        let _ = fs::remove_file(config_path);
+        let _ = fs::remove_file(state_path);
+        let _ = fs::remove_file(export_path);
+    }
+
+    #[test]
+    fn import_accounts_merges_without_overwriting_active_account() {
+        let (config_path, state_path) = temp_paths("merge-import");
+        let import_path = state_path.with_extension("import.toml");
+        let config = AppConfig {
+            state: crate::config::StateConfig {
+                path: state_path.display().to_string(),
+            },
+            ..AppConfig::default()
+        };
+        fs::write(&config_path, AppConfig::example_toml()).unwrap();
+
+        let mut local = AccountState::default();
+        local
+            .add_or_replace_codex_account("primary".to_string(), "old-key".to_string(), true)
+            .unwrap();
+        local.save(&state_path).unwrap();
+
+        let mut imported = AccountState::default();
+        imported
+            .add_or_replace_codex_account("primary".to_string(), "new-key".to_string(), true)
+            .unwrap();
+        imported
+            .add_or_replace_manual_account(
+                crate::provider::CLAUDE_PROVIDER,
+                "claude-main".to_string(),
+                "claude-key".to_string(),
+                false,
+            )
+            .unwrap();
+        imported.save(&import_path).unwrap();
+
+        import_accounts(&config, &config_path, &import_path, false).unwrap();
+
+        let merged = AccountState::load_or_default(&state_path).unwrap();
+        assert_eq!(merged.active_account.as_deref(), Some("primary"));
+        assert_eq!(
+            merged.codex_account_by_name("primary").unwrap().api_key,
+            "new-key"
+        );
+        assert_eq!(
+            merged
+                .account_by_name_and_provider("claude-main", crate::provider::CLAUDE_PROVIDER)
+                .unwrap()
+                .api_key,
+            "claude-key"
+        );
+
+        let _ = fs::remove_file(config_path);
+        let _ = fs::remove_file(state_path);
+        let _ = fs::remove_file(import_path);
     }
 
     #[tokio::test]

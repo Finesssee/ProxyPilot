@@ -78,6 +78,22 @@ pub enum AccountCommand {
         #[arg(long, default_value_t = false)]
         activate: bool,
     },
+    /// Export the full local Rust account state to a TOML file.
+    Export {
+        #[command(flatten)]
+        shared: SharedConfig,
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Import a full local Rust account state TOML file.
+    Import {
+        #[command(flatten)]
+        shared: SharedConfig,
+        #[arg(long)]
+        file: PathBuf,
+        #[arg(long, default_value_t = false)]
+        replace: bool,
+    },
     /// Start the Codex device flow and save the resulting account locally.
     LoginCodexDevice {
         #[command(flatten)]

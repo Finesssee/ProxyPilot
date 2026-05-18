@@ -19,7 +19,7 @@ This branch carries the Rust rewrite line for ProxyPilot.
 - explicit Codex-facing routes for `/v1/models`, `/v1/chat/completions`, `/v1/responses`, `/v1/responses/compact`, and Codex direct `/backend-api/codex/responses` aliases
 - a local `/v0/runtime/stats` operator surface for runtime-memory counters, auth-health, and last refresh status
 - read-only `/v0/management/status`, `/v0/management/config`, and `/v0/management/accounts` endpoints with API key and token material redacted
-- CLI account commands for adding, importing, device-login, refresh, listing, activating, and removing Codex accounts; these manage saved disk state only and do not pretend a running proxy has already adopted the change
+- CLI account commands for adding, importing, exporting, device-login, refresh, listing, activating, and removing accounts; these manage saved disk state only and do not pretend a running proxy has already adopted the change
 - optional `codex.refresh_token_url` config support for redirecting Codex refresh exchanges to a local stub during validation, while preserving the live OpenAI default when unset
 - a TUI operator console that shows live runtime stats, runtime-unavailable copy, local accounts, selected-account details, token state labels, terminal actions for activate/refresh/delete, separate selected-account vs active-account refresh handling, and the `r` / `c` reload-clear controls
 - runtime credential resolution that prefers the active saved account over the config fallback key
@@ -41,6 +41,9 @@ cd rust
 cargo run -p proxypilot-rs -- init
 cargo run -p proxypilot-rs -- account add-codex --name primary --api-key sk-...
 cargo run -p proxypilot-rs -- account import-codex --file ../auths/codex-example.json --activate
+cargo run -p proxypilot-rs -- account export --file proxypilot-rs.accounts.toml
+cargo run -p proxypilot-rs -- account import --file proxypilot-rs.accounts.toml
+cargo run -p proxypilot-rs -- account import --file proxypilot-rs.accounts.toml --replace
 cargo run -p proxypilot-rs -- account login-codex-device --activate
 cargo run -p proxypilot-rs -- account refresh-codex
 cargo run -p proxypilot-rs -- account remove --name old-account

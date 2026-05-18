@@ -151,6 +151,27 @@ impl AccountState {
         Ok(())
     }
 
+    pub fn merge_from(&mut self, imported: AccountState) -> usize {
+        let mut imported_count = 0;
+        for imported_account in imported.accounts {
+            self.accounts
+                .retain(|account| account.name != imported_account.name);
+            self.accounts.push(imported_account);
+            imported_count += 1;
+        }
+
+        if self.active_account.is_none() {
+            self.active_account = imported.active_account;
+        }
+        if let Some(active) = self.active_account.as_deref()
+            && !self.accounts.iter().any(|account| account.name == active)
+        {
+            self.active_account = self.accounts.first().map(|account| account.name.clone());
+        }
+        self.accounts.sort_by(|a, b| a.name.cmp(&b.name));
+        imported_count
+    }
+
     pub fn active_account_for_provider(&self, provider: &str) -> Option<ActiveCodexAccount> {
         let active_name = self.active_account.as_deref()?;
         self.accounts
@@ -508,6 +529,59 @@ mod tests {
         assert_eq!(state.active_account.as_deref(), Some("backup"));
         assert_eq!(state.accounts.len(), 1);
         assert_eq!(state.accounts[0].name, "backup");
+    }
+
+    #[test]
+    fn merge_from_replaces_named_accounts_and_preserves_existing_active_account() {
+        let mut state = AccountState::default();
+        state
+            .add_or_replace_codex_account("primary".to_string(), "old-key".to_string(), true)
+            .unwrap();
+
+        let mut imported = AccountState {
+            active_account: Some("imported-active".to_string()),
+            accounts: Vec::new(),
+        };
+        imported
+            .add_or_replace_codex_account("primary".to_string(), "new-key".to_string(), false)
+            .unwrap();
+        imported
+            .add_or_replace_manual_account(
+                crate::provider::CLAUDE_PROVIDER,
+                "claude-main".to_string(),
+                "claude-key".to_string(),
+                false,
+            )
+            .unwrap();
+
+        assert_eq!(state.merge_from(imported), 2);
+
+        assert_eq!(state.active_account.as_deref(), Some("primary"));
+        assert_eq!(state.accounts.len(), 2);
+        assert_eq!(
+            state.codex_account_by_name("primary").unwrap().api_key,
+            "new-key"
+        );
+        assert_eq!(
+            state
+                .account_by_name_and_provider("claude-main", crate::provider::CLAUDE_PROVIDER)
+                .unwrap()
+                .api_key,
+            "claude-key"
+        );
+    }
+
+    #[test]
+    fn merge_from_uses_imported_active_when_local_has_none() {
+        let mut state = AccountState::default();
+        let mut imported = AccountState::default();
+        imported
+            .add_or_replace_codex_account("imported".to_string(), "key".to_string(), true)
+            .unwrap();
+
+        state.merge_from(imported);
+
+        assert_eq!(state.active_account.as_deref(), Some("imported"));
     }
 
     #[test]

@@ -77,6 +77,20 @@ async fn main() -> Result<()> {
                     &config, &path, &file, name, activate,
                 )?;
             }
+            AccountCommand::Export { shared, file } => {
+                let path = resolve_config_path(shared.config);
+                let config = AppConfig::load(&path)?;
+                proxypilot_rs::accounts::export_accounts(&config, &path, &file)?;
+            }
+            AccountCommand::Import {
+                shared,
+                file,
+                replace,
+            } => {
+                let path = resolve_config_path(shared.config);
+                let config = AppConfig::load(&path)?;
+                proxypilot_rs::accounts::import_accounts(&config, &path, &file, replace)?;
+            }
             AccountCommand::LoginCodexDevice {
                 shared,
                 name,
