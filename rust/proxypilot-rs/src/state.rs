@@ -268,6 +268,8 @@ impl AccountState {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ImportedCodexAuth {
     #[serde(default)]
+    pub id_token: String,
+    #[serde(default)]
     pub access_token: String,
     #[serde(default)]
     pub refresh_token: String,
@@ -307,7 +309,7 @@ impl AccountState {
             },
             api_key: imported.access_token.trim().to_string(),
             refresh_token: optional_trimmed(imported.refresh_token),
-            id_token: None,
+            id_token: optional_trimmed(imported.id_token),
             email: optional_trimmed(imported.email),
             account_id: optional_trimmed(imported.account_id),
             plan_type: None,
@@ -430,6 +432,7 @@ mod tests {
             .add_imported_codex_account(
                 "imported".to_string(),
                 ImportedCodexAuth {
+                    id_token: "id".to_string(),
                     access_token: "imported-token".to_string(),
                     refresh_token: "refresh".to_string(),
                     email: "dev@example.com".to_string(),
@@ -449,9 +452,45 @@ mod tests {
             .unwrap();
         assert_eq!(account.email.as_deref(), Some("dev@example.com"));
         assert_eq!(account.account_id.as_deref(), Some("acct_123"));
+        assert_eq!(account.id_token.as_deref(), Some("id"));
         assert_eq!(account.plan_type.as_deref(), None);
         assert_eq!(account.expires_at.as_deref(), Some("2026-04-06T00:00:00Z"));
         assert_eq!(account.source.as_deref(), Some("file"));
+    }
+
+    #[test]
+    fn imported_codex_auth_accepts_go_token_storage_shape() {
+        let imported: ImportedCodexAuth = serde_json::from_str(
+            r#"{
+                "id_token": "go-id-token",
+                "access_token": "go-access-token",
+                "refresh_token": "go-refresh-token",
+                "account_id": "acct_go",
+                "last_refresh": "2026-04-05T00:00:00Z",
+                "email": "go@example.com",
+                "type": "codex",
+                "expired": "2026-04-06T00:00:00Z"
+            }"#,
+        )
+        .unwrap();
+
+        let mut state = AccountState::default();
+        state
+            .add_imported_codex_account(
+                "go-file".to_string(),
+                imported,
+                "fixture".to_string(),
+                true,
+            )
+            .unwrap();
+
+        let account = state.active_codex_account().unwrap();
+        assert_eq!(account.api_key, "go-access-token");
+        assert_eq!(account.refresh_token.as_deref(), Some("go-refresh-token"));
+        assert_eq!(account.id_token.as_deref(), Some("go-id-token"));
+        assert_eq!(account.email.as_deref(), Some("go@example.com"));
+        assert_eq!(account.account_id.as_deref(), Some("acct_go"));
+        assert_eq!(account.expires_at.as_deref(), Some("2026-04-06T00:00:00Z"));
     }
 
     #[test]

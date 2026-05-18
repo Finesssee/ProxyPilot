@@ -58,6 +58,19 @@ The smoke check starts a local mock upstream, saves a temporary Codex account,
 starts the Rust proxy, and verifies `/healthz`, `/v0/runtime/stats`,
 `/v1/models`, `/v1/chat/completions`, and `/v1/responses`.
 
+## Current Codex Gaps
+
+The Rust line is not ready to replace the Go Codex surface yet. These Go routes
+and behaviors are still unsupported or intentionally deferred:
+
+- `/backend-api/codex/responses`
+- `/backend-api/codex/responses/{response_id}/compact`
+- `/v1/responses/compact`
+- Codex websocket streaming
+- Codex image generation and image edit handling
+- Browser dashboard and `/v0/management/**` routes
+- Go model registry and model-mapping behavior
+
 Open the TUI with:
 
 ```bash
