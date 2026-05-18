@@ -32,8 +32,6 @@ pub enum Command {
     },
     /// Manage local account state for the Rust rewrite.
     Account {
-        #[command(flatten)]
-        shared: SharedConfig,
         #[command(subcommand)]
         command: AccountCommand,
     },

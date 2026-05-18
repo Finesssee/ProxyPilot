@@ -46,6 +46,18 @@ cargo run -p proxypilot-rs -- account remove --name old-account
 cargo run -p proxypilot-rs -- run --config proxypilot-rs.toml
 ```
 
+Run the local Codex-compatible smoke check without touching real provider
+accounts:
+
+```bash
+cd rust
+./scripts/codex-smoke.sh
+```
+
+The smoke check starts a local mock upstream, saves a temporary Codex account,
+starts the Rust proxy, and verifies `/healthz`, `/v0/runtime/stats`,
+`/v1/models`, `/v1/chat/completions`, and `/v1/responses`.
+
 Open the TUI with:
 
 ```bash
