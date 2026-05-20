@@ -1,11 +1,13 @@
 package startupconfig
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/misc"
+	log "github.com/sirupsen/logrus"
 )
 
 // Resolution describes the config path the server should use at startup.
@@ -14,6 +16,47 @@ type Resolution struct {
 	TemplatePath string
 	UsedDefault  bool
 }
+
+const embeddedConfigTemplate = `# Server host/interface to bind to. Default is empty ("") to bind all interfaces (IPv4 + IPv6).
+# Use "127.0.0.1" or "localhost" to restrict access to local machine only.
+host: ""
+
+# Server port
+port: 8317
+
+# Authentication directory (supports ~ for home directory)
+auth-dir: "~/.cli-proxy-api"
+
+# API keys for authentication
+api-keys:
+  - "your-api-key-1"
+  - "your-api-key-2"
+  - "your-api-key-3"
+
+# Enable debug logging
+debug: false
+
+# Proxy URL. Supports socks5/http/https protocols.
+proxy-url: ""
+
+# Gemini API keys
+# gemini-api-key:
+#   - api-key: "AIzaSy..."
+
+# Codex API keys
+# codex-api-key:
+#   - api-key: "sk-..."
+
+# Claude API keys
+# claude-api-key:
+#   - api-key: "sk-..."
+
+# OpenAI compatible API keys
+# openai-compatibility:
+#   - name: "openai"
+#     api-key: "sk-..."
+#     base-url: "https://api.openai.com/v1"
+`
 
 // ResolveConfigPath determines the startup config path.
 // Explicit --config paths remain strict. Implicit defaults prefer a packaged
@@ -51,8 +94,9 @@ func ResolveConfigPath(explicitConfigPath, workingDir, executablePath string) Re
 	}
 }
 
-// EnsureDefaultConfig bootstraps the implicit default config from a colocated
-// config.example.yaml when the config file does not already exist.
+// EnsureDefaultConfig bootstraps the implicit default config when the config
+// file does not already exist. A colocated config.example.yaml is preferred;
+// standalone binaries fall back to an embedded starter template.
 func EnsureDefaultConfig(resolution Resolution) (bool, error) {
 	if !resolution.UsedDefault || cleanPath(resolution.ConfigPath) == "" {
 		return false, nil
@@ -60,13 +104,13 @@ func EnsureDefaultConfig(resolution Resolution) (bool, error) {
 	if fileExists(resolution.ConfigPath) {
 		return false, nil
 	}
-	if resolution.TemplatePath == "" {
-		return false, nil
+	if resolution.TemplatePath != "" && fileExists(resolution.TemplatePath) {
+		if err := misc.CopyConfigTemplate(resolution.TemplatePath, resolution.ConfigPath); err != nil {
+			return false, err
+		}
+		return true, nil
 	}
-	if !fileExists(resolution.TemplatePath) {
-		return false, nil
-	}
-	if err := misc.CopyConfigTemplate(resolution.TemplatePath, resolution.ConfigPath); err != nil {
+	if err := writeConfigTemplate(resolution.ConfigPath, strings.NewReader(embeddedConfigTemplate)); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -126,4 +170,25 @@ func fileExists(path string) bool {
 		return false
 	}
 	return !info.IsDir()
+}
+
+func writeConfigTemplate(dst string, src io.Reader) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+		return err
+	}
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if errClose := out.Close(); errClose != nil {
+			log.WithError(errClose).Warn("failed to close destination config file")
+		}
+	}()
+
+	if _, err = io.Copy(out, src); err != nil {
+		return err
+	}
+	return out.Sync()
 }

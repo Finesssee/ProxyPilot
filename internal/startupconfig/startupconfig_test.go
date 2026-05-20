@@ -112,3 +112,30 @@ func TestEnsureDefaultConfigCopiesTemplate(t *testing.T) {
 		t.Fatalf("config contents = %q, want %q", got, template)
 	}
 }
+
+func TestEnsureDefaultConfigUsesEmbeddedTemplateWhenFileTemplateMissing(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	resolution := Resolution{
+		ConfigPath:   filepath.Join(tmpDir, "standalone", "config.yaml"),
+		TemplatePath: filepath.Join(tmpDir, "standalone", "config.example.yaml"),
+		UsedDefault:  true,
+	}
+
+	created, err := EnsureDefaultConfig(resolution)
+	if err != nil {
+		t.Fatalf("EnsureDefaultConfig returned error: %v", err)
+	}
+	if !created {
+		t.Fatalf("expected embedded default config to be created")
+	}
+
+	got, err := os.ReadFile(resolution.ConfigPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if string(got) != embeddedConfigTemplate {
+		t.Fatalf("config contents = %q, want embedded template", got)
+	}
+}
