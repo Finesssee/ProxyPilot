@@ -108,6 +108,7 @@ func main() {
 	var setupAll bool
 	var switchAgent string
 	var switchMode string
+	var xaiLogin bool
 	var projectID string
 	var vertexImport string
 	var vertexImportPrefix string
@@ -147,6 +148,8 @@ func main() {
 	var launchTUI bool
 	var homeAddr string
 	var homePassword string
+	var homeJWT string
+	var homeDisableClusterDiscovery bool
 	var standalone bool
 	var localModel bool
 
@@ -185,6 +188,7 @@ func main() {
 	flag.BoolVar(&setupAll, "setup-all", false, "Configure all detected CLI agents (with backup)")
 	flag.StringVar(&switchAgent, "switch", "", "Switch agent config mode (e.g., --switch claude)")
 	flag.StringVar(&switchMode, "mode", "", "Switch mode: proxy, native, or status (default: status)")
+	flag.BoolVar(&xaiLogin, "xai-login", false, "Login to xAI using OAuth")
 	flag.StringVar(&projectID, "project_id", "", "Project ID (Gemini only, not required)")
 	flag.StringVar(&configPath, "config", DefaultConfigPath, "Configure File Path")
 	flag.StringVar(&vertexImport, "vertex-import", "", "Import Vertex service account key JSON file")
@@ -193,6 +197,8 @@ func main() {
 	flag.BoolVar(&launchTUI, "tui", false, "Start with terminal management UI")
 	flag.StringVar(&homeAddr, "home", "", "Home control plane address in host:port format (loads config from home and skips local config file)")
 	flag.StringVar(&homePassword, "home-password", "", "Home control plane password (Redis AUTH)")
+	flag.StringVar(&homeJWT, "home-jwt", "", "Home control plane JWT for mTLS certificate bootstrap and connection")
+	flag.BoolVar(&homeDisableClusterDiscovery, "home-disable-cluster-discovery", false, "Disable Home CLUSTER NODES discovery and keep using the configured -home-jwt address")
 	flag.BoolVar(&standalone, "standalone", false, "In TUI mode, start an embedded local server")
 	flag.BoolVar(&localModel, "local-model", false, "Use embedded model catalog only, skip remote model fetching")
 
@@ -358,6 +364,13 @@ func main() {
 		return "", false
 	}
 	writableBase := util.WritablePath()
+
+	if strings.TrimSpace(homeJWT) == "" {
+		if v, ok := lookupEnv("HOME_JWT", "home_jwt"); ok {
+			homeJWT = v
+		}
+	}
+
 	if value, ok := lookupEnv("PGSTORE_DSN", "pgstore_dsn"); ok {
 		usePostgresStore = true
 		pgStoreDSN = value
@@ -421,7 +434,55 @@ func main() {
 	// Determine and load the configuration file.
 	// Prefer the Postgres store when configured, otherwise fallback to git or local files.
 	var configFilePath string
-	if strings.TrimSpace(homeAddr) != "" {
+	if strings.TrimSpace(homeJWT) != "" {
+		configLoadedFromHome = true
+		ctxHome, cancelHome := context.WithTimeout(context.Background(), 30*time.Second)
+		homeCfg, errHomeCfg := home.ConfigFromJWT(ctxHome, homeJWT)
+		cancelHome()
+		if errHomeCfg != nil {
+			log.Errorf("invalid -home-jwt: %v", errHomeCfg)
+			return
+		}
+		if homeDisableClusterDiscovery {
+			homeCfg.DisableClusterDiscovery = true
+		}
+		homeClient := home.New(homeCfg)
+		defer homeClient.Close()
+
+		ctxHomeConfig, cancelHomeConfig := context.WithTimeout(context.Background(), 30*time.Second)
+		raw, errGetConfig := homeClient.GetConfig(ctxHomeConfig)
+		cancelHomeConfig()
+		if errGetConfig != nil {
+			log.Errorf("failed to fetch config from home: %v", errGetConfig)
+			return
+		}
+
+		parsed, errParseConfig := config.ParseConfigBytes(raw)
+		if errParseConfig != nil {
+			log.Errorf("failed to parse config payload from home: %v", errParseConfig)
+			return
+		}
+		if parsed == nil {
+			parsed = &config.Config{}
+		}
+		parsed.Home = homeCfg
+		parsed.Port = 8317 // Default to 8317 for home mode, can be overridden by home config
+		parsed.UsageStatisticsEnabled = true
+		cfg = parsed
+
+		// Keep a non-empty config path for downstream components (log paths, management assets, etc),
+		// but do not require the file to exist when loading config from home.
+		if strings.TrimSpace(configPath) != "" {
+			configFilePath = configPath
+		} else {
+			configFilePath = filepath.Join(wd, "config.yaml")
+		}
+
+		// Local stores are intentionally disabled when config is loaded from home.
+		usePostgresStore = false
+		useObjectStore = false
+		useGitStore = false
+	} else if strings.TrimSpace(homeAddr) != "" {
 		configLoadedFromHome = true
 		trimmedHomePassword := strings.TrimSpace(homePassword)
 		host, portStr, errSplit := net.SplitHostPort(strings.TrimSpace(homeAddr))
@@ -466,19 +527,16 @@ func main() {
 			parsed = &config.Config{}
 		}
 		parsed.Home = homeCfg
-		parsed.Port = 8317 // Default to 8317 for home mode, can be overridden by home config
+		parsed.Port = 8317
 		parsed.UsageStatisticsEnabled = true
 		cfg = parsed
 
-		// Keep a non-empty config path for downstream components (log paths, management assets, etc),
-		// but do not require the file to exist when loading config from home.
 		if strings.TrimSpace(configPath) != "" {
 			configFilePath = configPath
 		} else {
 			configFilePath = filepath.Join(wd, "config.yaml")
 		}
 
-		// Local stores are intentionally disabled when config is loaded from home.
 		usePostgresStore = false
 		useObjectStore = false
 		useGitStore = false
@@ -897,6 +955,8 @@ func main() {
 		// - Subcommand style: proxypilot switch claude proxy
 		// - Flag style: proxypilot --switch claude --mode proxy
 		cmd.DoSwitch(cfg, switchAgent, switchMode)
+	} else if xaiLogin {
+		cmd.DoXAILogin(cfg, options)
 	} else {
 		// In cloud deploy mode without config file, just wait for shutdown signals
 		if isCloudDeploy && !configFileExists {

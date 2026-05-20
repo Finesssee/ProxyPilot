@@ -67,7 +67,7 @@ func SetModelRefreshCallback(cb ModelRefreshCallback) {
 func init() {
 	// Load embedded data as fallback on startup.
 	if err := loadModelsFromBytes(embeddedModelsJSON, "embed"); err != nil {
-		panic(fmt.Sprintf("registry: failed to parse embedded models.json: %v", err))
+		log.Warnf("registry: failed to parse embedded models.json (embedded catalog may be incomplete or invalid; continuing startup and will rely on remote model refresh): %v", err)
 	}
 }
 
@@ -218,6 +218,7 @@ func detectChangedProviders(oldData, newData *staticModelsJSON) []string {
 		{"iflow", oldData.IFlow, newData.IFlow},
 		{"kimi", oldData.Kimi, newData.Kimi},
 		{"antigravity", oldData.Antigravity, newData.Antigravity},
+		{"xai", oldData.XAI, newData.XAI},
 	}
 
 	seen := make(map[string]bool, len(sections))
@@ -340,6 +341,7 @@ func validateModelsCatalog(data *staticModelsJSON) error {
 		{name: "iflow", models: data.IFlow},
 		{name: "kimi", models: data.Kimi},
 		{name: "antigravity", models: data.Antigravity},
+		{name: "xai", models: data.XAI},
 	}
 
 	for _, section := range requiredSections {
@@ -364,7 +366,8 @@ func mergeMissingForkModelSections(data, fallback *staticModelsJSON) {
 
 func validateModelSection(section string, models []*ModelInfo) error {
 	if len(models) == 0 {
-		return fmt.Errorf("%s section is empty", section)
+		log.Warnf("models catalog: %s section is empty, continuing without those model definitions", section)
+		return nil
 	}
 
 	seen := make(map[string]struct{}, len(models))
