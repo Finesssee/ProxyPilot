@@ -7,68 +7,34 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func TestConvertGeminiResponseToOpenAI_MapsCandidateFinishReasons(t *testing.T) {
-	raw := []byte(`{
-  "responseId":"resp_test",
-  "modelVersion":"gemini-test",
-  "candidates":[
-    {"index":0,"content":{"role":"model","parts":[{"text":"a"}]},"finishReason":"MAX_TOKENS"},
-    {"index":1,"content":{"role":"model","parts":[{"text":"b"}]},"finishReason":"SAFETY"}
-  ]
-}`)
-
+func TestGeminiFinishReasonOnlyOnFinalChunk(t *testing.T) {
+	ctx := context.Background()
 	var param any
-	chunks := ConvertGeminiResponseToOpenAI(context.Background(), "gemini-test", nil, nil, raw, &param)
-	if len(chunks) != 2 {
-		t.Fatalf("expected 2 chunks, got %d", len(chunks))
+
+	chunk1 := []byte(`{"candidates":[{"content":{"parts":[{"functionCall":{"name":"list_dir","args":{"path":"C:/"}}}]}}],"usageMetadata":{"trafficType":"ON_DEMAND"}}`)
+	result1 := ConvertGeminiResponseToOpenAI(ctx, "model", nil, nil, chunk1, &param)
+	if len(result1) != 1 {
+		t.Fatalf("expected 1 result from chunk1, got %d", len(result1))
+	}
+	fr1 := gjson.GetBytes(result1[0], "choices.0.finish_reason")
+	if fr1.Exists() && fr1.String() != "" && fr1.Type.String() != "Null" {
+		t.Fatalf("expected null finish_reason on tool chunk, got %v", fr1.String())
 	}
 
-	first := gjson.ParseBytes(chunks[0])
-	second := gjson.ParseBytes(chunks[1])
+	chunk2 := []byte(`{"candidates":[{"content":{"parts":[{"functionCall":{"name":"list_dir","args":{"path":"D:/"}}}]}}],"usageMetadata":{"trafficType":"ON_DEMAND"}}`)
+	ConvertGeminiResponseToOpenAI(ctx, "model", nil, nil, chunk2, &param)
 
-	if got := first.Get("choices.0.finish_reason").String(); got != "length" {
-		t.Fatalf("expected first finish_reason length, got %q chunk=%s", got, chunks[0])
+	chunk3 := []byte(`{"candidates":[{"content":{"parts":[{"text":""}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5,"totalTokenCount":15}}`)
+	result3 := ConvertGeminiResponseToOpenAI(ctx, "model", nil, nil, chunk3, &param)
+	if len(result3) != 1 {
+		t.Fatalf("expected 1 result from chunk3, got %d", len(result3))
 	}
-	if got := first.Get("choices.0.native_finish_reason").String(); got != "max_tokens" {
-		t.Fatalf("expected first native_finish_reason max_tokens, got %q chunk=%s", got, chunks[0])
+	fr3 := gjson.GetBytes(result3[0], "choices.0.finish_reason").String()
+	if fr3 != "tool_calls" {
+		t.Fatalf("expected finish_reason tool_calls, got %s", fr3)
 	}
-	if got := second.Get("choices.0.finish_reason").String(); got != "content_filter" {
-		t.Fatalf("expected second finish_reason content_filter, got %q chunk=%s", got, chunks[1])
-	}
-	if got := second.Get("choices.0.native_finish_reason").String(); got != "safety" {
-		t.Fatalf("expected second native_finish_reason safety, got %q chunk=%s", got, chunks[1])
-	}
-}
-
-func TestConvertGeminiResponseToOpenAINonStream_MapsToolAndSafetyFinishReasons(t *testing.T) {
-	raw := []byte(`{
-  "responseId":"resp_test",
-  "candidates":[
-    {
-      "index":0,
-      "content":{"role":"model","parts":[{"functionCall":{"name":"Read","args":{"path":"/tmp/x"}}}]},
-      "finishReason":"MALFORMED_FUNCTION_CALL"
-    },
-    {
-      "index":1,
-      "content":{"role":"model","parts":[{"text":"blocked"}]},
-      "finishReason":"BLOCKLIST"
-    }
-  ]
-}`)
-
-	out := ConvertGeminiResponseToOpenAINonStream(context.Background(), "gemini-test", nil, nil, raw, nil)
-
-	if got := gjson.GetBytes(out, "choices.0.finish_reason").String(); got != "tool_calls" {
-		t.Fatalf("expected candidate 0 finish_reason tool_calls, got %q body=%s", got, out)
-	}
-	if got := gjson.GetBytes(out, "choices.0.native_finish_reason").String(); got != "malformed_function_call" {
-		t.Fatalf("expected candidate 0 native_finish_reason malformed_function_call, got %q body=%s", got, out)
-	}
-	if got := gjson.GetBytes(out, "choices.1.finish_reason").String(); got != "content_filter" {
-		t.Fatalf("expected candidate 1 finish_reason content_filter, got %q body=%s", got, out)
-	}
-	if got := gjson.GetBytes(out, "choices.1.native_finish_reason").String(); got != "blocklist" {
-		t.Fatalf("expected candidate 1 native_finish_reason blocklist, got %q body=%s", got, out)
+	nfr3 := gjson.GetBytes(result3[0], "choices.0.native_finish_reason").String()
+	if nfr3 != "stop" {
+		t.Fatalf("expected native_finish_reason stop, got %s", nfr3)
 	}
 }
