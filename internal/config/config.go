@@ -91,6 +91,9 @@ type Config struct {
 	// When <= 0, the default worker count is used.
 	AuthAutoRefreshWorkers int `yaml:"auth-auto-refresh-workers" json:"auth-auto-refresh-workers"`
 
+	// IncognitoBrowser opens OAuth browser sessions in private/incognito mode when supported.
+	IncognitoBrowser bool `yaml:"incognito-browser" json:"incognito-browser"`
+
 	// RequestRetry defines the retry times when the request failed.
 	RequestRetry int `yaml:"request-retry" json:"request-retry"`
 	// MaxRetryCredentials defines the maximum number of credentials to try for a failed request.

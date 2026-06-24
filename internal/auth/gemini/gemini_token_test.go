@@ -3,6 +3,7 @@ package gemini
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -93,7 +94,7 @@ func TestGeminiTokenStorage_SaveTokenToFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat() error = %v", err)
 	}
-	if got := info.Mode().Perm(); got != 0o600 {
+	if got := info.Mode().Perm(); runtime.GOOS != "windows" && got != 0o600 {
 		t.Fatalf("file mode = %v, want %v", got, os.FileMode(0o600))
 	}
 

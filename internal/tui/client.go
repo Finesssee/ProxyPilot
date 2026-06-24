@@ -2,19 +2,14 @@ package tui
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 )
-
-// ErrEngineNotRunning indicates the proxy engine is not running.
-var ErrEngineNotRunning = errors.New("engine not running - start ProxyPilot first")
 
 // Client wraps HTTP calls to the management API.
 type Client struct {
@@ -23,20 +18,10 @@ type Client struct {
 	http      *http.Client
 }
 
-// NewClient creates a management API client from either a port number or a base URL.
-func NewClient(target any, secretKey string) *Client {
-	baseURL := ""
-	switch value := target.(type) {
-	case int:
-		baseURL = fmt.Sprintf("http://127.0.0.1:%d", value)
-	case string:
-		baseURL = strings.TrimRight(strings.TrimSpace(value), "/")
-	default:
-		baseURL = "http://127.0.0.1:8317"
-	}
-
+// NewClient creates a new management API client.
+func NewClient(port int, secretKey string) *Client {
 	return &Client{
-		baseURL:   baseURL,
+		baseURL:   fmt.Sprintf("http://127.0.0.1:%d", port),
 		secretKey: strings.TrimSpace(secretKey),
 		http: &http.Client{
 			Timeout: 10 * time.Second,
@@ -57,21 +42,12 @@ func (c *Client) doRequest(method, path string, body io.Reader) ([]byte, int, er
 	}
 	if c.secretKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.secretKey)
-		req.Header.Set("X-Management-Key", c.secretKey)
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		var netErr *net.OpError
-		if errors.As(err, &netErr) {
-			return nil, 0, ErrEngineNotRunning
-		}
-		if strings.Contains(err.Error(), "connection refused") ||
-			strings.Contains(err.Error(), "No connection could be made") {
-			return nil, 0, ErrEngineNotRunning
-		}
 		return nil, 0, err
 	}
 	defer resp.Body.Close()
@@ -374,15 +350,6 @@ func (c *Client) GetDebug() (bool, error) {
 	return false, nil
 }
 
-// StartAuth initiates OAuth login for a provider.
-func (c *Client) StartAuth(provider string) (string, string, error) {
-	wrapper, err := c.getJSON(fmt.Sprintf("/v0/management/%s-auth-url", provider))
-	if err != nil {
-		return "", "", err
-	}
-	return getString(wrapper, "url"), getString(wrapper, "state"), nil
-}
-
 // GetAuthStatus polls the OAuth session status.
 // Returns status ("wait", "ok", "error") and optional error message.
 func (c *Client) GetAuthStatus(state string) (string, string, error) {
@@ -391,13 +358,10 @@ func (c *Client) GetAuthStatus(state string) (string, string, error) {
 	path := "/v0/management/get-auth-status?" + query.Encode()
 	wrapper, err := c.getJSON(path)
 	if err != nil {
-		return "pending", "Waiting for auth...", nil
+		return "", "", err
 	}
 	status := getString(wrapper, "status")
 	errMsg := getString(wrapper, "error")
-	if errMsg == "" {
-		errMsg = getString(wrapper, "message")
-	}
 	return status, errMsg, nil
 }
 
@@ -428,229 +392,4 @@ func (c *Client) PutStringField(path string, value string) error {
 func (c *Client) DeleteField(path string) error {
 	_, _, err := c.doRequest("DELETE", "/v0/management/"+path, nil)
 	return err
-}
-
-func getString(m map[string]any, key string) string {
-	if v, ok := m[key]; ok {
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return ""
-}
-
-func getFloat(m map[string]any, key string) float64 {
-	if v, ok := m[key]; ok {
-		switch n := v.(type) {
-		case float64:
-			return n
-		case json.Number:
-			f, _ := n.Float64()
-			return f
-		}
-	}
-	return 0
-}
-
-func getBool(m map[string]any, key string) bool {
-	if v, ok := m[key]; ok {
-		if b, ok := v.(bool); ok {
-			return b
-		}
-	}
-	return false
-}
-
-// FetchStatus fetches proxy status for the legacy dashboard.
-func (c *Client) FetchStatus() (ProxyStatus, error) {
-	status := ProxyStatus{Port: 8318}
-
-	resp, err := c.http.Get(c.baseURL + "/healthz")
-	if err != nil {
-		return status, nil
-	}
-	defer resp.Body.Close()
-	status.Running = resp.StatusCode == http.StatusOK
-
-	authFiles, err := c.GetAuthFiles()
-	if err == nil {
-		status.Accounts = len(authFiles)
-	}
-
-	data, err := c.get("/v1/models")
-	if err == nil {
-		var modelsResp struct {
-			Data []any `json:"data"`
-		}
-		if errUnmarshal := json.Unmarshal(data, &modelsResp); errUnmarshal == nil {
-			status.Models = len(modelsResp.Data)
-		}
-	}
-
-	return status, nil
-}
-
-// FetchAccounts fetches account list for the legacy dashboard.
-func (c *Client) FetchAccounts() ([]AccountInfo, error) {
-	authFiles, err := c.GetAuthFiles()
-	if err != nil {
-		return nil, err
-	}
-
-	now := time.Now()
-	accounts := make([]AccountInfo, 0, len(authFiles))
-	for _, auth := range authFiles {
-		authIndex := getString(auth, "auth_index")
-		email := getString(auth, "email")
-		if email == "" {
-			email = getString(auth, "label")
-		}
-		if email == "" && len(authIndex) >= 8 {
-			email = authIndex[:8]
-		}
-
-		status := getString(auth, "status")
-		if getBool(auth, "disabled") {
-			status = "disabled"
-		}
-
-		expires := ""
-		if tokenExpiresAt := getString(auth, "token_expires_at"); tokenExpiresAt != "" {
-			if t, errParse := time.Parse(time.RFC3339, tokenExpiresAt); errParse == nil {
-				if t.After(now) {
-					expires = t.Format("Jan 02 15:04")
-				} else {
-					expires = "Expired"
-				}
-			}
-		}
-
-		usageText := "0K in / 0K out"
-		if usageMap, ok := auth["usage"].(map[string]any); ok {
-			input := int64(getFloat(usageMap, "daily_input_tokens"))
-			output := int64(getFloat(usageMap, "daily_output_tokens"))
-			usageText = fmt.Sprintf("%dK in / %dK out", input/1000, output/1000)
-		}
-
-		accounts = append(accounts, AccountInfo{
-			ID:       authIndex,
-			Provider: getString(auth, "provider"),
-			Email:    email,
-			Status:   status,
-			Expires:  expires,
-			Usage:    usageText,
-		})
-	}
-
-	return accounts, nil
-}
-
-// FetchRateLimits fetches rate limit summary for the legacy dashboard.
-func (c *Client) FetchRateLimits() (RateLimitSummary, error) {
-	data, err := c.get("/v0/management/rate-limits/summary")
-	if err != nil {
-		return RateLimitSummary{}, err
-	}
-
-	var resp struct {
-		Total          int    `json:"total"`
-		Available      int    `json:"available"`
-		CoolingDown    int    `json:"cooling_down"`
-		Disabled       int    `json:"disabled"`
-		NextRecoveryIn string `json:"next_recovery_in"`
-	}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return RateLimitSummary{}, err
-	}
-
-	return RateLimitSummary{
-		Total:        resp.Total,
-		Available:    resp.Available,
-		CoolingDown:  resp.CoolingDown,
-		Disabled:     resp.Disabled,
-		NextRecovery: resp.NextRecoveryIn,
-	}, nil
-}
-
-// FetchUsage fetches usage statistics for the legacy dashboard.
-func (c *Client) FetchUsage() (UsageStats, error) {
-	data, err := c.get("/v0/management/usage")
-	if err != nil {
-		return UsageStats{}, err
-	}
-
-	var resp struct {
-		Usage struct {
-			TotalRequests     int64   `json:"total_requests"`
-			TotalInputTokens  int64   `json:"total_input_tokens"`
-			TotalOutputTokens int64   `json:"total_output_tokens"`
-			EstimatedCost     float64 `json:"estimated_cost"`
-			ByModel           map[string]struct {
-				Requests     int64 `json:"requests"`
-				InputTokens  int64 `json:"input_tokens"`
-				OutputTokens int64 `json:"output_tokens"`
-			} `json:"by_model"`
-		} `json:"usage"`
-	}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return UsageStats{}, err
-	}
-
-	stats := UsageStats{
-		TotalRequests:     resp.Usage.TotalRequests,
-		TotalInputTokens:  resp.Usage.TotalInputTokens,
-		TotalOutputTokens: resp.Usage.TotalOutputTokens,
-		EstimatedCost:     resp.Usage.EstimatedCost,
-	}
-	for model, usage := range resp.Usage.ByModel {
-		stats.TopModels = append(stats.TopModels, ModelUsage{
-			Model:    model,
-			Requests: usage.Requests,
-			Tokens:   usage.InputTokens + usage.OutputTokens,
-		})
-	}
-	for i := 0; i < len(stats.TopModels); i++ {
-		for j := i + 1; j < len(stats.TopModels); j++ {
-			if stats.TopModels[j].Requests > stats.TopModels[i].Requests {
-				stats.TopModels[i], stats.TopModels[j] = stats.TopModels[j], stats.TopModels[i]
-			}
-		}
-	}
-	if len(stats.TopModels) > 5 {
-		stats.TopModels = stats.TopModels[:5]
-	}
-	return stats, nil
-}
-
-// FetchLogs fetches recent log entries for the legacy dashboard.
-func (c *Client) FetchLogs() ([]string, error) {
-	lines, _, err := c.GetLogs(0, 100)
-	if err == nil && len(lines) > 0 {
-		return lines, nil
-	}
-
-	data, getErr := c.get("/v0/management/logs?limit=100")
-	if getErr != nil {
-		if err != nil {
-			return nil, err
-		}
-		return nil, getErr
-	}
-
-	var resp struct {
-		Entries []struct {
-			Timestamp string `json:"timestamp"`
-			Level     string `json:"level"`
-			Message   string `json:"message"`
-		} `json:"entries"`
-	}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, err
-	}
-
-	logs := make([]string, len(resp.Entries))
-	for i, entry := range resp.Entries {
-		logs[i] = fmt.Sprintf("[%s] %s: %s", entry.Timestamp, entry.Level, entry.Message)
-	}
-	return logs, nil
 }

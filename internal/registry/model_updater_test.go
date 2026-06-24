@@ -7,7 +7,6 @@ func TestMergeMissingForkModelSectionsPreservesQwenAndIFlow(t *testing.T) {
 		Claude:      []*ModelInfo{{ID: "claude-1"}},
 		Gemini:      []*ModelInfo{{ID: "gemini-1"}},
 		Vertex:      []*ModelInfo{{ID: "vertex-1"}},
-		GeminiCLI:   []*ModelInfo{{ID: "gemini-cli-1"}},
 		AIStudio:    []*ModelInfo{{ID: "aistudio-1"}},
 		CodexFree:   []*ModelInfo{{ID: "codex-free-1"}},
 		CodexTeam:   []*ModelInfo{{ID: "codex-team-1"}},

@@ -5,18 +5,16 @@ import (
 	"runtime"
 )
 
-// openBrowser opens the specified URL in the default browser.
+// openBrowser opens the specified URL in the user's default browser.
 func openBrowser(url string) error {
-	var cmd *exec.Cmd
-
 	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
 	case "darwin":
-		cmd = exec.Command("open", url)
-	default: // linux, freebsd, etc.
-		cmd = exec.Command("xdg-open", url)
+		return exec.Command("open", url).Start()
+	case "linux":
+		return exec.Command("xdg-open", url).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	default:
+		return exec.Command("xdg-open", url).Start()
 	}
-
-	return cmd.Start()
 }
